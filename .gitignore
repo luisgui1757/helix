@@ -1,0 +1,33 @@
+# Dependencies & build output
+node_modules/
+dist/
+build/
+coverage/
+
+# Pi local state (installed package caches). Keep .pi/settings.json (shareable).
+.pi/npm/
+.pi/git/
+
+# Local AI-tool settings (machine-specific)
+.claude/
+
+# Private review transcripts / raw agent runs.
+# Keep sanitized summaries in tracked docs; do not publish raw run transcripts by default.
+reviews/runs/*
+
+# Dispatch run records + local claims/evidence (structural, but written locally
+# until a mechanical public-safe export step exists — Stage 3B).
+dispatch/runs/
+
+# User-local Prime state: feature-toggle settings + profiles (personal casts).
+# Never tracked — real member lineups depend on personal provider logins.
+dispatch/local/
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.log

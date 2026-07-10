@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "preset_id": "overlord",
+  "display_name": "Overlord",
+  "description": "Max multi-provider panel for hard/risky work: strongest planner and builder, provider-independent reviewers and red-team, blind judge and synthesizer. Tracked SKELETON with mock members — real lineups live in your untracked profile, assembled via /prime setup from your actual provider logins.",
+  "degradation": "fail-closed",
+  "roles": {
+    "planner": [
+      { "provider": "mock", "model": "mock-overlord-planner", "effort": "max", "instances": 1, "effort_vocab": ["medium", "high", "xhigh", "max"] }
+    ],
+    "builder": [
+      { "provider": "mock", "model": "mock-overlord-builder", "effort": "high", "instances": 1, "effort_vocab": ["medium", "high", "xhigh", "max"] }
+    ],
+    "reviewer": [
+      { "provider": "mock", "model": "mock-overlord-reviewer-a", "effort": "high", "instances": 1, "effort_vocab": ["low", "medium", "high"] },
+      { "provider": "mock", "model": "mock-overlord-reviewer-b", "effort": "high", "instances": 1, "effort_vocab": ["low", "medium", "high"] }
+    ],
+    "redteam": [
+      { "provider": "mock", "model": "mock-overlord-redteam", "effort": "max", "instances": 1, "effort_vocab": ["high", "xhigh", "max"] }
+    ],
+    "scout": [
+      { "provider": "mock", "model": "mock-overlord-scout", "effort": "medium", "instances": 1, "effort_vocab": ["low", "medium"] }
+    ],
+    "judge": [
+      { "provider": "mock", "model": "mock-overlord-judge", "effort": "high", "instances": 1, "effort_vocab": ["medium", "high"] }
+    ],
+    "synthesizer": [
+      { "provider": "mock", "model": "mock-overlord-synthesizer", "effort": "high", "instances": 1, "effort_vocab": ["medium", "high"] }
+    ],
+    "verifier": [
+      { "provider": "mock", "model": "mock-overlord-verifier", "effort": "medium", "instances": 1, "effort_vocab": ["low", "medium"] }
+    ]
+  }
+}

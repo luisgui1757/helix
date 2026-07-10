@@ -1,0 +1,16 @@
+{
+  "enableInstallTelemetry": false,
+  "enableAnalytics": false,
+  "theme": "prime-rose-pine",
+  "skills": [
+    "../skills/prime-ui"
+  ],
+  "themes": [
+    "../themes"
+  ],
+  "extensions": [
+    "../extensions/prime-fence.ts",
+    "../extensions/prime-answer.ts",
+    "../extensions/prime-command.ts"
+  ]
+}

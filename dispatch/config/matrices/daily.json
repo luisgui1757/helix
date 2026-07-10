@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "preset_id": "daily",
+  "display_name": "Daily",
+  "description": "Light crew for normal work: one strong builder, one cheap reviewer, a fast scout. Tracked SKELETON with mock members — real lineups live in your untracked profile, assembled via /prime setup.",
+  "degradation": "fail-closed",
+  "roles": {
+    "planner": [
+      { "provider": "mock", "model": "mock-daily-planner", "effort": "high", "instances": 1, "effort_vocab": ["medium", "high"] }
+    ],
+    "builder": [
+      { "provider": "mock", "model": "mock-daily-builder", "effort": "high", "instances": 1, "effort_vocab": ["medium", "high"] }
+    ],
+    "reviewer": [
+      { "provider": "mock", "model": "mock-daily-reviewer", "effort": "medium", "instances": 1, "effort_vocab": ["low", "medium"] }
+    ],
+    "redteam": [
+      { "provider": "mock", "model": "mock-daily-redteam", "effort": "medium", "instances": 1, "effort_vocab": ["low", "medium"] }
+    ],
+    "scout": [
+      { "provider": "mock", "model": "mock-daily-scout", "effort": "low", "instances": 1, "effort_vocab": ["low", "medium"] }
+    ],
+    "judge": [
+      { "provider": "mock", "model": "mock-daily-judge", "effort": "medium", "instances": 1, "effort_vocab": ["low", "medium"] }
+    ],
+    "synthesizer": [
+      { "provider": "mock", "model": "mock-daily-synthesizer", "effort": "medium", "instances": 1, "effort_vocab": ["low", "medium"] }
+    ],
+    "verifier": [
+      { "provider": "mock", "model": "mock-daily-verifier", "effort": "low", "instances": 1, "effort_vocab": ["low", "medium"] }
+    ]
+  }
+}

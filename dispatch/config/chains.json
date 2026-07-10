@@ -1,0 +1,116 @@
+{
+  "schema_version": 2,
+  "chains": [
+    {
+      "id": "full-cycle",
+      "description": "Flagship staged loop: plan is written and reviewed as PLAN.md, then implemented and adversarially reviewed; code review may send work back to the plan stage; the objective gate concludes.",
+      "task_class": "risky-change",
+      "stages": [
+        {
+          "id": "plan",
+          "steps": [
+            { "id": "plan", "kind": "role", "role": "planner" },
+            { "id": "plan-review", "kind": "role", "role": "reviewer" }
+          ],
+          "advance": { "verdict_role": "reviewer", "max_passes": 3 },
+          "artifact": { "path": "PLAN.md", "kind": "plan" }
+        },
+        {
+          "id": "implement",
+          "steps": [
+            { "id": "implement", "kind": "role", "role": "builder" },
+            { "id": "code-review", "kind": "role", "role": "reviewer" },
+            { "id": "redteam", "kind": "role", "role": "redteam" }
+          ],
+          "advance": { "verdict_role": "reviewer", "max_passes": 3, "allow_jump_to": "plan" }
+        }
+      ],
+      "requires_objective_gate": true,
+      "default_max_iterations": 6
+    },
+    {
+      "id": "tdd-fix",
+      "description": "Red-first fix loop: the reproduce stage must make the objective gate FAIL (a failing test proves the bug), then the fix stage iterates until the gate is green and review approves. Replaces implement-review-fix.",
+      "task_class": "routine-code",
+      "stages": [
+        {
+          "id": "reproduce",
+          "steps": [
+            { "id": "reproduce", "kind": "role", "role": "builder" }
+          ],
+          "gate_expectation": "fail"
+        },
+        {
+          "id": "fix",
+          "steps": [
+            { "id": "fix", "kind": "role", "role": "builder" },
+            { "id": "review", "kind": "role", "role": "reviewer" }
+          ],
+          "advance": { "verdict_role": "reviewer", "max_passes": 3 }
+        }
+      ],
+      "requires_objective_gate": true,
+      "default_max_iterations": 5
+    },
+    {
+      "id": "scout",
+      "description": "Bounded recon: explore and write a brief artifact in one pass; no convergence loop. Feeds full-cycle.",
+      "task_class": "architecture",
+      "stages": [
+        {
+          "id": "recon",
+          "steps": [
+            { "id": "scout", "kind": "role", "role": "scout" },
+            { "id": "brief", "kind": "role", "role": "planner" }
+          ],
+          "artifact": { "path": "BRIEF.md", "kind": "brief" }
+        }
+      ],
+      "requires_objective_gate": true,
+      "default_max_iterations": 2
+    },
+    {
+      "id": "research",
+      "description": "Autoresearch loop shape: hypothesize, run the experiment, measure against the declared metric; iterates until a stop reason (M7 machinery enforces metric/stop declarations).",
+      "task_class": "architecture",
+      "stages": [
+        {
+          "id": "investigate",
+          "steps": [
+            { "id": "hypothesize", "kind": "role", "role": "planner" },
+            { "id": "experiment", "kind": "role", "role": "builder" },
+            { "id": "measure", "kind": "role", "role": "reviewer" }
+          ],
+          "advance": { "verdict_role": "reviewer", "max_passes": 5 },
+          "artifact": { "path": "RESEARCH.md", "kind": "notes" }
+        }
+      ],
+      "requires_objective_gate": true,
+      "default_max_iterations": 8
+    },
+    {
+      "id": "ship-pre-pr",
+      "description": "Local pre-PR gauntlet: intent, rebase/status, review, red-team, tests, docs, lint, public-safety scan, verifier summary, PR handoff. Opens a PR only; never merges.",
+      "task_class": "pr-preflight",
+      "stages": [
+        {
+          "id": "gauntlet",
+          "steps": [
+            { "id": "intent", "kind": "local-check", "note": "state what changed and source of truth" },
+            { "id": "rebase", "kind": "local-check", "note": "status/rebase check, no automatic merge" },
+            { "id": "review", "kind": "role", "role": "reviewer" },
+            { "id": "redteam", "kind": "role", "role": "redteam" },
+            { "id": "tests", "kind": "local-check", "note": "npm test" },
+            { "id": "docs", "kind": "local-check", "note": "roadmap/readme/ledger aligned" },
+            { "id": "lint", "kind": "local-check", "note": "git diff --check and shellcheck where available" },
+            { "id": "public-safety", "kind": "local-check", "note": "structural public-safety and provenance scans" },
+            { "id": "verify", "kind": "role", "role": "verifier" },
+            { "id": "pr-handoff", "kind": "handoff", "note": "open PR only; never merge automatically" }
+          ]
+        }
+      ],
+      "requires_objective_gate": true,
+      "default_max_iterations": 2
+    }
+  ]
+}

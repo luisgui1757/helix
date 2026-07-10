@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "team_id": "lean-default",
+  "defaults_are_additive": true,
+  "roles": [
+    {
+      "canonical_id": "Builder",
+      "dispatch_role": "builder",
+      "agent_file": "docs/stage3/agents/builder.md",
+      "independent_provider_from": [],
+      "display_alias": null
+    },
+    {
+      "canonical_id": "Reviewer",
+      "dispatch_role": "reviewer",
+      "agent_file": "docs/stage3/agents/reviewer.md",
+      "independent_provider_from": [
+        "Builder"
+      ],
+      "display_alias": null
+    }
+  ]
+}

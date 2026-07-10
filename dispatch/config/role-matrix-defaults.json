@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "matrix_id": "mock-core-loop",
+  "roles": {
+    "builder": [
+      {
+        "provider": "mock",
+        "model": "mock-builder",
+        "effort": "default",
+        "instances": 1
+      }
+    ],
+    "reviewer": [
+      {
+        "provider": "mock",
+        "model": "mock-reviewer",
+        "effort": "default",
+        "instances": 1
+      }
+    ],
+    "redteam": [
+      {
+        "provider": "mock",
+        "model": "mock-redteam",
+        "effort": "default",
+        "instances": 1
+      }
+    ],
+    "planner": [
+      {
+        "provider": "mock",
+        "model": "mock-planner",
+        "effort": "default",
+        "instances": 1
+      }
+    ],
+    "scout": [
+      {
+        "provider": "mock",
+        "model": "mock-scout",
+        "effort": "default",
+        "instances": 1
+      }
+    ],
+    "judge": [
+      {
+        "provider": "mock",
+        "model": "mock-judge",
+        "effort": "default",
+        "instances": 1
+      }
+    ],
+    "synthesizer": [
+      {
+        "provider": "mock",
+        "model": "mock-synthesizer",
+        "effort": "default",
+        "instances": 1
+      }
+    ],
+    "verifier": [
+      {
+        "provider": "mock",
+        "model": "mock-verifier",
+        "effort": "default",
+        "instances": 1
+      }
+    ]
+  }
+}

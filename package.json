@@ -1,0 +1,44 @@
+{
+  "name": "prime-pi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prime resources for the Pi CLI.",
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "pi-theme",
+    "pi-extension"
+  ],
+  "type": "module",
+  "files": [
+    "README.md",
+    "LICENSES",
+    "skills",
+    "themes",
+    "extensions",
+    "docs/resources"
+  ],
+  "scripts": {
+    "check:resources": "node tools/check-prime-resources.mjs",
+    "check:docs-truth": "node tools/ci/docs-truth-check.mjs",
+    "check:public-safety-diff": "node tools/ci/public-safety-diff-scan.mjs --mode diff",
+    "check:no-live-egress": "node tools/ci/no-live-egress-check.mjs",
+    "test": "node --test tests/*.test.mjs && bash tools/worktree/selftest.sh && bash tools/loop/selftest.sh"
+  },
+  "pi": {
+    "skills": [
+      "./skills/prime-ui"
+    ],
+    "themes": [
+      "./themes"
+    ],
+    "extensions": [
+      "./extensions/prime-fence.ts",
+      "./extensions/prime-answer.ts",
+      "./extensions/prime-command.ts"
+    ]
+  }
+}
