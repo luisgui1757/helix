@@ -1,5 +1,15 @@
 # Stage 3G — iterating multi-team / adversarial debate loop
 
+> **Historical implementation record — not current operational documentation
+> (superseded 2026-07-10).** This page preserves what the named stage shipped at
+> the time. Some mechanisms may still exist, but cost/no-spend policy, token
+> budgets, write allowlists, live enablement, and the referenced live smoke
+> commands were later removed; no task-loop live transport ships. Use the
+> [current design contracts](design-contracts.md) and [manual](../manual.md) for
+> current behavior. Do not treat commands here as runnable unless they also
+> appear in those current documents.
+
+
 Adds a thin, bounded **iterating / adversarial debate** loop over the existing
 Stage 3B–3F dispatch cycle. One iteration is exactly the one-cycle pipeline
 (candidate panel → optional judge → optional synthesis → objective/advisory gate →

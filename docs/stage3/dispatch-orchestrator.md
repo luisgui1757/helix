@@ -1,5 +1,15 @@
 # Stage 3C — thin dispatch orchestrator
 
+> **Historical implementation record — not current operational documentation
+> (superseded 2026-07-10).** This page preserves what the named stage shipped at
+> the time. Some mechanisms may still exist, but cost/no-spend policy, token
+> budgets, write allowlists, live enablement, and the referenced live smoke
+> commands were later removed; no task-loop live transport ships. Use the
+> [current design contracts](design-contracts.md) and [manual](../manual.md) for
+> current behavior. Do not treat commands here as runnable unless they also
+> appear in those current documents.
+
+
 One dispatch cycle over the Stage 3B policy core: classify → resolve
 route/profile/panel → pre-launch spend/eligibility gates → launch candidates
 through an **injected adapter** → validate every role envelope at the boundary →

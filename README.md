@@ -118,7 +118,7 @@ backend billing ceiling, not by the harness.
 <!-- PRIME-DOCS-TRUTH:BEGIN -->
 ```json
 {
-  "node_test_declarations": 500,
+  "node_test_declarations": 501,
   "package_resources": {
     "skill_entries": 1,
     "theme_entries": 1,
@@ -136,10 +136,11 @@ backend billing ceiling, not by the harness.
 > decision — spend is bounded by the backend billing ceiling, presence = live,
 > and Pi-default YOLO applies inside loops (see
 > [`docs/stage3/design-contracts.md`](docs/stage3/design-contracts.md) and the
-> ledger entry in `reviews/stage3/SUMMARY.md`). Stage sections below are
-> HISTORICAL: no-spend gates, `:free` verification, profiles, token budgets,
-> and write allowlists they describe no longer exist, and their smoke commands
-> were deleted. Current checks are the ones in the block below.
+> ledger entry in `reviews/stage3/SUMMARY.md`). Stage sections below and their
+> linked Stage 3B-N implementation pages are HISTORICAL: no-spend gates, `:free`
+> verification, profiles, token budgets, and write allowlists they describe no
+> longer exist, and their smoke commands were deleted. Every retained stage page
+> carries its own superseded banner. Current checks are the ones below.
 
 ## Checks
 
@@ -667,9 +668,11 @@ design-required product areas early:
 - CI and `tools/ship/pr-gate.sh` use the shared public-safety diff signatures;
 - GitHub Actions also runs docs truth, deterministic no-live dispatch/revision
   smokes, and static Pi load proof;
-- `npm test` passes 509 Node tests plus the worktree self-test (12) and
-  objective-gate-loop self-test (8); the README truth block locks 500 top-level
-  node test declarations to disk;
+- `npm test` plus the worktree self-test (12) and objective-gate-loop self-test
+  (8) is the required full suite; the README truth block locks 501 top-level
+  Node test declarations to disk;
+- current-facing HTML and direct Stage 3 pages are mechanically checked against
+  the superseded cost/live boundary, and the PR gate refuses detached HEAD;
 - `docs/manual.md` is the direct user manual;
 - `docs/stage3/design-contracts.md` records the required contracts for
   autoresearch, cost modes, composites, config overlays, loop visual cues, live

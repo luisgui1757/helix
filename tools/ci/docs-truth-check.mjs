@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const TRUTH_BEGIN = "<!-- PRIME-DOCS-TRUTH:BEGIN -->";
 const TRUTH_END = "<!-- PRIME-DOCS-TRUTH:END -->";
+export const HISTORICAL_STAGE_BANNER = "Historical implementation record — not current operational documentation";
 
 function readText(root, rel) {
   return readFileSync(join(root, rel), "utf8");
@@ -83,6 +84,20 @@ function requireSnippet(errors, root, rel, snippet) {
   }
 }
 
+function rejectSnippet(errors, root, rel, snippet) {
+  if (readText(root, rel).includes(snippet)) {
+    errors.push(`${rel}: stale docs-truth snippet ${JSON.stringify(snippet)}`);
+  }
+}
+
+function requireHistoricalStageBanners(errors, root) {
+  const stageDocs = walk(root, "docs/stage3", (rel) => rel.endsWith(".md"))
+    .filter((rel) => readText(root, rel).startsWith("# Stage 3"));
+  for (const rel of stageDocs) {
+    requireSnippet(errors, root, rel, HISTORICAL_STAGE_BANNER);
+  }
+}
+
 export function checkDocsTruth(root = ROOT) {
   const errors = [];
   const facts = collectDocsTruthFacts(root);
@@ -97,10 +112,21 @@ export function checkDocsTruth(root = ROOT) {
     errors.push(`README.md PRIME-DOCS-TRUTH drifted: expected ${JSON.stringify(facts)} got ${JSON.stringify(locked)}`);
   }
   requireSnippet(errors, root, "ROADMAP.md", facts.roadmap_status_snippet);
+  requireSnippet(errors, root, "ROADMAP.md", "Current v1 | Publication hardening");
+  requireSnippet(errors, root, "ROADMAP.md", "Phase 0-3P rows and named Stage 3B-N pages below preserve dated build");
   requireSnippet(errors, root, "ROADMAP_SUMMARY.html", facts.roadmap_status_snippet);
+  requireSnippet(errors, root, "ROADMAP_SUMMARY.html", `data-node-test-declarations="${facts.node_test_declarations}"`);
+  requireSnippet(errors, root, "ROADMAP_SUMMARY.html", "Historical build chronology (superseded)");
+  requireSnippet(errors, root, "ROADMAP_SUMMARY.html", "Historical Stage 3 build chronology");
+  requireSnippet(errors, root, "ROADMAP_SUMMARY.html", "live-adapter-not-wired");
+  rejectSnippet(errors, root, "ROADMAP_SUMMARY.html", "322 tests");
+  rejectSnippet(errors, root, "ROADMAP_SUMMARY.html", "362 node tests");
+  rejectSnippet(errors, root, "ROADMAP_SUMMARY.html", "358 top-level node test declarations");
   requireSnippet(errors, root, "docs/resources/README.md", "/prime help");
   requireSnippet(errors, root, "docs/manual.md", "/prime help");
   requireSnippet(errors, root, "docs/stage3/design-contracts.md", "Fail closed on structure, YOLO on behavior");
+  requireSnippet(errors, root, "docs/stage3/design-contracts.md", "Named Stage 3B-N implementation pages are dated historical records");
+  requireHistoricalStageBanners(errors, root);
   return { ok: errors.length === 0, errors, facts };
 }
 

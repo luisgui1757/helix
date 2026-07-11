@@ -5,6 +5,10 @@ cross-family hardening (single-PR build).
 These contracts supersede the 2026-07-09 gap-closure versions. The decision log
 for the amendments is in `reviews/stage3/SUMMARY.md`.
 
+Named Stage 3B-N implementation pages are dated historical records, not current
+operational guides. Each carries a prominent superseded banner. This file,
+`docs/manual.md`, and the executable checks define current behavior.
+
 ## Governing Principles (owner decisions, 2026-07-09)
 
 1. **Controls live at the platform of record, not in the harness.** Spend is

@@ -52,8 +52,14 @@ diff_text() { if [ -n "$RANGE" ]; then git diff "$RANGE"; else git diff HEAD; fi
 # --- 1. Intent --------------------------------------------------------------
 step "1. Intent"
 advisory "State in one sentence what changed and why; trace it to a source of truth."
-BRANCH="$(git branch --show-current || echo '(detached)')"
-if [ "$BRANCH" = "main" ]; then failg "on 'main' — ship from a feature branch"; else pass "on feature branch '$BRANCH'"; fi
+BRANCH="$(git branch --show-current 2>/dev/null || true)"
+if [ -z "$BRANCH" ]; then
+  failg "detached HEAD — ship from a named feature branch"
+elif [ "$BRANCH" = "main" ]; then
+  failg "on 'main' — ship from a feature branch"
+else
+  pass "on feature branch '$BRANCH'"
+fi
 
 # --- 2. Status / rebase -----------------------------------------------------
 step "2. Status / rebase"

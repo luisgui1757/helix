@@ -8,7 +8,7 @@
 > discovered work, and add a timestamped line to §13 Changelog. Never let the
 > roadmap fall behind the code.
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 
 > **Current-contract precedence (2026-07-10):**
 > [`docs/stage3/design-contracts.md`](docs/stage3/design-contracts.md) and the
@@ -19,6 +19,10 @@ Last updated: 2026-07-10
 > token counts are telemetry, backend billing owns spend, and `prime-fence` is
 > untouched/deferred. The public candidate is `prime-reloaded`, built from a
 > sanitized single root; the original `prime` network remains private forever.
+> The Phase 0-3P rows and named Stage 3B-N pages below preserve dated build
+> history. They are not current operational instructions when they mention the
+> removed cost/no-spend policy, token budgets, write allowlists, live enablement,
+> or deleted smoke commands.
 
 ---
 
@@ -140,6 +144,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/needs-dec
 | Requirements | Brainstorm → CGS assessment (§7) | `[x]` done — verdicts in §7 |
 | — | Ratify open decisions (§9) | `[x]` Q1/Q2/Q4/Q7/Q8 ratified; Q3/Q5 defaults; Q6 = Phase-0 task. Q4 now requires a Phase-0 wrapper/policy spike before treating `claude` CLI dispatch as a cost path. |
 | — | MVP selection (§8 MVP tier) | `[x]` done — core must-haves remain; **Neovim/Pi integration moved to Phase 4 deferred** (2026-07-03) because editor use and Pi runtime do not need to be coupled. "Minimal" = command surface, not scope. Build order M0→M3. |
+| Current v1 | Publication hardening | `[~]` in progress — structural validation/persistence, ordered resume lifecycle, owned worktrees, objective gates, `max_iterations`/`max_concurrency`, and one `/prime` command ship. Backend billing owns spend; no cost/no-spend policy, token-budget rail, write allowlist, live flag, or task-loop live transport ships. Every non-mock cast refuses as `live-adapter-not-wired`. Historical stage records are bannered and the executable checks plus `docs/stage3/design-contracts.md` define current behavior. |
+| Historical chronology | Phase 0-3P rows below | Dated implementation history retained for auditability; superseded cost/live commands and intermediate test counts are not current instructions or release claims. |
 | 0 | Foundations: **security lockdown**, providers, entry point, principle loading | `[~]` in progress — **M0a evidence + security/provider baseline landed** (`tools/m0a/`, `docs/m0a/`); **trusted-project telemetry-off baseline shipped** (`.pi/settings.json`) and **Level-1 telemetry + offline-startup smoke passed** (`reviews/m0a/`). **Finalize slice (2026-07-03):** interactive `/` baseline **captured** + native tool/function-calling **verified** + compaction probe **resolved by code** (no drift, no `APPEND_SYSTEM.md`) — evidence `reviews/m0a/pi-internals-2026-07-03.md`; Claude-auth spike **partially run** (feasibility + economics settled, live-billing deferred). **Resource slice (2026-07-04):** Prime package surface shipped (`package.json`) with exactly one Prime-owned skill (`prime-ui`), Prime-prefixed Rose Pine themes, and the initial two pinned extensions; Stage 3O later adds the third pinned control extension (`prime-command`) while preserving one consolidated slash command. Rose Pine audit recorded; Fusion dispatch research gate added. **Lockdown + smoke slice (2026-07-04):** canonical boundary **chosen** (Plain Docker `--network none`, `docs/m0a/lockdown-boundary.md`) and a **Level-2 lockdown smoke PASSED 5/5** (`tools/lockdown/`, evidence `reviews/m0a/level2-lockdown-smoke-2026-07-04.md` — deny-by-default egress + offline startup + active session reaching only a local mock, no secrets/spend); the **first thin vertical smoke** path shipped (`docs/m0a/vertical-smoke/` + `tools/smoke/status.sh`); **OpenRouter `:free` real-provider smoke passed** (`tools/smoke/openrouter-free-smoke.sh`, evidence `reviews/m0a/openrouter-free-smoke-2026-07-04.md`). **Still open:** Claude-auth live-billing probe |
 | 1 | Safety posture: the yolo-fence + scoped worktree manager | `[~]` in progress — **Stage 1+2 (2026-07-04): yolo-fence extension + worktree-manager basics shipped & tested** (`extensions/prime-fence.ts`, `tools/worktree/`); `remote-pi` eval still open |
 | 2 | Verification core + planning hygiene | `[~]` in progress — **Stage 1+2 (2026-07-04): objective-gate loop + `\answer` resolver + PR-gate basics + plan/implement separation shipped & tested** (`tools/loop/`, `extensions/prime-answer.ts`, `tools/ship/`, `docs/stage1-2/`); statusbar, live-shell, plan-mode extend, Superpowers/annotate still open |
@@ -148,11 +154,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/needs-dec
 | 3V | Prime v1 single-PR runner + independent hardening | `[x]` DONE 2026-07-10 on `prime-v1` — M1–M9 implementation plus M10 same-family review and independent cross-family/final repair passes. Safe/practical rails, unconditional no-live cast refusal, closed public records/renderers, atomic run reservation, exact resume event/state binding, post-gate idempotent outward handoff context, required artifacts/step effects, real profile member overlays, attended mutation confirmation, four-reason research, and effective CI no-live checks are implementation- and regression-backed. Live loop transport and the concrete ship-pre-pr effect remain explicit deferred boundaries, never optimistic fallbacks. |
 | 4 | Deferred / experimental (gated on real signals) | `[ ]` todo |
 
-**Immediate next action:** let PR #29's required CI and independent review settle,
-then let the maintainer decide whether to merge. Keep staged live transport and
-provider proof behind their separate approval gate; keep `main` protection
-requiring an approving review plus the `test` check. Do not reopen removed cost
-control, a live flag, or in-loop fences.
+**Immediate next action:** close PR #1's final publication-documentation findings,
+rerun exact-head CI and independent review, then obtain the required separate-
+account approval. Keep both repositories private through merge and the post-
+merge object/ref, metadata, license-detection, and secret checks. Do not reopen
+removed cost control, a live flag, or in-loop fences.
 **Landed:** a repeatable evidence script (`tools/m0a/collect-evidence.sh`,
 offline by default) and public-safe baseline docs (`docs/m0a/`); a **trusted-project
 telemetry-off baseline** shipped as committed `.pi/settings.json`
@@ -1363,6 +1369,14 @@ Earlier entries preserve decision history, including superseded interim decision
 The current sections above are authoritative when they conflict with older changelog
 snapshots.
 
+- **2026-07-11** — **Final publication-documentation audit remediation.** Marked
+  every retained Stage 3B-N implementation page as a superseded historical
+  record, added an authoritative current-v1 status row, refreshed the HTML
+  summary and machine-locked declaration count, clarified content-addressed Git
+  object overlap versus source-history reachability, and made the PR gate reject
+  detached HEAD with a system-boundary regression. Both repositories remain
+  private; merge and visibility still require exact-head review and the
+  post-merge publication checklist.
 - **2026-07-08** — **Final non-Phase-4 hardening push planned and implemented.**
   Added the required pre-behavior plan artifact
   (`reviews/runs/stage3-final-nonphase4-plan-2026-07-08.md`) and kept this as one
@@ -2141,3 +2155,8 @@ decisions (the extension is untouched, deferred future work).
   audit and confirmation that the two historical Claude Code web sessions are
   Private or deleted. The maintainer selected the MIT License on 2026-07-11;
   the root license and package metadata now record that choice.
+- `[x]` Final publication-doc remediation marks every Stage 3B-N implementation
+  page as a superseded historical record, rewrites the live roadmap/HTML status
+  to v1 semantics, mechanically locks the HTML declaration count and historical
+  boundaries, clarifies that safe content-address overlap is not source-history
+  reachability, and makes the PR gate refuse detached HEAD.

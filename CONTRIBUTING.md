@@ -40,8 +40,11 @@ drift and the maintainer approves pinning a minimal non-negotiable subset.
 - Treat the original `prime` repository as a permanently private archive. Do
   not change its visibility or use it as the publishing remote.
 - Publish `prime-reloaded` only from a fresh single-root history containing the
-  reviewed tracked snapshot. Never mirror old refs, tags, pull-request refs, or
-  Git objects into it.
+  reviewed tracked snapshot. Never mirror or fetch the old object database,
+  refs, tags, pull-request refs, commits, or repository-network relationship
+  into it. Independently regenerated, byte-identical audited-safe blobs and
+  subtrees may have the same content-addressed Git object ids; that expected
+  overlap does not make old history reachable.
 - Use the maintainer's verified GitHub noreply identity for every public
   candidate commit. Commit messages and repository metadata must not carry
   session links, provenance footers, personal email, or private paths.

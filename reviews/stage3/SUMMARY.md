@@ -1475,3 +1475,52 @@ lingered for minutes per case, so the run was terminated without a reported test
 failure. The protected pull request's required `test` check remains the clean-
 environment full-suite authority and must pass before merge. No live/paid call,
 session-link open, runtime Pi RPC, or packet-level Docker lockdown smoke was run.
+
+## 2026-07-11 — final publication-documentation audit remediation
+
+Scope: reconcile the two independent pre-publication reports at PR #1 head
+`44f849a2d422f6f8a08eb2ecc8fc78850158ccc8`, fix every accepted finding, and
+retain both repositories as private. No historical Claude Code session URL was
+opened, and no visibility, merge, approval, or live-provider operation occurred.
+
+### Neutral disposition and resolution
+
+| Reported severity | Candidate | Neutral disposition | Resolution |
+|---|---|---|---|
+| P1 | Direct Stage 3 pages and the dated HTML summary presented removed cost/no-spend, token-budget, write-allowlist, live-enablement, and smoke-command behavior as current. | **Accepted.** A README-only disclaimer did not protect a direct reader, and the live roadmap/HTML status retained stale claims and counts. | Every retained Stage 3B-N implementation page now carries the same prominent superseded/non-runnable banner. The live roadmap gains an authoritative current-v1 row; the HTML summary states current semantics, marks build chronology historical, removes stale counts, and machine-locks the current declaration count. `check:docs-truth` requires every banner, both HTML historical boundaries, the exact count marker, current `live-adapter-not-wired` truth, and absence of the known stale counts. |
+| P1 | Target/source overlap of content-addressed tree/blob ids violated a zero-source-object invariant. | **Rejected as an exposure; accepted as imprecise P2 wording.** The independently reproduced snapshot overlap was 27 trees and 144 blobs (145 blobs when prior sanitized target history is included), with zero source commits. Identical audited-safe bytes and tree entries necessarily hash to the same ids and carry no source-repository provenance or reverse commit link. Rebuilding identical content would reproduce the same ids. | The operational contract now forbids mirroring/fetching the old object database and forbids source refs, tags, PR refs, commits, network relationships, unsafe metadata, and unsafe-only content. It explicitly permits expected id overlap for independently regenerated, byte-identical audited-safe blobs/subtrees. The older ledger wording above is superseded by this correction. |
+| P3 | `pr-gate.sh` passed detached HEAD as an empty feature branch. | **Accepted.** `git branch --show-current` prints nothing but exits successfully when detached. | The gate now fails on an empty branch name. A system-boundary regression simulates detached and named-feature states, proving detached fails and a real feature branch still passes. |
+| P2 candidate | Secret scanning was explicitly disabled. | **Not proven.** The authenticated repository response omits `security_and_analysis`; private vulnerability reporting returns 404. | Continue to report these surfaces as unavailable/plan-gated while private, not explicitly disabled. Fresh Gitleaks remains the pre-publication compensating check. |
+
+### Durable publication invariants
+
+- Current behavior is defined by `docs/stage3/design-contracts.md`,
+  `docs/manual.md`, and executable checks. Named Stage 3B-N pages are historical
+  implementation records even where compatible code still exists.
+- Current v1 has exactly the `max_iterations` and `max_concurrency` harness
+  rails. Backend billing owns spend; no cost/no-spend policy, token-budget rail,
+  write allowlist, live flag, or task-loop live transport ships. Every non-mock
+  cast refuses as `live-adapter-not-wired`.
+- Sanitization is about reachable history, metadata, refs/network identity, and
+  unsafe content—not impossible uniqueness of hashes for identical clean bytes.
+- Shipping from detached HEAD is a hard gate failure, never an empty feature
+  branch pass.
+
+### Verification ledger
+
+The full local suite passed 510 Node tests, 12 worktree self-tests, and 8
+objective-loop self-tests with zero failures or skips. Focused docs-truth and
+detached-HEAD regressions passed. Resource, docs-truth (501 static declarations;
+one slash command), static no-live-egress, public-safety diff, shellcheck, and
+`git diff --check` passed. Deterministic dispatch, revision-effect, and static
+Pi-load smokes passed without network/provider use. Every Stage 3 implementation
+record was checked for the historical banner; the stale HTML count signatures
+are absent. Gitleaks 8.30.1 scanned the 1.90 MB working tree and reported no
+leaks. `tools/ship/pr-gate.sh --dry-run` passed every hard gate from the named
+feature branch.
+
+Live/paid provider calls, runtime Pi RPC inventory, opening historical session
+URLs, and the packet-level Docker lockdown smoke remain intentionally skipped.
+Any new commit changes the audited head, so required CI and independent
+exact-head publication review must rerun before the separate-account approval
+and merge. Both repositories remain private through the post-merge checklist.
