@@ -1549,3 +1549,48 @@ maintainer can merge an audited, CI-green pull request without manufacturing a
 second-account approval. The maintainer also confirmed that both historical
 Prime-related Claude Code web sessions are Private. Both repositories remain
 private pending the post-merge publication checks.
+
+## 2026-07-11 — post-migration closure of the inherited runtime review
+
+Scope: independently revalidate the six neutral-combiner findings inherited
+from the pre-migration `prime` review against current `prime-reloaded` main,
+without assuming that the migrated fix ledger was proof. The exact adversarial
+boundaries and their current regression surfaces were inspected and executed
+before deciding whether another runtime patch was warranted.
+
+### Disposition
+
+**CLOSED — no residual runtime fix is required.** The sanitized release-candidate
+root already contains all six source fixes; this entry records fresh
+post-migration proof rather than misrepresenting a documentation-only closure
+change as a new code remediation.
+
+| Inherited finding | Current source/regression proof | Result |
+|---|---|---|
+| Root-shaped refs, URI/domain-path model values, and caller-supplied effect codes could persist or render. | Field-specific public-value grammars reject root/dot-segment refs and arbitrary web-shaped models; event effects map hostile failures to stable codes. Focused run-record and event-log regressions exercised those exact boundaries. | Fixed; reproduced-safe. |
+| Resume accepted impossible stage ordering or terminal state/gate disagreement. | The shared ordered lifecycle binder rejected an implement/plan/implement checkpoint and refused a completed state whose terminal events were changed to objective failure. | Fixed; reproduced-safe. |
+| A fresh worktree collision could leave resumable state and resume could adopt a dirty, unowned worktree. | Fresh collision refusal occurred before state creation; initializing resume rejected the dirty colliding tree without the private owner binding. | Fixed; reproduced-safe. |
+| Settings/profile and equivalent structural writers followed final, pending, parent, or checkpoint symlinks outside their root. | Shared persistence, settings, profile, and private-checkpoint regressions refused final-target, predictable-pending, descendant-parent, directory-installation, and checkpoint-parent symlinks while outside victims stayed unchanged. | Fixed; reproduced-safe. |
+| `visual-cues:false` silently selected summary filtering. | The real loop CLI rendered exactly one plain line for every persisted event unless `--summary` was explicitly supplied. | Fixed; reproduced-safe. |
+| `saveSettings` wrote a future schema version that `loadSettings` rejected. | Save returned `prime-settings-version-mismatch` before creating the file; the read boundary returned the same stable category for an on-disk future version. | Fixed; reproduced-safe. |
+
+### Verification and publication boundary
+
+- Focused inherited-finding regressions passed 20/20.
+- The full repository proof passed 510 Node tests, 12 worktree self-tests, and
+  8 objective-loop self-tests with zero failures, skips, or TODOs.
+- `tools/ship/pr-gate.sh --dry-run` passed every hard gate from a named feature
+  branch. Resource, docs-truth (501 static declarations; one slash command),
+  static no-live-egress, public-safety diff, full-repository ShellCheck,
+  deterministic dispatch/revision/static-Pi smokes, and `git diff --check`
+  passed.
+- Gitleaks 8.30.1 found no leak in reachable Git history or the working
+  directory. A separate whole-history public-safety scan covered commit
+  metadata, paths, and patch content without printing matched data.
+- Runtime Pi RPC discoverability, live/paid provider calls, and the packet-level
+  Docker lockdown smoke were intentionally not run. No historical session link
+  was opened; the prior maintainer privacy confirmation remains the recorded
+  authority for that external state.
+- Repository visibility and governance settings were inspected read-only and
+  were not changed. `prime-reloaded` remains private; this closure does not
+  authorize a visibility change or publication.
