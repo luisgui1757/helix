@@ -1,5 +1,15 @@
 # Stage 3I — real model-backed revision effect
 
+> **Historical implementation record — not current operational documentation
+> (superseded 2026-07-10).** This page preserves what the named stage shipped at
+> the time. Some mechanisms may still exist, but cost/no-spend policy, token
+> budgets, write allowlists, live enablement, and the referenced live smoke
+> commands were later removed; no task-loop live transport ships. Use the
+> [current design contracts](design-contracts.md) and [manual](../manual.md) for
+> current behavior. Do not treat commands here as runnable unless they also
+> appear in those current documents.
+
+
 Turns the Stage 3H injected `revise` boundary from a hand-rolled deterministic
 effect into a **real, provider-policed, model-backed** one: a `builder` model
 produces the next proposal, the effect validates it and mutates the worktree, and

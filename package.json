@@ -1,6 +1,7 @@
 {
   "name": "prime-pi",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Prime resources for the Pi CLI.",
   "engines": {
@@ -15,6 +16,7 @@
   "type": "module",
   "files": [
     "README.md",
+    "LICENSE",
     "LICENSES",
     "skills",
     "themes",

@@ -10,9 +10,10 @@ refs or historical objects from that repository network.
 Do not commit credentials, tokens, session/share links, private prompts, raw
 agent transcripts, provenance footers, personal email addresses, private home
 paths, or machine-local configuration. Before public release, the maintainer
-must separately confirm that every previously exposed session has been revoked
-and choose an explicit project license. Neither condition can be inferred from
-a clean snapshot.
+must separately confirm that every previously exposed Claude Code web session
+is Private or deleted. That confirmation cannot be inferred from a clean
+snapshot. The project is licensed under the MIT License; the root `LICENSE`
+file and package metadata must remain aligned.
 
 Prime's durable records are structural. Field-specific grammars reject URI- or
 path-shaped model, provider, effect-code, and reference values at their input

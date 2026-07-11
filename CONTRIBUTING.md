@@ -40,23 +40,35 @@ drift and the maintainer approves pinning a minimal non-negotiable subset.
 - Treat the original `prime` repository as a permanently private archive. Do
   not change its visibility or use it as the publishing remote.
 - Publish `prime-reloaded` only from a fresh single-root history containing the
-  reviewed tracked snapshot. Never mirror old refs, tags, pull-request refs, or
-  Git objects into it.
+  reviewed tracked snapshot. Never mirror or fetch the old object database,
+  refs, tags, pull-request refs, commits, or repository-network relationship
+  into it. Independently regenerated, byte-identical audited-safe blobs and
+  subtrees may have the same content-addressed Git object ids; that expected
+  overlap does not make old history reachable.
 - Use the maintainer's verified GitHub noreply identity for every public
   candidate commit. Commit messages and repository metadata must not carry
   session links, provenance footers, personal email, or private paths.
 - Keep `prime-reloaded` private until the final independent audit, fresh secret
-  scan, prior-session revocation confirmation, and maintainer-selected license
-  are complete. Visibility changes remain maintainer-owned.
+  scan, and confirmation that prior Claude Code web sessions are Private or
+  deleted. Keep the root MIT `LICENSE` and package metadata aligned. Visibility
+  changes remain maintainer-owned.
 
 ## Branch Protection And CI
 
 The publishing repository's `main` branch must keep requiring:
 
 - pull request before merge
-- at least one approving review before merge
+- at least one approving review before merge by default
 - required status check: `test`
-- enforcement for administrators, with force pushes and deletion disabled
+- enforcement for administrators on the required check and branch-integrity
+  controls, with force pushes and deletion disabled
+
+The repository owner `luisgui1757` is the sole ruleset bypass actor and may
+override the review requirement **through an existing pull request only** after
+the exact head has passed its required audit and `test` check. The bypass must
+not permit a direct push: classic protection continues to enforce the required
+check, linear history, conversation resolution, and the force-push/deletion
+blocks for administrators.
 
 If this setting is removed or the GitHub API cannot update it safely during a
 future gap-closure branch, record that in the PR body and have a maintainer apply

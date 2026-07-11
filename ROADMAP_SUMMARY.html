@@ -269,8 +269,8 @@
       </p>
       <div class="meta">
         <span class="pill">Source: ROADMAP.md</span>
-        <span class="pill">Roadmap date: 2026-07-10</span>
-        <span class="pill">Summary date: 2026-07-10</span>
+        <span class="pill">Roadmap date: 2026-07-11</span>
+        <span class="pill">Summary date: 2026-07-11</span>
         <span class="pill">Pi pinned: 0.80.3</span>
         <span class="pill">M0a: wrapped</span>
       </div>
@@ -286,6 +286,12 @@
           runtime rails are <code>max_iterations</code> and
           <code>max_concurrency</code>; backend billing owns spend, token counts are
           telemetry, and the historical fence extension is untouched/deferred.
+        </p>
+        <p data-node-test-declarations="501">
+          <strong>Current v1 contract:</strong> no cost/no-spend policy, token-budget
+          rail, write allowlist, live flag, or task-loop live transport ships.
+          Every non-mock cast refuses as <code>live-adapter-not-wired</code>. The
+          executable checks currently lock 501 top-level Node test declarations.
         </p>
       </div>
       <div class="grid">
@@ -304,7 +310,11 @@
           </p>
         </article>
         <article class="card">
-          <h3>What comes next</h3>
+          <h3>Historical build chronology (superseded)</h3>
+          <p><strong>Historical record only:</strong> the chronology below preserves
+          what earlier stages shipped at the time. Its removed cost/live mechanisms,
+          commands, and intermediate test counts are not current capabilities or
+          runnable instructions. The current v1 contract is stated above.</p>
           <p>
             M0a is wrapped for now. Done: evidence script, baseline docs, telemetry-off
             baseline, Level-1 offline/telemetry checks, slash-command baseline, native
@@ -348,7 +358,7 @@
             (<code>implement-review-fix</code>, <code>scout-flow</code>, <code>ship-pre-pr</code>),
             named no-live run configs, a bounded task-loop CLI, structural run
             list/status/prune tooling, worktree dirty/current protections, and a two-model
-            OpenRouter <code>:free</code> proof plus post-review task-loop gate hardening and post-merge hardening. 322 tests. Remaining: paid-provider live
+            OpenRouter <code>:free</code> proof plus post-review task-loop gate hardening and post-merge hardening. Remaining: paid-provider live
             proofs/pins, Azure deployment config, and the autonomous aggregate ceiling.
             The Claude-auth live-billing probe remains deferred.
           </p>
@@ -381,8 +391,12 @@
         </article>
         <article class="card phase progress">
           <span class="tag progress">Phase 3 — substrate</span>
-          <h3>Orchestration</h3>
-          <p>Stage 3A build spec accepted; <strong>Stage 3B <code>dispatch-policy-core</code> shipped &amp; tested</strong> (<code>dispatch/</code>): runtime role-envelope validation, no-spend cost policy (mock + metadata-verified OpenRouter <code>:free</code> only), routes/profiles with fail-closed panel precedence, deterministic classifier + risk floors, judge-bias blinding, and a public-safe run-record writer. <strong>Stage 3C shipped &amp; tested the thin one-cycle orchestrator</strong> over that core (<code>dispatch/lib/orchestrate.mjs</code>): injected adapters/clock/seed/gate, pre-launch no-spend/eligibility gates with the price-TTL clamped to profile policy, boundary envelope validation, blinded advisory judge, objective gates from exit status/deterministic checkers only, structural public-safe run records, recursion depth one. <strong>Stage 3D shipped &amp; tested the synthesis stage</strong> (<code>dispatch/lib/synthesis.mjs</code>): runs after panel + advisory judge, before the objective gate, consuming candidate/judge output as an identity/cost-stripped role-output projection (provider-bound, not a public-safe record) and mechanically preserving unresolved contradictions (fail-closed on drop); every dispatch projects cost pre-launch on all profiles (metered specs without fresh sourced price fail closed before any adapter call, and a <code>github-copilot</code> spec needs a fresh matching profile pin bounded by the profile TTL ceiling or stops). <strong>Stage 3E-G</strong> added advisory verification, bounded parallel launch, and the iterating debate loop where convergence is exactly diff-stability + objective-gate-pass. <strong>Stage 3H-J</strong> added the real git diff/revision surface, model-backed revision effect, and preflight-gated OpenRouter <code>:free</code> revision adapter. <strong>Stage 3K</strong> shipped lean additive agent-team defaults. <strong>Stage 3L/M/N</strong> now ships the per-role model/effort/instance matrix, named chains, no-live run configs, bounded task-loop CLI, structural run manager, worktree dirty/current protections, final-path objective gate hardening, and a two-model OpenRouter <code>:free</code> proof for <code>openai/gpt-oss-20b:free</code> + <code>cohere/north-mini-code:free</code>. <strong>Stage 3O PR1</strong> adds one Pi-native <code>/prime</code> command for dashboard, no-live run preflight, view-only model/chain/profile browsing, structural run list/status, and TUI-confirmed prune; it rejects the eight-command split, does not launch loops or toggle live mode, and now rejects root-resolving run ids before replace/prune, shares task-loop preflight policy, and returns sanitized <code>prime-config-unreadable</code> failures for malformed local JSON. <strong>Stage 3P whole-repo gap closure</strong> adds mechanical safety hardening, CI/pr-gate public-safety parity, docs-truth locks, <code>/prime help</code>, direct manual coverage, runtime RPC timeout hardening, run-record prune/list clarity, and design contracts without implementing autoresearch/live/composite/config-editor behavior early. <code>npm test</code> passes 362 node tests plus the worktree self-test (12) and objective-gate-loop self-test (8); 358 top-level node test declarations are locked by the docs-truth check. Paid/metered runs, real subprocess fan-out, live pipeline UI, autonomous/unattended mode, remote control, hosted Fusion, and broad config editors remain out of scope/deferred.</p>
+          <h3>Historical Stage 3 build chronology</h3>
+          <p><strong>Superseded record:</strong> the following paragraph preserves the
+          dated Stage 3B-P build sequence. Cost/no-spend policy, token budgets, write
+          allowlists, live enablement, and referenced live smoke commands were later
+          removed; no task-loop live transport ships.</p>
+          <p>Stage 3A build spec accepted; <strong>Stage 3B <code>dispatch-policy-core</code> shipped &amp; tested</strong> (<code>dispatch/</code>): runtime role-envelope validation, no-spend cost policy (mock + metadata-verified OpenRouter <code>:free</code> only), routes/profiles with fail-closed panel precedence, deterministic classifier + risk floors, judge-bias blinding, and a public-safe run-record writer. <strong>Stage 3C shipped &amp; tested the thin one-cycle orchestrator</strong> over that core (<code>dispatch/lib/orchestrate.mjs</code>): injected adapters/clock/seed/gate, pre-launch no-spend/eligibility gates with the price-TTL clamped to profile policy, boundary envelope validation, blinded advisory judge, objective gates from exit status/deterministic checkers only, structural public-safe run records, recursion depth one. <strong>Stage 3D shipped &amp; tested the synthesis stage</strong> (<code>dispatch/lib/synthesis.mjs</code>): runs after panel + advisory judge, before the objective gate, consuming candidate/judge output as an identity/cost-stripped role-output projection (provider-bound, not a public-safe record) and mechanically preserving unresolved contradictions (fail-closed on drop); every dispatch projects cost pre-launch on all profiles (metered specs without fresh sourced price fail closed before any adapter call, and a <code>github-copilot</code> spec needs a fresh matching profile pin bounded by the profile TTL ceiling or stops). <strong>Stage 3E-G</strong> added advisory verification, bounded parallel launch, and the iterating debate loop where convergence is exactly diff-stability + objective-gate-pass. <strong>Stage 3H-J</strong> added the real git diff/revision surface, model-backed revision effect, and preflight-gated OpenRouter <code>:free</code> revision adapter. <strong>Stage 3K</strong> shipped lean additive agent-team defaults. <strong>Stage 3L/M/N</strong> now ships the per-role model/effort/instance matrix, named chains, no-live run configs, bounded task-loop CLI, structural run manager, worktree dirty/current protections, final-path objective gate hardening, and a two-model OpenRouter <code>:free</code> proof for <code>openai/gpt-oss-20b:free</code> + <code>cohere/north-mini-code:free</code>. <strong>Stage 3O PR1</strong> adds one Pi-native <code>/prime</code> command for dashboard, no-live run preflight, view-only model/chain/profile browsing, structural run list/status, and TUI-confirmed prune; it rejects the eight-command split, does not launch loops or toggle live mode, and now rejects root-resolving run ids before replace/prune, shares task-loop preflight policy, and returns sanitized <code>prime-config-unreadable</code> failures for malformed local JSON. <strong>Stage 3P whole-repo gap closure</strong> adds mechanical safety hardening, CI/pr-gate public-safety parity, docs-truth locks, <code>/prime help</code>, direct manual coverage, runtime RPC timeout hardening, run-record prune/list clarity, and design contracts without implementing autoresearch/live/composite/config-editor behavior early. The historical Stage 3P gate passed at the time; current verification counts are stated in the current v1 block above and mechanically locked by the docs-truth check. Paid/metered runs, real subprocess fan-out, live pipeline UI, autonomous/unattended mode, remote control, hosted Fusion, and broad config editors remain out of scope/deferred.</p>
         </article>
         <article class="card phase deferred">
           <span class="tag deferred">Phase 4</span>
@@ -436,7 +450,7 @@
               <td>Provider set</td>
               <td><span class="status core">Core</span> OpenAI, Claude, OpenRouter, Azure Foundry, and GitHub Copilot are the must-have provider set.</td>
               <td>M0a</td>
-              <td>Use native Pi provider support where possible. Disable public Google default by machine-local configuration. OpenAI Codex, OpenRouter, and GitHub Copilot models are visible here; OpenRouter <code>:free</code> single-model and two-model revision proofs have passed. Phase-3 no-spend tests use mocks plus metadata-verified OpenRouter <code>:free</code> models only. OpenAI/Codex remains native subscription-path only and was not live-called in the no-spend slice. Copilot tests are personal/maintainer-profile only and need a current pinned eligible model. Azure Foundry has a config template but remains blocked until a deployment exists.</td>
+              <td>Use native Pi provider support where possible and keep credentials machine-local. The current task loop has no live transport: every non-mock cast refuses as <code>live-adapter-not-wired</code>. Backend billing controls spend. Earlier OpenRouter <code>:free</code> proofs are historical evidence, not a current no-spend feature.</td>
             </tr>
             <tr>
               <td>Claude subscription path</td>
@@ -622,7 +636,7 @@
               <td>Fusion-style deliberation</td>
               <td><span class="status core">Core</span> DIY panel &rarr; judge &rarr; synthesis is core Phase 3, now controlled by the Stage 3A build-spec gate; the hosted adapter is optional.</td>
               <td>Spec review now; implementation after acceptance; hosted adapter in Phase 4</td>
-              <td>The judge is not final authority; objective checks decide. The spec now defines strict no-spend semantics, provider/cost profiles, role envelopes, routing, usage/cap metering, fixtures, judge-bias mitigations, failure behavior, structural-only public-safe logging, and a no-spend <code>:free</code> OpenRouter test profile.</td>
+              <td>The judge is not final authority; objective checks decide. Current v1 keeps structural role envelopes, deterministic routing, bounded concurrency/iterations, contradiction preservation, and structural public records. Backend billing owns spend; removed no-spend/provider-cost profiles are historical only.</td>
             </tr>
             <tr>
               <td>Autonomous experiment loop</td>
@@ -664,7 +678,7 @@
             <li><strong>Done for this machine:</strong> non-google machine-local default provider is present; the repo still does not commit a provider default.</li>
             <li><strong>Done:</strong> lockdown boundary chosen (Plain Docker --network none) and a Level-2 no-egress smoke passed 5/5 — deny-by-default egress, offline startup, and an active session reaching only a local mock (no secrets/spend; evidence in reviews/m0a/).</li>
             <li><strong>Done:</strong> first thin vertical smoke path (plan/answer, second-provider review handoff, worktree checklist, PR-gate checklist, status script).</li>
-            <li><strong>Done:</strong> OpenRouter <code>:free</code> real-provider smoke passed with tools/session/context/resources disabled; packet-level endpoint exclusivity is not claimed.</li>
+            <li><strong>Historical evidence:</strong> an earlier OpenRouter <code>:free</code> provider smoke passed with tools/session/context/resources disabled. Its harness-level no-spend path was later removed and is not a current capability.</li>
             <li><strong>Done:</strong> final non-Phase-4 hardening artifacts: provider proof boundaries, web prompt-injection posture, remote fence-v2 boundary, instruction sync rules, status/observability catalog disposition, Pi proof-type helper, and static no-live egress CI guard.</li>
             <li><strong>Open:</strong> the Claude-auth live-billing probe.</li>
           </ul>
@@ -674,7 +688,7 @@
           <ul>
             <li>The historical fence extension remains untouched/deferred; worktree-manager basics, the objective-gate loop, and <code>\answer</code> shipped after M0a in Stage 1+2.</li>
             <li>One-cycle pipeline with all stages in (3B substrate → 3C cycle → 3D synthesis → 3E verification), 3F a thin opt-in bounded-parallel candidate launch + cross-family advisory, 3G a bounded iterating / adversarial debate loop over that cycle (convergence = diff-stability + objective-gate-pass, mandatory max-iteration rail), 3H the real revision / diff surface, 3I the real model-backed revision effect, 3J the historical live OpenRouter <code>:free</code> builder proof, 3K lean additive agent-team defaults, and 3L/M/N role matrix + chain registry + bounded task-loop/run manager.</li>
-            <li>No paid Fusion-style dispatch. The Stage 3N two-model OpenRouter <code>:free</code> revision proof is mechanically preflight-gated and limited to synthetic/public temp-repo fixtures.</li>
+            <li>No live or paid task-loop transport ships. Earlier Stage 3J/N OpenRouter proofs are historical records; current non-mock casts refuse as <code>live-adapter-not-wired</code>.</li>
             <li>No package install before audit and compatibility proof.</li>
             <li>No <code>pi-web-access</code>, <code>remote-pi</code>, <code>pi-messenger</code>, or status package adoption in the final hardening PR; audit artifacts only.</li>
           </ul>
@@ -695,8 +709,9 @@
           <strong>Before the repo becomes public:</strong> publish only
           <code>prime-reloaded</code>'s sanitized single-root history; keep the original
           repository network permanently private. Complete a fresh content, object/ref,
-          PR-metadata, identity, settings, and secret audit; confirm prior sessions were
-          revoked; and choose the project license before changing visibility.
+          PR-metadata, identity, settings, and secret audit; and confirm the two historical
+          Claude Code web sessions are Private or deleted before changing visibility. The
+          project license is MIT.
         </p>
       </div>
     </section>

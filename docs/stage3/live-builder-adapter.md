@@ -1,5 +1,15 @@
 # Stage 3J — live OpenRouter `:free` builder adapter
 
+> **Historical implementation record — not current operational documentation
+> (superseded 2026-07-10).** This page preserves what the named stage shipped at
+> the time. Some mechanisms may still exist, but cost/no-spend policy, token
+> budgets, write allowlists, live enablement, and the referenced live smoke
+> commands were later removed; no task-loop live transport ships. Use the
+> [current design contracts](design-contracts.md) and [manual](../manual.md) for
+> current behavior. Do not treat commands here as runnable unless they also
+> appear in those current documents.
+
+
 Implements the first live `modelAdapter.runRevision` adapter for the Stage 3I
 revision effect. The adapter uses Pi's native OpenRouter provider, restricted to
 model ids ending in `:free`, and returns only structured whole-file edits to

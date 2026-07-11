@@ -78,10 +78,10 @@ Package resources:
 This tree is the private `prime-reloaded` release candidate. It is published
 from a sanitized single-root history; the original `prime` repository remains a
 private archive and must never be made public. Keep `prime-reloaded` private
-until the final independent content/history/metadata audit passes, session
-revocation is confirmed, and the maintainer chooses a project license. Changing
-visibility is an explicit maintainer operation, never part of an ordinary code
-or documentation change.
+until the final independent content/history/metadata audit passes and the two
+historical Claude Code web sessions are confirmed Private or deleted. Prime is
+licensed under the MIT License. Changing visibility is an explicit maintainer
+operation, never part of an ordinary code or documentation change.
 
 Direct user manual: [`docs/manual.md`](docs/manual.md).
 
@@ -118,7 +118,7 @@ backend billing ceiling, not by the harness.
 <!-- PRIME-DOCS-TRUTH:BEGIN -->
 ```json
 {
-  "node_test_declarations": 500,
+  "node_test_declarations": 501,
   "package_resources": {
     "skill_entries": 1,
     "theme_entries": 1,
@@ -136,10 +136,11 @@ backend billing ceiling, not by the harness.
 > decision — spend is bounded by the backend billing ceiling, presence = live,
 > and Pi-default YOLO applies inside loops (see
 > [`docs/stage3/design-contracts.md`](docs/stage3/design-contracts.md) and the
-> ledger entry in `reviews/stage3/SUMMARY.md`). Stage sections below are
-> HISTORICAL: no-spend gates, `:free` verification, profiles, token budgets,
-> and write allowlists they describe no longer exist, and their smoke commands
-> were deleted. Current checks are the ones in the block below.
+> ledger entry in `reviews/stage3/SUMMARY.md`). Stage sections below and their
+> linked Stage 3B-N implementation pages are HISTORICAL: no-spend gates, `:free`
+> verification, profiles, token budgets, and write allowlists they describe no
+> longer exist, and their smoke commands were deleted. Every retained stage page
+> carries its own superseded banner. Current checks are the ones below.
 
 ## Checks
 
@@ -667,17 +668,23 @@ design-required product areas early:
 - CI and `tools/ship/pr-gate.sh` use the shared public-safety diff signatures;
 - GitHub Actions also runs docs truth, deterministic no-live dispatch/revision
   smokes, and static Pi load proof;
-- `npm test` passes 509 Node tests plus the worktree self-test (12) and
-  objective-gate-loop self-test (8); the README truth block locks 500 top-level
-  node test declarations to disk;
+- `npm test` plus the worktree self-test (12) and objective-gate-loop self-test
+  (8) is the required full suite; the README truth block locks 501 top-level
+  Node test declarations to disk;
+- current-facing HTML and direct Stage 3 pages are mechanically checked against
+  the superseded cost/live boundary, and the PR gate refuses detached HEAD;
 - `docs/manual.md` is the direct user manual;
 - `docs/stage3/design-contracts.md` records the required contracts for
   autoresearch, cost modes, composites, config overlays, loop visual cues, live
   enablement, and context engineering before implementation.
 
 Main branch protection was enabled on 2026-07-09: `main` requires a pull request,
-at least one approving review, and the `test` CI status check before merge; force
-pushes and deletions are disabled.
+one approving review by default, and the `test` CI status check before merge;
+force pushes and deletions are disabled. The repository owner is the sole
+PR-only review-bypass actor, so the owner may merge an independently audited
+pull request without self-approving it. Classic administrator enforcement keeps
+the required `test` check and branch-integrity controls active during that
+bypass, and direct pushes remain blocked.
 
 ## Final non-Phase-4 hardening
 
@@ -693,3 +700,7 @@ This track adds no new `/prime` UX. It hardens the non-Phase-4 boundary with:
 
 Package audit and package adoption remain separate. `pi-web-access`, `remote-pi`,
 `pi-messenger`, and status packages are not installed or adopted.
+
+## License
+
+Prime is available under the [MIT License](LICENSE).
