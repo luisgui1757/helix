@@ -58,9 +58,17 @@ drift and the maintainer approves pinning a minimal non-negotiable subset.
 The publishing repository's `main` branch must keep requiring:
 
 - pull request before merge
-- at least one approving review before merge
+- at least one approving review before merge by default
 - required status check: `test`
-- enforcement for administrators, with force pushes and deletion disabled
+- enforcement for administrators on the required check and branch-integrity
+  controls, with force pushes and deletion disabled
+
+The repository owner `luisgui1757` is the sole ruleset bypass actor and may
+override the review requirement **through an existing pull request only** after
+the exact head has passed its required audit and `test` check. The bypass must
+not permit a direct push: classic protection continues to enforce the required
+check, linear history, conversation resolution, and the force-push/deletion
+blocks for administrators.
 
 If this setting is removed or the GitHub API cannot update it safely during a
 future gap-closure branch, record that in the PR body and have a maintainer apply

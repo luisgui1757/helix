@@ -679,8 +679,12 @@ design-required product areas early:
   enablement, and context engineering before implementation.
 
 Main branch protection was enabled on 2026-07-09: `main` requires a pull request,
-at least one approving review, and the `test` CI status check before merge; force
-pushes and deletions are disabled.
+one approving review by default, and the `test` CI status check before merge;
+force pushes and deletions are disabled. The repository owner is the sole
+PR-only review-bypass actor, so the owner may merge an independently audited
+pull request without self-approving it. Classic administrator enforcement keeps
+the required `test` check and branch-integrity controls active during that
+bypass, and direct pushes remain blocked.
 
 ## Final non-Phase-4 hardening
 

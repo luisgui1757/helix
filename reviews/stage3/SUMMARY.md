@@ -1524,3 +1524,28 @@ URLs, and the packet-level Docker lockdown smoke remain intentionally skipped.
 Any new commit changes the audited head, so required CI and independent
 exact-head publication review must rerun before the separate-account approval
 and merge. Both repositories remain private through the post-merge checklist.
+
+## 2026-07-11 — maintainer PR-only merge bypass
+
+The maintainer explicitly selected an owner-controlled merge path after both
+independent final audits found the prior exact head ready to merge. GitHub's
+code-owner designation is not a self-approval mechanism, so the live controls
+use a narrower layered policy instead:
+
+- the active `Protect main` ruleset still requires a pull request, one approval
+  by default, last-push approval, resolved review threads, and the `test` check;
+- only `luisgui1757` has ruleset bypass permission, in `pull_request` mode, so
+  the exception requires a visible pull request and does not authorize direct
+  pushes;
+- classic branch protection still enforces strict `test`, linear history,
+  conversation resolution, and the force-push/deletion blocks for
+  administrators; and
+- the duplicate classic review requirement was removed because it could not
+  express a user-specific exception on this personal repository and would have
+  nullified the scoped ruleset bypass.
+
+The one-review rule therefore remains the collaborator default while the
+maintainer can merge an audited, CI-green pull request without manufacturing a
+second-account approval. The maintainer also confirmed that both historical
+Prime-related Claude Code web sessions are Private. Both repositories remain
+private pending the post-merge publication checks.

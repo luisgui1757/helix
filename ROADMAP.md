@@ -154,11 +154,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/needs-dec
 | 3V | Prime v1 single-PR runner + independent hardening | `[x]` DONE 2026-07-10 on `prime-v1` — M1–M9 implementation plus M10 same-family review and independent cross-family/final repair passes. Safe/practical rails, unconditional no-live cast refusal, closed public records/renderers, atomic run reservation, exact resume event/state binding, post-gate idempotent outward handoff context, required artifacts/step effects, real profile member overlays, attended mutation confirmation, four-reason research, and effective CI no-live checks are implementation- and regression-backed. Live loop transport and the concrete ship-pre-pr effect remain explicit deferred boundaries, never optimistic fallbacks. |
 | 4 | Deferred / experimental (gated on real signals) | `[ ]` todo |
 
-**Immediate next action:** close PR #1's final publication-documentation findings,
-rerun exact-head CI and independent review, then obtain the required separate-
-account approval. Keep both repositories private through merge and the post-
-merge object/ref, metadata, license-detection, and secret checks. Do not reopen
-removed cost control, a live flag, or in-loop fences.
+**Immediate next action:** rerun PR #1's exact-head CI and independent review,
+then let the maintainer use the sole PR-only ruleset bypass to squash-merge
+without self-approval. Keep both repositories private through merge and the
+post-merge object/ref, metadata, license-detection, and secret checks. Do not
+reopen removed cost control, a live flag, or in-loop fences.
 **Landed:** a repeatable evidence script (`tools/m0a/collect-evidence.sh`,
 offline by default) and public-safe baseline docs (`docs/m0a/`); a **trusted-project
 telemetry-off baseline** shipped as committed `.pi/settings.json`
