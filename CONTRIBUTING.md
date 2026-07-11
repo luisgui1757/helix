@@ -46,8 +46,9 @@ drift and the maintainer approves pinning a minimal non-negotiable subset.
   candidate commit. Commit messages and repository metadata must not carry
   session links, provenance footers, personal email, or private paths.
 - Keep `prime-reloaded` private until the final independent audit, fresh secret
-  scan, prior-session revocation confirmation, and maintainer-selected license
-  are complete. Visibility changes remain maintainer-owned.
+  scan, and confirmation that prior Claude Code web sessions are Private or
+  deleted. Keep the root MIT `LICENSE` and package metadata aligned. Visibility
+  changes remain maintainer-owned.
 
 ## Branch Protection And CI
 

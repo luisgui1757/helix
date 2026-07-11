@@ -2138,4 +2138,6 @@ decisions (the extension is untouched, deferred future work).
 - `[x]` The release tree is staged for `prime-reloaded` as a fresh single-root
   history with noreply attribution. The original repository remains a private
   archive and `prime-reloaded` remains private pending the final independent
-  audit, prior-session revocation confirmation, and maintainer license choice.
+  audit and confirmation that the two historical Claude Code web sessions are
+  Private or deleted. The maintainer selected the MIT License on 2026-07-11;
+  the root license and package metadata now record that choice.

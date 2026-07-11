@@ -78,10 +78,10 @@ Package resources:
 This tree is the private `prime-reloaded` release candidate. It is published
 from a sanitized single-root history; the original `prime` repository remains a
 private archive and must never be made public. Keep `prime-reloaded` private
-until the final independent content/history/metadata audit passes, session
-revocation is confirmed, and the maintainer chooses a project license. Changing
-visibility is an explicit maintainer operation, never part of an ordinary code
-or documentation change.
+until the final independent content/history/metadata audit passes and the two
+historical Claude Code web sessions are confirmed Private or deleted. Prime is
+licensed under the MIT License. Changing visibility is an explicit maintainer
+operation, never part of an ordinary code or documentation change.
 
 Direct user manual: [`docs/manual.md`](docs/manual.md).
 
@@ -693,3 +693,7 @@ This track adds no new `/prime` UX. It hardens the non-Phase-4 boundary with:
 
 Package audit and package adoption remain separate. `pi-web-access`, `remote-pi`,
 `pi-messenger`, and status packages are not installed or adopted.
+
+## License
+
+Prime is available under the [MIT License](LICENSE).

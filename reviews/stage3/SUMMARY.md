@@ -1442,3 +1442,36 @@ literal. A fresh Gitleaks 8.30.1 directory scan of the exported tracked snapshot
 reported no leaks. Live/paid provider calls, opening session URLs, runtime Pi
 RPC, and the packet-level Docker lockdown smoke remain intentionally outside
 this no-live remediation.
+
+## 2026-07-11 — MIT license selection and publication-audit handoff
+
+Scope: record the maintainer's explicit MIT license choice and remove license
+selection from the publication blockers without changing repository visibility.
+The public GitHub identity `luisgui1757` is the copyright holder recorded in the
+root license so this release tree does not introduce a private name or email.
+
+### Publication state
+
+- The root `LICENSE` contains the standard MIT terms, `package.json` declares
+  `MIT`, and the packaged-file allowlist includes the license.
+- `prime-reloaded` remains private. The final independent publication audit and
+  maintainer confirmation that both historical Claude Code web sessions are
+  Private or deleted remain required before any visibility change.
+- The original `prime` repository remains a permanently private archive. No
+  historical session/share link was opened during this change.
+
+### Verification ledger
+
+Fifteen focused docs-truth, no-live-egress, and public-safety tests passed.
+Resource, docs-truth (500 static declarations; one slash command), static
+no-live-egress, public-safety diff, and `git diff --check` passed. Gitleaks 8.30.1
+scanned the 1.87 MB working tree in no-Git mode and reported no leaks; its Git
+mode then scanned both sanitized commits and also reported no leaks. The npm
+package dry run included the root `LICENSE` and declared package metadata.
+
+The complete local `npm test` run was attempted but is not claimed as passing:
+after 15 minutes, spawned `loop-cli` child processes were still progressing but
+lingered for minutes per case, so the run was terminated without a reported test
+failure. The protected pull request's required `test` check remains the clean-
+environment full-suite authority and must pass before merge. No live/paid call,
+session-link open, runtime Pi RPC, or packet-level Docker lockdown smoke was run.
