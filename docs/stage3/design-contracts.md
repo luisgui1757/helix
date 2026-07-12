@@ -1,4 +1,4 @@
-# Prime Design Contracts
+# Helix Design Contracts
 
 Status: 2026-07-10 — amended by the owner's product interview and independent
 cross-family hardening (single-PR build).
@@ -14,7 +14,7 @@ operational guides. Each carries a prominent superseded banner. This file,
 1. **Controls live at the platform of record, not in the harness.** Spend is
    bounded by the backend control instance (billing ceiling / prepaid account at
    OpenRouter, OpenAI, Foundry, Bedrock, …). Merge integrity is bounded by
-   GitHub branch protection. Prime never re-implements a platform's control.
+   GitHub branch protection. Helix never re-implements a platform's control.
 2. **One rail: `max_iterations`** (a time/runaway control). Everything else
    about *agent behavior* is Pi-default YOLO: no fences, no write allowlists,
    no command allowlists, no confirmation ceremonies inside loops.
@@ -36,7 +36,7 @@ operational guides. Each carries a prominent superseded banner. This file,
    credentials wired in CI, CI exercising only mock-provider configs, and the
    static no-live guard (which also lints that removed cost-control identifiers
    never reappear).
-7. **`/prime` is the only slash command.** New capability = new verb.
+7. **`/helix` is the only slash command.** New capability = new verb.
 8. **Evidence before machinery.** No migration tooling before a second schema
    version exists; no auto-compaction before pressure evidence; no web/remote
    behavior before its boundary contract and fixture proof.
@@ -49,7 +49,7 @@ preflight) is **removed, not deferred**. Spend enforcement belongs to the
 backend billing boundary. The harness keeps only `max_iterations` and
 `max_concurrency` (resource bounds), plus token counts as pressure telemetry.
 
-## Feature Toggle Contract (`/prime settings`)
+## Feature Toggle Contract (`/helix settings`)
 
 Six user-local toggles, all default ON:
 `multi-model`, `loops`, `autoresearch`, `context-engine`, `worktree`,
@@ -64,15 +64,15 @@ Six user-local toggles, all default ON:
   visual-cues off ⇒ plain line-per-event output. It does not imply summary
   filtering; only an explicit CLI `--summary` request may omit event lines.
 - The only hard refusals are **explicit conflicts**: a config that names a
-  composite while multi-model is off, or `/prime research` while autoresearch
+  composite while multi-model is off, or `/helix research` while autoresearch
   is off — stable codes naming the toggle.
 - Settings are untracked user-local state with exact `schema_version: 1` and
   refuse-on-mismatch on both load and save. Every run record embeds the toggle
   vector it ran under.
-- All `/prime` state mutations—settings set, profile create/switch, setup, and
+- All `/helix` state mutations—settings set, profile create/switch, setup, and
   prune—require attended TUI confirmation. This surface gate is separate from
   loop behavior; there are still no confirmation ceremonies inside loops.
-- Not toggleable: public-safe records, CI-never-live, the single `/prime`
+- Not toggleable: public-safe records, CI-never-live, the single `/helix`
   command, `max_iterations`, structural fail-closed validation.
 
 ## Staged Chain Contract (loops)
@@ -112,11 +112,11 @@ sizes are configuration, not new chains.
 - Composites are **step-level executors**: run configs (and profiles) map each
   chain step to a composite id or a plain `{provider, model, effort}`.
 - The interactive session driver (Pi's own `/model` selection) is never managed
-  by Prime. No Pi `/model` integration; `/prime models` and the TUI are the
+  by Helix. No Pi `/model` integration; `/helix models` and the TUI are the
   selection surface.
 - Tracked presets ship as skeletons with mock members; **real member lineups
   live in untracked user-local profiles** (they depend on personal logins) and
-  are assembled interactively via `/prime setup` from Pi's live model inventory.
+  are assembled interactively via `/helix setup` from Pi's live model inventory.
 - Setup stores complete per-role member overlays using
   `provider/model[:effort][*instances]`; resolved stage panels are bounded at 64
   members before allocation.
@@ -180,7 +180,7 @@ sizes are configuration, not new chains.
 
 - Attended kickoff, walk-away execution. No scheduled/self-starting runs.
 - Worktree-per-run on this repo by default (results come back as a branch);
-  the branch is the deterministic public-safe `prime/run-<hash>`. The
+  the branch is the deterministic public-safe `helix/run-<hash>`. The
   `worktree` toggle can select direct working-tree mutation.
 - Before the first adapter call the runner persists a zero-pass checkpoint.
   Every later checkpoint binds the exact effective config/cast/toggles,
@@ -189,8 +189,8 @@ sizes are configuration, not new chains.
   binds the event stream to that exact state/config/cast, reconciles the event
   exactly once, and never replays a completed pass.
   One ordered, chain-aware lifecycle reducer is shared by the runner and
-  `/prime`: stage order, attempts, verdict routing, conclusion gate, terminal
-  state, and `run-end` must agree. `/prime runs resume` validates the
+  `/helix`: stage order, attempts, verdict routing, conclusion gate, terminal
+  state, and `run-end` must agree. `/helix runs resume` validates the
   state/events/disagreements bundle and requires the original repository.
   Completed resume is a recorded no-op only when that terminal cross-binding
   is valid.
@@ -200,8 +200,8 @@ sizes are configuration, not new chains.
   worktree must carry the exact private run owner claim and clean bound baseline;
   an unowned, dirty, wrong-branch, or wrong-baseline directory refuses. Before
   every pass,
-  Prime snapshots the exact worktree bytes and Git HEAD/index into a mode-0700
-  generation below the target Git common directory (`prime-checkpoints/`),
+  Helix snapshots the exact worktree bytes and Git HEAD/index into a mode-0700
+  generation below the target Git common directory (`helix-checkpoints/`),
   never into Git objects or public records. Generation parents, reservations,
   reads, and atomic installation use the same non-symlink root-confined
   persistence boundary as structural records. Resume restores an interrupted
@@ -221,7 +221,7 @@ sizes are configuration, not new chains.
 
 ## Autoresearch Contract
 
-- Explicit verb only (`/prime research`); never auto-triggered. What is
+- Explicit verb only (`/helix research`); never auto-triggered. What is
   mandatory is the SHAPE: a run refuses to start without a declared metric
   `{name, comparator, target}` and stop condition.
 - Loop: hypothesis → experiment → measure → compare → iterate.
@@ -278,5 +278,5 @@ Web access for loops requires the container boundary contract first
 the Codex-style pattern) plus a no-live fixture proof. Remote control, hosted
 adapter, package adoptions (pin + audit bar), scheduled runs, unattended
 research, routing self-optimization, migrations, and compaction all remain
-behind their own gates. The prime-fence extension is untouched, deferred future
+behind their own gates. The helix-fence extension is untouched, deferred future
 work.

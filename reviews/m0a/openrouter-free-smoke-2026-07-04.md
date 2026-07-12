@@ -47,7 +47,7 @@ tools/smoke/openrouter-free-smoke.sh 'google/gemma-4-26b-a4b-it:free'
 ## Actual run
 
 ```text
-# Prime OpenRouter free smoke
+# Helix OpenRouter free smoke
   provider: openrouter
   model:    cohere/north-mini-code:free
   policy:   model id must end in :free; no tools/session/context/resources

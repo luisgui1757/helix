@@ -27,7 +27,7 @@ All code is dependency-free `.mjs` under `dispatch/`, tested by `node --test`.
 | --- | --- |
 | `dispatch/lib/schema.mjs` | Minimal runtime structural validator (JSON-Schema-shaped; fail-closed `assertValid`). |
 | `dispatch/lib/role-envelope.mjs` | Role envelope schema + role/stage matrix + `validateRoleEnvelope` / `assertRoleEnvelope`. |
-| `dispatch/lib/providers.mjs` | Canonical Prime provider set + canonical→Pi source mapping. |
+| `dispatch/lib/providers.mjs` | Canonical Helix provider set + canonical→Pi source mapping. |
 | `dispatch/lib/cost-policy.mjs` | No-spend eligibility + price-staleness (`evaluateNoSpend`, `isPriceFresh`). |
 | `dispatch/lib/profiles.mjs` | Profile config schema + built-in `no-spend-test` / `personal` / `lockdown` + Copilot-pin metadata. |
 | `dispatch/lib/routes.mjs` | Task-class routes + reserved `role→[{provider,model,effort,instances}]` matrix + `resolvePanel` (N3). |
@@ -44,7 +44,7 @@ Tests live in `tests/dispatch-*.test.mjs` and run under the existing `npm test`.
 The spec mandates TypeBox as the runtime validator. Implementation exposed a real
 contradiction with an enforced repository invariant:
 
-- `tools/check-prime-resources.mjs` **fails the build** if `package.json` declares
+- `tools/check-helix-resources.mjs` **fails the build** if `package.json` declares
   any runtime dependency (`dependencies` / `optionalDependencies` /
   `peerDependencies` must be empty). It also **pins `extensions/` to exactly the
   two existing `.ts` files**, so a TypeBox schema cannot be smuggled in as a new

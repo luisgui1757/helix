@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  PRIME_PROVIDERS,
+  HELIX_PROVIDERS,
   NON_AUTOMATED_PROVIDERS,
   PROVIDER_FAMILY,
-  isPrimeProvider,
+  isHelixProvider,
   isAutomatedDispatchProvider,
   providerFamily,
   piSourceFor,
@@ -15,7 +15,7 @@ import { makeEnvelope } from "../dispatch/fixtures/sample.mjs";
 const NOW = 1_751_731_200;
 
 test("canonical provider set is stable and every provider has a Pi source", () => {
-  assert.deepEqual([...PRIME_PROVIDERS], [
+  assert.deepEqual([...HELIX_PROVIDERS], [
     "openai-codex",
     "openai-api",
     "openrouter",
@@ -24,18 +24,18 @@ test("canonical provider set is stable and every provider has a Pi source", () =
     "claude-local",
     "mock",
   ]);
-  for (const provider of PRIME_PROVIDERS) {
-    assert.equal(isPrimeProvider(provider), true, provider);
+  for (const provider of HELIX_PROVIDERS) {
+    assert.equal(isHelixProvider(provider), true, provider);
     assert.equal(typeof piSourceFor(provider), "string", provider);
   }
-  assert.equal(isPrimeProvider("unknown-provider"), false);
+  assert.equal(isHelixProvider("unknown-provider"), false);
   assert.equal(piSourceFor("unknown-provider"), null);
 });
 
 test("claude-local is the only canonical provider excluded from automated dispatch", () => {
   assert.deepEqual([...NON_AUTOMATED_PROVIDERS], ["claude-local"]);
   assert.equal(isAutomatedDispatchProvider("claude-local"), false);
-  for (const provider of PRIME_PROVIDERS.filter((p) => p !== "claude-local")) {
+  for (const provider of HELIX_PROVIDERS.filter((p) => p !== "claude-local")) {
     assert.equal(isAutomatedDispatchProvider(provider), true, provider);
   }
   // Unknown or non-string providers are never dispatchable.
@@ -44,7 +44,7 @@ test("claude-local is the only canonical provider excluded from automated dispat
 });
 
 test("provider family mapping covers every canonical provider", () => {
-  for (const provider of PRIME_PROVIDERS) {
+  for (const provider of HELIX_PROVIDERS) {
     assert.equal(providerFamily(provider), PROVIDER_FAMILY[provider], provider);
     assert.equal(typeof providerFamily(provider), "string", provider);
   }

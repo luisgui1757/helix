@@ -1,8 +1,8 @@
-# Prime
+# Helix
 
-Prime is a project-local Pi resource package that turns Pi into a
+Helix is a project-local Pi resource package that turns Pi into a
 **multi-model team runner**. You keep working in Pi as usual; when a task
-deserves a team, Prime gives you:
+deserves a team, Helix gives you:
 
 - **Staged loops** — plan → review → implement → review, where reviewer
   verdicts route control (revise this stage, advance, or jump back to a named
@@ -14,13 +14,13 @@ deserves a team, Prime gives you:
 - **Composite casts** — named role-matrix presets assigned per stage:
   `overlord` (max multi-provider panel for hard/risky work) and `daily` (light
   crew). The tracked presets are skeletons with mock members; your real
-  lineups live in untracked user-local profiles created with `/prime profiles
-  create` and assembled via `/prime setup` from Pi's available-model inventory.
+  lineups live in untracked user-local profiles created with `/helix profiles
+  create` and assembled via `/helix setup` from Pi's available-model inventory.
   Profiles can replace each preset role's provider/model/effort/instance lineup
   and pass the canonical toxic-data scan before persistence; a missing or unsafe
   member fails closed — never a silent substitution or session/secret-shaped
   local file.
-- **Six feature toggles** (`/prime settings`): `multi-model`, `loops`,
+- **Six feature toggles** (`/helix settings`): `multi-model`, `loops`,
   `autoresearch`, `context-engine`, `worktree`, `visual-cues` — all default
   ON. OFF never errors, it **degenerates** (solo model, single pass, polite
   refusal, transcript pass-through, direct working tree, plain event lines).
@@ -32,20 +32,20 @@ deserves a team, Prime gives you:
   handoff packet (claims, counterclaims, evidence refs, open disagreement
   ids); compiled prompts remain memory-only adapter input, while records
   persist template ids and hashes only.
-- **Attended autoresearch** (`/prime research`) — hypothesis → experiment →
+- **Attended autoresearch** (`/helix research`) — hypothesis → experiment →
   measure → compare → iterate. A run refuses to start without a declared
   metric `{name, comparator, target}` and stop condition; the four stop
   reasons include `dead-end`, reported as a valuable result.
 - **Per-run worktrees** — runs execute in their own git worktree by default
-  on a deterministic `prime/run-<hash>` branch; your checkout stays clean.
+  on a deterministic `helix/run-<hash>` branch; your checkout stays clean.
   Initialization is collision-preflighted before resumable state exists, and
   reuse requires an exact private ownership claim plus the bound clean baseline.
 - **Structural events + live watch** — an append-only public-safe event
-  stream per run, rendered by `/prime runs watch` (stage, pass, cast, gate,
+  stream per run, rendered by `/helix runs watch` (stage, pass, cast, gate,
   verdict, pressure, blocked code + next action, elapsed). A converged terminal
   event is valid only immediately after a passing conclusion gate. Resume binds
   mandatory attempt numbers and the exact checkpointed pass/cast/rail history.
-  Runner and `/prime` share one ordered, chain-aware lifecycle reducer; terminal
+  Runner and `/helix` share one ordered, chain-aware lifecycle reducer; terminal
   state, conclusion gate, and `run-end` must agree.
 - **Root-confined persistence** — every structural writer and private crash-
   checkpoint generation uses the same
@@ -58,53 +58,53 @@ deserves a team, Prime gives you:
   source. Each in-flight pass has a repository-private crash snapshot and the
   run ID is lease/CAS-serialized. Pending boundary events reconcile exactly
   once after a kill;
-  `/prime runs resume <run-id>` prints the bound resume CLI, and resuming a
+  `/helix runs resume <run-id>` prints the bound resume CLI, and resuming a
   completed run is a recorded no-op. Runner state schema v3 carries the private
   worktree-owner binding; earlier state versions refuse instead of being adopted.
 
 Package resources:
 
-- One UI quality skill: `prime-ui`
-- Three Prime-prefixed Rose Pine themes:
-  - `prime-rose-pine`
-  - `prime-rose-pine-moon`
-  - `prime-rose-pine-dawn`
+- One UI quality skill: `helix-ui`
+- Three Helix-prefixed Rose Pine themes:
+  - `helix-rose-pine`
+  - `helix-rose-pine-moon`
+  - `helix-rose-pine-dawn`
 - Three extensions:
-  - `prime-fence` — yolo-fence (untouched, deferred future work per the
+  - `helix-fence` — yolo-fence (untouched, deferred future work per the
     2026-07-09 pivot)
-  - `prime-answer` — `\answer` multi-CGS resolver (top recommendation + ranked alternatives)
-  - `prime-command` — the `/prime` control surface (all verbs below)
+  - `helix-answer` — `\answer` multi-CGS resolver (top recommendation + ranked alternatives)
+  - `helix-command` — the `/helix` control surface (all verbs below)
 
-This tree is the private `prime-reloaded` release candidate. It is published
-from a sanitized single-root history; the original `prime` repository remains a
-private archive and must never be made public. Keep `prime-reloaded` private
+This tree is the private `helix` release candidate. It is published
+from a sanitized single-root history; the legacy repository remains a
+private archive and must never be made public. Keep `helix` private
 until the final independent content/history/metadata audit passes and the two
-historical Claude Code web sessions are confirmed Private or deleted. Prime is
+historical Claude Code web sessions are confirmed Private or deleted. Helix is
 licensed under the MIT License. Changing visibility is an explicit maintainer
 operation, never part of an ordinary code or documentation change.
 
 Direct user manual: [`docs/manual.md`](docs/manual.md).
 
-## The `/prime` command
+## The `/helix` command
 
 One slash command; every capability is a verb:
 
 | Verb | What it does |
 |---|---|
-| `/prime` | Dashboard: default config, resolved chain, toggle vector, active profile, last structural run |
-| `/prime help` | Public-safe cheat sheet |
-| `/prime run [config-id]` | Preflight a run config with the active profile's cast overlaid; prints the exact CLI, never launches |
-| `/prime runs list` | List structural run records |
-| `/prime runs status <run-id>` | Inspect one structural run record |
-| `/prime runs watch <run-id>` | Render the loop widget from a run's event stream |
-| `/prime runs resume <run-id>` | Print the resume CLI for an interrupted run (completed = no-op) |
-| `/prime runs prune <run-id>` | Delete one structural run directory; attended TUI confirmation required |
-| `/prime models` | View both composite preset lineups and the default role matrix |
-| `/prime chains` | View the staged chain catalog |
-| `/prime settings [set <toggle> on\|off]` | View or flip the six Prime feature switches; mutation requires attended TUI confirmation |
-| `/prime profiles [show <id> \| switch <id> \| create <id>]` | List/inspect saved casts; create/switch require attended TUI confirmation |
-| `/prime setup [<existing-profile-id> <stage>=<executor> ... <preset>.<role>=<member>[,<member>...]]` | Guided stage/cast assembly from Pi's available-model inventory; setup activates transactionally and requires attended TUI confirmation |
-| `/prime research <question> --metric <name> <cmp> <target> --max <n> [--plateau <n>]` | Validate a research spec (metric + stop) and print its CLI |
+| `/helix` | Dashboard: default config, resolved chain, toggle vector, active profile, last structural run |
+| `/helix help` | Public-safe cheat sheet |
+| `/helix run [config-id]` | Preflight a run config with the active profile's cast overlaid; prints the exact CLI, never launches |
+| `/helix runs list` | List structural run records |
+| `/helix runs status <run-id>` | Inspect one structural run record |
+| `/helix runs watch <run-id>` | Render the loop widget from a run's event stream |
+| `/helix runs resume <run-id>` | Print the resume CLI for an interrupted run (completed = no-op) |
+| `/helix runs prune <run-id>` | Delete one structural run directory; attended TUI confirmation required |
+| `/helix models` | View both composite preset lineups and the default role matrix |
+| `/helix chains` | View the staged chain catalog |
+| `/helix settings [set <toggle> on\|off]` | View or flip the six Helix feature switches; mutation requires attended TUI confirmation |
+| `/helix profiles [show <id> \| switch <id> \| create <id>]` | List/inspect saved casts; create/switch require attended TUI confirmation |
+| `/helix setup [<existing-profile-id> <stage>=<executor> ... <preset>.<role>=<member>[,<member>...]]` | Guided stage/cast assembly from Pi's available-model inventory; setup activates transactionally and requires attended TUI confirmation |
+| `/helix research <question> --metric <name> <cmp> <target> --max <n> [--plateau <n>]` | Validate a research spec (metric + stop) and print its CLI |
 
 The slash command is preflight/view/state only: loops execute through the
 printed CLI commands. **Presence declares live intent**—there is no live flag—
@@ -115,7 +115,7 @@ the adapter dependency seam does not enable the deferred transport. The tracked
 mock presets are no-live by construction. Spend remains bounded by your
 backend billing ceiling, not by the harness.
 
-<!-- PRIME-DOCS-TRUTH:BEGIN -->
+<!-- HELIX-DOCS-TRUTH:BEGIN -->
 ```json
 {
   "node_test_declarations": 501,
@@ -126,11 +126,11 @@ backend billing ceiling, not by the harness.
     "extension_entries": 3
   },
   "extension_slash_commands": 1,
-  "prime_command_surface": "one /prime command with verbs",
+  "helix_command_surface": "one /helix command with verbs",
   "roadmap_status_snippet": "Stage 3P whole-repo gap closure"
 }
 ```
-<!-- PRIME-DOCS-TRUTH:END -->
+<!-- HELIX-DOCS-TRUTH:END -->
 
 > **2026-07-09 pivot:** cost control was removed from the harness by owner
 > decision — spend is bounded by the backend billing ceiling, presence = live,
@@ -153,13 +153,13 @@ npm run check:public-safety-diff
 node tools/smoke/dispatch-smoke.mjs
 node tools/smoke/revision-effect-smoke.mjs
 node tools/smoke/pi-e2e-load.mjs
-node tools/loop/prime-task-loop.mjs --run-id readme-check   # no-live staged loop over a synthetic repo
-node tools/research/prime-research.mjs --question "shape check" \
+node tools/loop/helix-task-loop.mjs --run-id readme-check   # no-live staged loop over a synthetic repo
+node tools/research/helix-research.mjs --question "shape check" \
   --metric ok ">=" 1 --max 1 --measure-cmd "echo 1" --attended
 ```
 
-This verifies that Prime exposes exactly one package skill, that the project Pi
-settings point at the Prime skill, themes, and three pinned extensions, and that
+This verifies that Helix exposes exactly one package skill, that the project Pi
+settings point at the Helix skill, themes, and three pinned extensions, and that
 the vendored theme files cover Pi's required color surface.
 The no-live egress check verifies CI references no secrets/provider
 credentials, that both the legacy matrix and the effective staged
@@ -220,21 +220,21 @@ call a provider.
 
 ## Stage 1+2 — safety posture + verification core
 
-The first Prime code substrate (source-verified against Pi 0.80.3, no paid model calls).
+The first Helix code substrate (source-verified against Pi 0.80.3, no paid model calls).
 Overview: [`docs/stage1-2/`](docs/stage1-2/).
 
 ```bash
 npm test                                 # node unit tests + worktree + loop self-tests
 
-tools/worktree/prime-worktree.sh create <name>   # git-worktree basics (no secret copy)
+tools/worktree/helix-worktree.sh create <name>   # git-worktree basics (no secret copy)
 tools/loop/objective-gate-loop.sh --gate '<cmd>' # gate-primary loop (fails loud if no gate)
 tools/ship/pr-gate.sh --dry-run                  # conservative, fail-closed pre-PR gate
 ```
 
-- **yolo-fence** (`extensions/prime-fence.ts`) — fences risky `bash`/`write`/`edit` tool
+- **yolo-fence** (`extensions/helix-fence.ts`) — fences risky `bash`/`write`/`edit` tool
   calls + user `!` commands; confirms in TTY, **fails closed** in `-p`/json/rpc. Limits +
   OS-sandbox path: [`docs/stage1-2/yolo-fence.md`](docs/stage1-2/yolo-fence.md).
-- **`\answer`** (`extensions/prime-answer.ts`) — model-callable resolver for multi-CGS
+- **`\answer`** (`extensions/helix-answer.ts`) — model-callable resolver for multi-CGS
   decisions; deterministic recommendation in non-interactive mode; fake-Pi extension
   registration plus core choice behavior are unit-tested.
 - **Plan/implement separation** — native `/new` + `PLAN.md`
@@ -594,8 +594,8 @@ hardening, and a two-model OpenRouter `:free` live proof path.
   chains; non-builder defaults fail closed as `chain-not-loop-runnable:<id>`.
 - `dispatch/config/run-configs.json` defines `mock-core-loop`, a no-live run config
   with an objective gate, write allowlist, hard caps, and structural refs.
-- `tools/loop/prime-task-loop.mjs` runs the bounded loop over a synthetic temp repo
-  by default; `tools/runs/prime-runs.mjs` lists, statuses, and prunes structural
+- `tools/loop/helix-task-loop.mjs` runs the bounded loop over a synthetic temp repo
+  by default; `tools/runs/helix-runs.mjs` lists, statuses, and prunes structural
   run records under gitignored `dispatch/runs/`. Default synthetic repos are
   cleaned after the run, and rerunning a run id reports whether the prior
   structural record directory was replaced. Run ids that resolve to the runs root
@@ -612,35 +612,35 @@ Overview: [`docs/stage3/role-matrix-task-loop.md`](docs/stage3/role-matrix-task-
 
 ```bash
 npm test
-node tools/loop/prime-task-loop.mjs --run-id loop-cli-smoke
-node tools/runs/prime-runs.mjs status loop-cli-smoke
+node tools/loop/helix-task-loop.mjs --run-id loop-cli-smoke
+node tools/runs/helix-runs.mjs status loop-cli-smoke
 ```
 
-## Stage 3O PR1 — `/prime` control surface
+## Stage 3O PR1 — `/helix` control surface
 
-Adds one Pi extension slash command, `/prime`, over the existing Stage 3
+Adds one Pi extension slash command, `/helix`, over the existing Stage 3
 configuration and structural run surfaces. All verbs are argument-completed under
 that single command:
 
-- `/prime` renders the conservative dashboard: default run config, resolved
+- `/helix` renders the conservative dashboard: default run config, resolved
   profile/caps, chain, role matrix summary, no-live status, last structural run,
   dry-run warnings/refusal codes, and high-level package/resource status.
-- `/prime run [config-id]` is preflight-only. It resolves the run config, expands
+- `/helix run [config-id]` is preflight-only. It resolves the run config, expands
   the role matrix through existing provider/cost policy, shows the objective gate,
-  write allowlist, caps, and prints the exact `node tools/loop/prime-task-loop.mjs
+  write allowlist, caps, and prints the exact `node tools/loop/helix-task-loop.mjs
   --config ... --run-id ...` invocation. It never launches the loop.
-- `/prime runs list|status <run-id>|prune <run-id>` uses the structural
+- `/helix runs list|status <run-id>|prune <run-id>` uses the structural
   run-manager paths. `prune` is the only PR1 mutation and requires
   `ctx.mode === "tui"` plus explicit confirmation; `rpc`/`json`/`print` fail
   closed. Run ids that resolve to the runs root itself fail closed before pruning.
   Flat smoke records are listed/statused as non-prunable instead of being
   silently passed to the directory prune path.
-- `/prime help` is view-only and public-safe; it works without loading local
+- `/helix help` is view-only and public-safe; it works without loading local
   run/config registries and reports supported commands, no-live/live/paid
   boundaries, and refusal-code guidance.
-- `/prime models`, `/prime chains`, and `/prime profiles` are view-only browsers.
-- If a local Prime registry/config JSON file is unreadable or malformed, `/prime`
-  execution fails closed as `prime-config-unreadable` with a stable reason and
+- `/helix models`, `/helix chains`, and `/helix profiles` are view-only browsers.
+- If a local Helix registry/config JSON file is unreadable or malformed, `/helix`
+  execution fails closed as `helix-config-unreadable` with a stable reason and
   next safe action; it does not surface raw parser errors or full filesystem
   paths.
 
@@ -650,7 +650,7 @@ or metered calls, raw prompt/model/transcript/provider payload rendering, and
 autonomous/Phase 4 behavior.
 
 ```bash
-npm test                              # includes tests/prime-command-*.test.mjs
+npm test                              # includes tests/helix-command-*.test.mjs
 npm run check:resources
 ```
 
@@ -688,7 +688,7 @@ bypass, and direct pushes remain blocked.
 
 ## Final non-Phase-4 hardening
 
-This track adds no new `/prime` UX. It hardens the non-Phase-4 boundary with:
+This track adds no new `/helix` UX. It hardens the non-Phase-4 boundary with:
 
 - provider/live-proof approval docs and Azure Foundry config template,
 - web-access prompt-injection posture and package audit artifact,
@@ -703,4 +703,4 @@ Package audit and package adoption remain separate. `pi-web-access`, `remote-pi`
 
 ## License
 
-Prime is available under the [MIT License](LICENSE).
+Helix is available under the [MIT License](LICENSE).

@@ -330,7 +330,7 @@ test("a structurally-valid diff code that still matches a leak pattern fails the
 test("writeDebateSummary fails closed on a provenance leak in the summary", () => {
   // The provenance-pattern public-safety guard on the persisted summary. The
   // The fixture phrase is assembled so broad provenance scans do not self-match here.
-  const dir = mkdtempSync(join(tmpdir(), "prime-debate-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-debate-"));
   const provenance = "auto " + "Gener" + "ated with a tool";
   const summary = { run_id: "d-prov", timestamp: 0, kind: "adversarial-debate", iterations: [{ note: provenance }] };
   assert.throws(() => writeDebateSummary(summary, dir), /public-safety scan failed/);
@@ -539,7 +539,7 @@ test("a fixed seed/input yields a byte-identical debate summary", async () => {
 });
 
 test("iteration records and the debate summary are written to the records dir", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-debate-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-debate-"));
   const result = await runDebate(
     { run_id: "d-persist", base_request: riskyBase(), max_iterations: 5 },
     debateDeps({ record_dir: dir, diffStability: stableFrom(2) }),
@@ -571,7 +571,7 @@ test("routeCallsForAdversarialIteration keys off critic/arbiter roles and disabl
 });
 
 test("writeDebateSummary refuses an unsafe run_id filename", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-debate-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-debate-"));
   assert.throws(() => writeDebateSummary({ run_id: "../escape", iterations: [] }, dir), /safe filename token/);
 });
 
@@ -583,10 +583,10 @@ const GIT_ENV = {
   ...process.env,
   GIT_CONFIG_GLOBAL: devNull,
   GIT_CONFIG_SYSTEM: devNull,
-  GIT_AUTHOR_NAME: "prime-test",
-  GIT_AUTHOR_EMAIL: "prime@test.invalid",
-  GIT_COMMITTER_NAME: "prime-test",
-  GIT_COMMITTER_EMAIL: "prime@test.invalid",
+  GIT_AUTHOR_NAME: "helix-test",
+  GIT_AUTHOR_EMAIL: "helix@test.invalid",
+  GIT_COMMITTER_NAME: "helix-test",
+  GIT_COMMITTER_EMAIL: "helix@test.invalid",
   LC_ALL: "C",
   TZ: "UTC",
 };
@@ -598,7 +598,7 @@ function gitCmd(cwd, args) {
 
 /** A temp repo with a committed `proposal.txt` and a clean tree. */
 function makeRepo() {
-  const dir = mkdtempSync(join(tmpdir(), "prime-debate-git-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-debate-git-"));
   gitCmd(dir, ["init", "-q"]);
   writeFileSync(join(dir, "proposal.txt"), "base\n");
   gitCmd(dir, ["add", "proposal.txt"]);
@@ -608,7 +608,7 @@ function makeRepo() {
 
 test("a real git diff surface + local revision boundary converge across iterations", async () => {
   const repo = makeRepo();
-  const records = mkdtempSync(join(tmpdir(), "prime-debate-rec-")); // kept OUT of the repo tree
+  const records = mkdtempSync(join(tmpdir(), "helix-debate-rec-")); // kept OUT of the repo tree
   try {
     // The revision effect is the ONLY thing that mutates the worktree. It writes a
     // constant proposal, so the first revision changes the tree and the second is a
@@ -649,7 +649,7 @@ test("a revision changing SAME-SIZE untracked proposal content does not falsely 
   // diff-changing — it must NOT converge as diff-stable at iteration 2 (the
   // metadata-only bug), only once content stabilizes.
   const repo = makeRepo(); // committed proposal.txt (clean); we churn an UNTRACKED draft.txt
-  const records = mkdtempSync(join(tmpdir(), "prime-debate-samesize-")); // kept OUT of the repo
+  const records = mkdtempSync(join(tmpdir(), "helix-debate-samesize-")); // kept OUT of the repo
   try {
     writeFileSync(join(repo, "draft.txt"), "AAAA"); // untracked proposal content, size 4
     // revise: AAAA -> BBBB on iteration 1 (same size, new content), then BBBB (no-op).
@@ -723,7 +723,7 @@ test("a thrown revision error never leaks its message into detail/summary/warnin
   // The thrown message carries a private-looking path; it must appear in none of the
   // returned detail, the returned/persisted summary, or the warnings (review Finding 2).
   const HOMEISH = HOME_MARK + "alice/private-project/secret.diff";
-  const dir = mkdtempSync(join(tmpdir(), "prime-revleak-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-revleak-"));
   const revise = () => { throw new Error(HOMEISH); };
   try {
     const result = await runDebate(

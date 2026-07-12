@@ -147,7 +147,7 @@ test("generic prose is rejected from every persisted identifier/code surface", (
 
 // These two synthetic leak samples are assembled from split literals so the
 // repository's own public-safety scanners (tools/ship/pr-gate.sh,
-// tools/check-prime-resources.mjs) don't false-positive on a test fixture; the
+// tools/check-helix-resources.mjs) don't false-positive on a test fixture; the
 // scanner under test still receives the fully-formed value at runtime.
 test("the public-safety scan fails closed on a home path", () => {
   const paths = [
@@ -239,7 +239,7 @@ test("built records are detached and recursively frozen", () => {
 });
 
 test("writeRunRecord persists a deterministic file named by run_id", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-runrec-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-runrec-"));
   const rec = buildRunRecord(makeInput());
   const path = writeRunRecord(rec, dir);
   assert.equal(path, join(dir, "run-1.json"));
@@ -255,7 +255,7 @@ test("writeRunRecord refuses an unsafe run_id filename", () => {
 });
 
 test("writeRunRecord revalidates a caller-supplied clone before persistence", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-runrec-revalidate-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-runrec-revalidate-"));
   const invalid = JSON.parse(JSON.stringify(buildRunRecord(makeInput())));
   invalid.warning_codes = ["ordinary model prose"];
   assert.throws(() => writeRunRecord(invalid, dir), /validation error/);

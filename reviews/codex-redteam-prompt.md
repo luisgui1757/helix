@@ -1,4 +1,4 @@
-# Codex Red-Team Prompt - adversarial review of `prime` ROADMAP
+# Codex Red-Team Prompt - adversarial review of `helix` ROADMAP
 
 > **How to use:** open Codex, Claude, or another capable reviewer in this repo's
 > root and paste everything inside the `=== PROMPT ===` block. The prompt is
@@ -27,7 +27,7 @@ TARGET
 TARGET_PLAN=ROADMAP.md
 
 CONTEXT
-This repository ("prime") ships extensions, skills, agents, and config for the Pi
+This repository ("helix") ships extensions, skills, agents, and config for the Pi
 CLI (`pi`, npm package `@earendil-works/pi-coding-agent`). `ROADMAP.md` is the live
 source of truth. Do not trust embedded Pi-version or package snapshots; re-verify
 the installed tree and current package metadata.

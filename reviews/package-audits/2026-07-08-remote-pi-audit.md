@@ -20,8 +20,8 @@ Queried with `npm view remote-pi ... --json` on 2026-07-08.
 
 The package has moved from the previously recorded `^0.78.0` line to
 `^0.79.10`, but that still does not prove compatibility with installed Pi
-`0.80.3` under Prime's current bar. Treat it as blocked until source and runtime
-compatibility are verified without installing it into Prime.
+`0.80.3` under Helix's current bar. Treat it as blocked until source and runtime
+compatibility are verified without installing it into Helix.
 
 ## Security Framing
 

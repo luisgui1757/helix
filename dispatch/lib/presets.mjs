@@ -1,4 +1,4 @@
-// Prime dispatch — composite presets + per-stage cast assignments (M4).
+// Helix dispatch — composite presets + per-stage cast assignments (M4).
 //
 // A composite (overlord, daily) is a NAMED ROLE-MATRIX PRESET with a thin
 // metadata wrapper. Composites are STEP-LEVEL EXECUTORS: a run config (or,
@@ -9,7 +9,7 @@
 //
 // Tracked presets ship as SKELETONS with mock members; real member lineups
 // depend on personal provider logins and live in untracked user-local profiles
-// (assembled via /prime setup from Pi's live inventory, M8).
+// (assembled via /helix setup from Pi's live inventory, M8).
 //
 // Owner contracts (2026-07-09):
 //   - degradation is fail-closed: a missing/unavailable member refuses NAMING
@@ -25,7 +25,7 @@ import { join } from "node:path";
 import { validate } from "./schema.mjs";
 import { ROLES } from "./role-envelope.mjs";
 import { EFFORTS } from "./routes.mjs";
-import { PRIME_PROVIDERS, isAutomatedDispatchProvider } from "./providers.mjs";
+import { HELIX_PROVIDERS, isAutomatedDispatchProvider } from "./providers.mjs";
 import { requireToggle } from "./settings.mjs";
 import { MAX_PANEL_MEMBERS } from "./limits.mjs";
 import { MODEL_ID_PATTERN, isModelId } from "./public-values.mjs";
@@ -49,7 +49,7 @@ export const MEMBER_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model", "effort", "instances"],
   properties: {
-    provider: { type: "string", enum: PRIME_PROVIDERS },
+    provider: { type: "string", enum: HELIX_PROVIDERS },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     effort: { type: "string", enum: EFFORTS },
     instances: { type: "integer", minimum: 1, maximum: MAX_PANEL_MEMBERS },
@@ -100,7 +100,7 @@ export const ASSIGNMENT_SCHEMA = Object.freeze({
       required: ["kind", "provider", "model"],
       properties: {
         kind: { const: "model" },
-        provider: { type: "string", enum: PRIME_PROVIDERS },
+        provider: { type: "string", enum: HELIX_PROVIDERS },
         model: { type: "string", pattern: MODEL_ID_PATTERN },
         effort: { type: "string", enum: EFFORTS },
       },

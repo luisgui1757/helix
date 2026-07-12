@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// prime-research.mjs — attended autoresearch CLI (M7/M8).
+// helix-research.mjs — attended autoresearch CLI (M7/M8).
 //
 // Runs the mandatory research shape: hypothesis → experiment → measure →
 // compare → iterate, stopping on target-met | max-iterations |
@@ -7,7 +7,7 @@
 // (--measure-cmd): each iteration runs it and reads the LAST numeric token on
 // stdout as the measurement — the objective source, never a model opinion.
 //
-//   node tools/research/prime-research.mjs \
+//   node tools/research/helix-research.mjs \
 //     --question "does the cache help" \
 //     --metric latency-ms "<=" 100 --max 5 [--plateau 2] \
 //     --measure-cmd "node bench.mjs"
@@ -45,7 +45,7 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === "--run-id") flags.runId = args[++i];
   else if (arg === "--attended") flags.attended = true;
   else {
-    console.error(`prime-research: unknown arg ${arg}`);
+    console.error(`helix-research: unknown arg ${arg}`);
     process.exit(2);
   }
 }
@@ -89,7 +89,7 @@ function lastNumber(text) {
 const attended = flags.attended ?? Boolean(process.stdout.isTTY);
 const toggles = toggleVector(settingsResult.settings);
 const runExperiment = async (iteration) => {
-  const stdout = execSync(flags.measureCmd, { encoding: "utf8", env: { ...process.env, PRIME_RESEARCH_ITERATION: String(iteration) } });
+  const stdout = execSync(flags.measureCmd, { encoding: "utf8", env: { ...process.env, HELIX_RESEARCH_ITERATION: String(iteration) } });
   return { measurement: lastNumber(stdout) };
 };
 

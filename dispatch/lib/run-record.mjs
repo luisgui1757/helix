@@ -1,4 +1,4 @@
-// Prime dispatch — public-safe run-record writer.
+// Helix dispatch — public-safe run-record writer.
 //
 // Source of truth: fusion-dispatch-research.md §"Public-Safe Logging". Stage 3B
 // persists STRUCTURAL public-safe records only: ids, hashes/refs, metadata, and
@@ -14,9 +14,9 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { validate, assertValid, SchemaError } from "./schema.mjs";
-import { PRIME_PROVIDERS } from "./providers.mjs";
+import { HELIX_PROVIDERS } from "./providers.mjs";
 import { ROLES } from "./role-envelope.mjs";
-import { PRIME_TOGGLES } from "./settings.mjs";
+import { HELIX_TOGGLES } from "./settings.mjs";
 import {
   INPUT_REF_VALUE_PATTERNS,
   MODEL_ID_PATTERN,
@@ -80,9 +80,9 @@ export const RUN_RECORD_SCHEMA = Object.freeze({
     task_class: { type: "string", pattern: PUBLIC_CODE_PATTERN },
     route_id: { type: "string", pattern: PUBLIC_CODE_PATTERN },
     role_ids: { type: "array", items: { type: "string", enum: ROLES } },
-    provider_ids: { type: "array", items: { type: "string", enum: PRIME_PROVIDERS } },
+    provider_ids: { type: "array", items: { type: "string", enum: HELIX_PROVIDERS } },
     model_ids: { type: "array", items: { type: "string", pattern: MODEL_ID_PATTERN } },
-    // Token counts are capacity telemetry only — Prime does no cost accounting.
+    // Token counts are capacity telemetry only — Helix does no cost accounting.
     usage_rollup: {
       type: "object",
       additionalProperties: false,
@@ -171,8 +171,8 @@ export const RUN_RECORD_SCHEMA = Object.freeze({
     toggles: {
       type: "object",
       additionalProperties: false,
-      required: [...PRIME_TOGGLES],
-      properties: Object.fromEntries(PRIME_TOGGLES.map((t) => [t, { type: "boolean" }])),
+      required: [...HELIX_TOGGLES],
+      properties: Object.fromEntries(HELIX_TOGGLES.map((t) => [t, { type: "boolean" }])),
     },
   },
 });

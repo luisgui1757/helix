@@ -1,10 +1,10 @@
-// Prime dispatch — the staged runner (M5, owner interview 2026-07-09).
+// Helix dispatch — the staged runner (M5, owner interview 2026-07-09).
 //
 // Executes a run config end to end: resolve chain + cast → per-run worktree →
 // stage machine over REAL per-stage dispatch cycles → objective gate concludes.
 // Emits the structural event stream every renderer consumes, and persists an
 // interrupt-safe machine state after every pass so a killed run resumes from
-// its last completed pass (`/prime runs resume`, M8). Resuming a completed run
+// its last completed pass (`/helix runs resume`, M8). Resuming a completed run
 // is a recorded no-op.
 //
 // Stage execution: each pass of a stage is ONE runDispatch cycle over the
@@ -70,8 +70,8 @@ import {
 } from "./handoff.mjs";
 import { fileURLToPath } from "node:url";
 import { MAX_ITERATIONS, MAX_PANEL_MEMBERS } from "./limits.mjs";
-import { PRIME_TOGGLES } from "./settings.mjs";
-import { PRIME_PROVIDERS } from "./providers.mjs";
+import { HELIX_TOGGLES } from "./settings.mjs";
+import { HELIX_PROVIDERS } from "./providers.mjs";
 import { ROLES } from "./role-envelope.mjs";
 import { EFFORTS } from "./routes.mjs";
 import { isExecutorRef, isModelId, isPublicCode } from "./public-values.mjs";
@@ -128,7 +128,7 @@ function validateResolvedCast(cast) {
   const validMember = (member, panel = false) => {
     const keys = member && typeof member === "object" && !Array.isArray(member) ? Object.keys(member) : [];
     if (keys.length !== 4 || !["provider", "model", "effort", "instances"].every((key) => keys.includes(key))) return false;
-    if (!PRIME_PROVIDERS.includes(member.provider) || !isModelId(member.model)
+    if (!HELIX_PROVIDERS.includes(member.provider) || !isModelId(member.model)
       || !EFFORTS.includes(member.effort) || !Number.isSafeInteger(member.instances)
       || member.instances < 1 || (panel && member.instances !== 1)) return false;
     return member.instances <= MAX_PANEL_MEMBERS;
@@ -212,7 +212,7 @@ function acquireResumeLease(cwd, runId) {
   if (!identity) return { ok: false, code: RUNNER_CODES.REPOSITORY_INVALID };
   let dir;
   try {
-    dir = ensureConfinedDirectory(identity.common, join("prime", "leases"));
+    dir = ensureConfinedDirectory(identity.common, join("helix", "leases"));
   } catch {
     return { ok: false, code: RUNNER_CODES.RESUME_IN_PROGRESS };
   }
@@ -470,7 +470,7 @@ export function makePrivateCheckpointEffect(repoRoot) {
       || runId === "." || runId === ".."
       || typeof generation !== "string" || !/^[A-Za-z0-9._-]+$/.test(generation)
       || generation === "." || generation === "..") return null;
-    return join("prime-checkpoints", runId, generation);
+    return join("helix-checkpoints", runId, generation);
   };
   const inspect = (runId, generation, expectedRef = null) => {
     try {
@@ -504,7 +504,7 @@ export function makePrivateCheckpointEffect(repoRoot) {
       if (!relativePath || !gitIdentity(cwd) || gitIdentity(cwd).repository_ref !== identity.repository_ref) {
         return { ok: false, code: RUNNER_CODES.CHECKPOINT_FAILED };
       }
-      const runRelative = join("prime-checkpoints", runId);
+      const runRelative = join("helix-checkpoints", runId);
       const pendingRelative = join(runRelative, `${generation}.${process.pid}.${randomUUID()}.pending`);
       let pending = null;
       try {
@@ -809,8 +809,8 @@ export function validateRunnerState(state, expected = {}) {
   const countSum = countKeys.reduce((sum, key) => sum + counts[key], 0);
   const togglesValid = state.toggles === undefined
     || (state.toggles && typeof state.toggles === "object" && !Array.isArray(state.toggles)
-      && Object.keys(state.toggles).length === PRIME_TOGGLES.length
-      && PRIME_TOGGLES.every((name) => typeof state.toggles[name] === "boolean"));
+      && Object.keys(state.toggles).length === HELIX_TOGGLES.length
+      && HELIX_TOGGLES.every((name) => typeof state.toggles[name] === "boolean"));
   const targetKeys = state.run_target && typeof state.run_target === "object" && !Array.isArray(state.run_target)
     ? Object.keys(state.run_target)
     : [];
@@ -994,7 +994,7 @@ export function makeGitWorktreeEffect(repoRoot, { baseDir } = {}) {
   const rootIdentity = gitIdentity(repoRoot);
   const validRunId = (runId) => typeof runId === "string" && /^[A-Za-z0-9._-]+$/.test(runId)
     && runId !== "." && runId !== "..";
-  const branchForRun = (runId) => `prime/run-${hashRef(runId).slice("sha256:".length, "sha256:".length + 24)}`;
+  const branchForRun = (runId) => `helix/run-${hashRef(runId).slice("sha256:".length, "sha256:".length + 24)}`;
   const baseRelative = relative(resolve(repoRoot), resolve(requestedBase));
   const safeBase = () => {
     if (baseRelative === "" || baseRelative === ".." || baseRelative.startsWith(`..${sep}`)) return null;
@@ -1004,7 +1004,7 @@ export function makeGitWorktreeEffect(repoRoot, { baseDir } = {}) {
     try { lstatSync(path); return true; } catch (error) { return error?.code !== "ENOENT"; }
   };
   const branchExists = (branch) => git(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]).status === 0;
-  const ownerKey = (branch) => `branch.${branch}.primeOwner`;
+  const ownerKey = (branch) => `branch.${branch}.helixOwner`;
   const configuredOwner = (branch) => gitResult(repoRoot, ["config", "--local", "--get", ownerKey(branch)]);
   const baselineRef = (ref = "HEAD") => {
     const oid = gitResult(repoRoot, ["rev-parse", "--verify", ref]);
@@ -1207,7 +1207,7 @@ export function createStagedMockAdapter({ verdicts = {} } = {}) {
   return {
     calls,
     dispatchAdapter: {
-      kind: "prime-staged-mock",
+      kind: "helix-staged-mock",
       runCandidate(spec, ctx) {
         calls.candidates += 1;
         let recommendation = `${spec.role}-ok`;
@@ -1253,7 +1253,7 @@ export function createStagedMockAdapter({ verdicts = {} } = {}) {
 /**
  * Every provider a resolved cast names — INCLUDING panel_roles (a composite's
  * judge/synthesizer live only there on multi-member stages, not in `roles`).
- * The live-adapter guard and /prime's Live signal both scan this, so a real
+ * The live-adapter guard and /helix's Live signal both scan this, so a real
  * judge on an otherwise-mock cast can never masquerade as no-live.
  */
 export function allCastProviders(cast) {
@@ -1741,9 +1741,9 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
   const mock = deps.adapter ? null : createStagedMockAdapter();
   const dispatchAdapter = deps.adapter ?? mock.dispatchAdapter;
   const revisionModelAdapter = deps.revisionAdapter ?? mock?.revisionAdapter({
-    [config.objective_gate.path]: `Prime staged proposal\n${config.objective_gate.contains}\n`,
+    [config.objective_gate.path]: `Helix staged proposal\n${config.objective_gate.contains}\n`,
   }) ?? null;
-  const artifactEffect = deps.artifact_effect ?? ((mock || dispatchAdapter.kind === "prime-staged-mock")
+  const artifactEffect = deps.artifact_effect ?? ((mock || dispatchAdapter.kind === "helix-staged-mock")
     ? async (artifact, ctx) => {
       const path = resolve(ctx.cwd, artifact.path);
       const existing = existsSync(path) && isContainedRegularFile(ctx.cwd, path) ? readFileSync(path, "utf8") : "";

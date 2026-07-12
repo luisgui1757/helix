@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# selftest.sh — deterministic self-test for prime-worktree.sh. Creates a throwaway
+# selftest.sh — deterministic self-test for helix-worktree.sh. Creates a throwaway
 # git repo in a temp dir, exercises create/list/enter/merge/remove/prune, and
 # asserts behavior. No network, no touching the real repo.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WT="${SCRIPT_DIR}/prime-worktree.sh"
-GIT="git -c user.email=selftest@prime.local -c user.name=selftest -c commit.gpgsign=false -c init.defaultBranch=main"
+WT="${SCRIPT_DIR}/helix-worktree.sh"
+GIT="git -c user.email=selftest@helix.local -c user.name=selftest -c commit.gpgsign=false -c init.defaultBranch=main"
 
 TMP="$(mktemp -d)"
 cleanup() { rm -rf "$TMP"; }
@@ -36,7 +36,7 @@ printf 'SECRET=should-not-copy\n' > "${REPO}/.env"
 $GIT -C "$REPO" add file.txt
 $GIT -C "$REPO" commit -qm "init"
 
-echo "# prime-worktree self-test"
+echo "# helix-worktree self-test"
 
 # --- create -----------------------------------------------------------------
 ( cd "$REPO" && "$WT" create feat >/dev/null )
@@ -61,7 +61,7 @@ $GIT -C "$WT_PATH" add file2.txt
 $GIT -C "$WT_PATH" commit -qm "feat change"
 ( cd "$REPO" \
     && GIT_CONFIG_COUNT=3 \
-       GIT_CONFIG_KEY_0=user.email GIT_CONFIG_VALUE_0=selftest@prime.local \
+       GIT_CONFIG_KEY_0=user.email GIT_CONFIG_VALUE_0=selftest@helix.local \
        GIT_CONFIG_KEY_1=user.name  GIT_CONFIG_VALUE_1=selftest \
        GIT_CONFIG_KEY_2=commit.gpgsign GIT_CONFIG_VALUE_2=false \
        "$WT" merge feat >/dev/null )

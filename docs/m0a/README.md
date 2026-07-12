@@ -58,14 +58,14 @@ a non-secret-key whitelist; the shared repo still does not commit a provider def
 **Landed in the finalize slice (2026-07-03)** — all from installed Pi `0.80.3` source,
 evidence in [`reviews/m0a/pi-internals-2026-07-03.md`](../../reviews/m0a/pi-internals-2026-07-03.md):
 the **interactive `/` baseline is captured** (22 built-ins; `enableSkillCommands` default
-`true`; prime-added = 0), **native tool/function calling is verified** (nothing to build),
+`true`; helix-added = 0), **native tool/function calling is verified** (nothing to build),
 and the **compaction probe is resolved by code** (context files live in the system prompt,
 which compaction never touches → no drift, no `APPEND_SYSTEM.md`). The **Claude-auth spike**
 is partially run: local feasibility + documented economics settled; only the live-account
 billing probe stays deferred.
 
-**Landed in the resource slice (2026-07-04):** the Prime resource package surface:
-`package.json`, one consolidated `prime-ui` skill, Prime-prefixed Rose Pine themes,
+**Landed in the resource slice (2026-07-04):** the Helix resource package surface:
+`package.json`, one consolidated `helix-ui` skill, Helix-prefixed Rose Pine themes,
 the two pinned extension entrypoints, a resource invariant check, the Rose Pine
 package audit, and the Fusion-style dispatch
 research gate. Details: [`docs/resources/README.md`](../resources/README.md),

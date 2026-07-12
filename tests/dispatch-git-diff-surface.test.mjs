@@ -16,10 +16,10 @@ const GIT_ENV = {
   ...process.env,
   GIT_CONFIG_GLOBAL: devNull,
   GIT_CONFIG_SYSTEM: devNull,
-  GIT_AUTHOR_NAME: "prime-test",
-  GIT_AUTHOR_EMAIL: "prime@test.invalid",
-  GIT_COMMITTER_NAME: "prime-test",
-  GIT_COMMITTER_EMAIL: "prime@test.invalid",
+  GIT_AUTHOR_NAME: "helix-test",
+  GIT_AUTHOR_EMAIL: "helix@test.invalid",
+  GIT_COMMITTER_NAME: "helix-test",
+  GIT_COMMITTER_EMAIL: "helix@test.invalid",
   LC_ALL: "C",
   TZ: "UTC",
 };
@@ -32,7 +32,7 @@ function git(cwd, args) {
 
 /** A temp repo with one committed file `proposal.txt` and a clean tree. */
 function makeRepo() {
-  const dir = mkdtempSync(join(tmpdir(), "prime-diff-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-diff-"));
   git(dir, ["init", "-q"]);
   writeFileSync(join(dir, "proposal.txt"), "base\n");
   git(dir, ["add", "proposal.txt"]);
@@ -203,7 +203,7 @@ test("raw diff/patch text never appears in the structural surface", () => {
 // ----------------------------------------------------------------------------
 
 test("a non-git directory fails closed (not-a-git-repo)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-nogit-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-nogit-"));
   try {
     const result = computeDiffFingerprint({ cwd: dir });
     assert.equal(result.ok, false);
@@ -225,7 +225,7 @@ test("a missing baseline ref fails closed (missing-baseline)", () => {
 });
 
 test("an unsafe cwd or baseline ref fails closed before touching git", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-unsafe-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-unsafe-"));
   try {
     assert.equal(computeDiffFingerprint({ cwd: "" }).code, DIFF_SURFACE_CODES.UNSAFE_PATH);
     assert.equal(computeDiffFingerprint({ cwd: `${dir}\0evil` }).code, DIFF_SURFACE_CODES.UNSAFE_PATH);
@@ -239,7 +239,7 @@ test("an unsafe cwd or baseline ref fails closed before touching git", () => {
 });
 
 test("a git command failure fails closed (git-command-failed)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-gitfail-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-gitfail-"));
   try {
     const run = mockRun((args) => {
       if (args[0] === "status") return { status: 0, stdout: "", stderr: "" };
@@ -255,7 +255,7 @@ test("a git command failure fails closed (git-command-failed)", () => {
 });
 
 test("an unmerged/conflict index fails closed (index-ambiguous)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-conflict-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-conflict-"));
   try {
     const run = mockRun((args) => {
       if (args[0] === "status") return { status: 0, stdout: "UU conflict.txt\0", stderr: "" };
@@ -270,7 +270,7 @@ test("an unmerged/conflict index fails closed (index-ambiguous)", () => {
 });
 
 test("non-deterministic diff output fails closed (diff-nondeterministic)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-nondet-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-nondet-"));
   try {
     let patchCall = 0;
     const run = mockRun((args) => {
@@ -323,7 +323,7 @@ test("makeGitDiffStability reports baseline, then changing, then stable", () => 
 
 test("an untracked symlink becomes a target-string marker; its outside target is never read", () => {
   const repo = makeRepo();
-  const outside = mkdtempSync(join(tmpdir(), "prime-outside-"));
+  const outside = mkdtempSync(join(tmpdir(), "helix-outside-"));
   const secret = join(outside, "credential.txt");
   try {
     const clean = computeDiffFingerprint({ cwd: repo });
@@ -356,7 +356,7 @@ test("an untracked symlink becomes a target-string marker; its outside target is
 });
 
 test("an untracked non-regular entry (directory) becomes a structural marker, not a failure", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-nonfile-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-nonfile-"));
   try {
     mkdirSync(join(dir, "a-dir"));
     // git -uall normally lists files, not dirs; drive the branch via a boundary mock
@@ -400,8 +400,8 @@ test("credential-shaped untracked files are path markers: present in the fingerp
 });
 
 test("an untracked regular file whose realpath escapes the tree still fails closed", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-escape-"));
-  const outside = mkdtempSync(join(tmpdir(), "prime-escape-out-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-escape-"));
+  const outside = mkdtempSync(join(tmpdir(), "helix-escape-out-"));
   try {
     writeFileSync(join(outside, "evil.txt"), "OUTSIDE-BYTES-NEVER-READ");
     // dir/sub -> outside: a regular file reached through a symlinked PARENT resolves
@@ -423,7 +423,7 @@ test("an untracked regular file whose realpath escapes the tree still fails clos
 });
 
 test("an unreadable untracked entry fails closed (diff-read-failed)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-readfail-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-readfail-"));
   try {
     // The porcelain claims an entry that does not exist on disk ⇒ lstat fails.
     const result = computeDiffFingerprint({ cwd: dir, run: mockStatus(["ghost.txt"]) });
@@ -452,7 +452,7 @@ test("a staged rename does not misalign untracked-file detection (porcelain pars
 });
 
 test("makeGitDiffStability throws the fail-closed code outside a git repo", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-nogit2-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-nogit2-"));
   try {
     const check = makeGitDiffStability({ cwd: dir });
     assert.throws(

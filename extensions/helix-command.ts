@@ -1,5 +1,5 @@
 /**
- * Prime /prime - conservative Stage 3O control surface.
+ * Helix /helix - conservative Stage 3O control surface.
  *
  * One Pi slash command routes argument verbs through the pure core module:
  * dashboard, run preflight, structural run inspection, and TUI-confirmed
@@ -10,22 +10,22 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
-  executePrimeCommand,
-  getPrimeArgumentCompletions,
-  isPrimeMutationRequest,
-} from "./lib/prime-command-core.mjs";
+  executeHelixCommand,
+  getHelixArgumentCompletions,
+  isHelixMutationRequest,
+} from "./lib/helix-command-core.mjs";
 
 async function confirmMutation(args: string, ctx: ExtensionCommandContext): Promise<boolean | undefined> {
-  if (!isPrimeMutationRequest(args)) return undefined;
+  if (!isHelixMutationRequest(args)) return undefined;
   if (ctx.mode !== "tui") return undefined;
   if (typeof ctx.ui?.confirm !== "function") return undefined;
   return ctx.ui.confirm(
-    "Confirm Prime mutation",
-    "Apply this attended /prime state change? Review the command text before confirming.",
+    "Confirm Helix mutation",
+    "Apply this attended /helix state change? Review the command text before confirming.",
   );
 }
 
-const PROVIDER_TO_PRIME: Record<string, string> = {
+const PROVIDER_TO_HELIX: Record<string, string> = {
   "openai-codex": "openai-codex",
   openai: "openai-api",
   "openai-api": "openai-api",
@@ -47,7 +47,7 @@ async function availableModelInventory(args: string, ctx: ExtensionCommandContex
     if (!Array.isArray(available)) return null;
     return available.flatMap((entry: any) => {
       const model = entry?.model && typeof entry.model === "object" ? entry.model : entry;
-      const provider = PROVIDER_TO_PRIME[String(model?.provider ?? "")];
+      const provider = PROVIDER_TO_HELIX[String(model?.provider ?? "")];
       if (!provider || typeof model?.id !== "string") return [];
       return [{ provider, model: model.id, reasoning: model.reasoning === true }];
     });
@@ -56,11 +56,11 @@ async function availableModelInventory(args: string, ctx: ExtensionCommandContex
   }
 }
 
-export default function primeCommand(pi: ExtensionAPI) {
-  pi.registerCommand("prime", {
-    description: "Prime control surface: dashboard, run preflight, presets/chains/settings/profiles, setup casts, research preflight, run watch/resume/prune.",
+export default function helixCommand(pi: ExtensionAPI) {
+  pi.registerCommand("helix", {
+    description: "Helix control surface: dashboard, run preflight, presets/chains/settings/profiles, setup casts, research preflight, run watch/resume/prune.",
     getArgumentCompletions(argumentPrefix: string) {
-      return getPrimeArgumentCompletions(argumentPrefix);
+      return getHelixArgumentCompletions(argumentPrefix);
     },
     async handler(args: string, ctx: ExtensionCommandContext) {
       // Throw fence: an unexpected error (e.g. an fs failure) must never surface
@@ -70,19 +70,19 @@ export default function primeCommand(pi: ExtensionAPI) {
       try {
         const confirm = await confirmMutation(args, ctx);
         const modelInventory = await availableModelInventory(args, ctx);
-        out = executePrimeCommand(args, { mode: ctx.mode, confirm }, { modelInventory });
+        out = executeHelixCommand(args, { mode: ctx.mode, confirm }, { modelInventory });
       } catch {
         out = {
           ok: false,
           status: "fail-closed",
-          code: "prime-command-internal-error",
-          title: "Prime command refused",
-          text: "Prime refusal: prime-command-internal-error\nReason: an unexpected internal error occurred.\nNext safe action: retry /prime, or run /prime help.",
-          details: { code: "prime-command-internal-error", mutating: false },
+          code: "helix-command-internal-error",
+          title: "Helix command refused",
+          text: "Helix refusal: helix-command-internal-error\nReason: an unexpected internal error occurred.\nNext safe action: retry /helix, or run /helix help.",
+          details: { code: "helix-command-internal-error", mutating: false },
         };
       }
       pi.sendMessage({
-        customType: "prime-command",
+        customType: "helix-command",
         content: out.text,
         display: true,
         details: { title: out.title, ...out.details },

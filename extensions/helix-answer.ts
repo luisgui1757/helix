@@ -1,5 +1,5 @@
 /**
- * Prime \answer — interactive multi-CGS resolver
+ * Helix \answer — interactive multi-CGS resolver
  *
  * When more than one valid Canonical Gold Standard exists (circumstantial — e.g.
  * Docker vs Podman vs Apple Containers), the agent calls this tool with a TOP
@@ -40,7 +40,7 @@ const AnswerParams = Object.freeze({
   },
 });
 
-export default function primeAnswer(pi: ExtensionAPI) {
+export default function helixAnswer(pi: ExtensionAPI) {
   pi.registerTool({
     name: "answer",
     label: "Answer",

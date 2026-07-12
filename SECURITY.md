@@ -1,9 +1,9 @@
 # Security Policy
 
-`prime-reloaded` is a private release candidate. Keep it private until an
+`helix` is a private release candidate. Keep it private until an
 independent pre-publication audit verifies the complete Git object/ref graph,
 tracked content, pull-request metadata, repository settings, commit identity,
-and secret scan. The original `prime` repository is a private archive and must
+and secret scan. the legacy repository is a private archive and must
 never be made public; deleting ordinary branches does not remove persistent PR
 refs or historical objects from that repository network.
 
@@ -15,7 +15,7 @@ is Private or deleted. That confirmation cannot be inferred from a clean
 snapshot. The project is licensed under the MIT License; the root `LICENSE`
 file and package metadata must remain aligned.
 
-Prime's durable records are structural. Field-specific grammars reject URI- or
+Helix's durable records are structural. Field-specific grammars reject URI- or
 path-shaped model, provider, effect-code, and reference values at their input
 boundaries. All structural persistence goes through the shared root-confined
 writer, which verifies canonical containment, refuses symlinked parents and

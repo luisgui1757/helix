@@ -11,7 +11,7 @@ import {
 } from "../dispatch/lib/openrouter-revision-adapter.mjs";
 
 function tmp() {
-  return mkdtempSync(join(tmpdir(), "prime-openrouter-rev-"));
+  return mkdtempSync(join(tmpdir(), "helix-openrouter-rev-"));
 }
 
 function baseConfig(cwd, overrides = {}) {

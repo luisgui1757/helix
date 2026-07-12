@@ -90,7 +90,7 @@ No model call was made; this is metadata inventory only.
 | Check | Result | Basis |
 | --- | --- | --- |
 | Machine-local default provider is non-`google` | **PASS for this machine** | Non-secret whitelist of `~/.pi/agent/settings.json` shows `defaultProvider:"openai-codex"` and `defaultModel:"gpt-5.5"`; `auth.json` not read. The shared repo still does not commit a provider default. |
-| Project settings load Prime resources | **PASS by config** | Committed `.pi/settings.json` now points at `../skills/prime-ui`, `../themes`, and `theme:"prime-rose-pine"` in addition to telemetry booleans. |
+| Project settings load Helix resources | **PASS by config** | Committed `.pi/settings.json` now points at `../skills/helix-ui`, `../themes`, and `theme:"helix-rose-pine"` in addition to telemetry booleans. |
 | OpenAI Codex models visible | **PASS inventory** | `PI_TELEMETRY=0 PI_SKIP_VERSION_CHECK=1 pi --list-models --no-approve` lists OpenAI Codex models. No prompt was sent. |
 | OpenRouter `:free` models visible | **PASS inventory** | `pi --list-models openrouter --no-approve` lists multiple `:free` models. Future OpenRouter tests must use only `:free` model IDs. |
 | GitHub Copilot models visible | **PASS inventory** | `pi --list-models github --no-approve` lists Copilot models. Superseded 2026-07-05 for Phase-3 dispatch: `no-spend-test` excludes real Copilot calls; Copilot tests are personal/maintainer-profile only with a current pinned eligible model. `github-copilot/gpt-5-mini` was the cheapest Pi-visible candidate as of this inventory; re-check if `GPT-5.4 nano` becomes visible. |

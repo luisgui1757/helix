@@ -1,4 +1,4 @@
-// Prime dispatch — real working-tree diff surface (Stage 3H boundary effect).
+// Helix dispatch — real working-tree diff surface (Stage 3H boundary effect).
 //
 // Source of truth: fusion-dispatch-research.md §"Routing Policy" ("Convergence
 // means diff stability plus objective-gate pass") and §"Public-Safe Logging".

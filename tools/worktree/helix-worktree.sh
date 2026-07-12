@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# prime-worktree.sh — thin worktree-manager basics on canonical `git worktree`.
+# helix-worktree.sh — thin worktree-manager basics on canonical `git worktree`.
 #
 # Worktrees are the default for implementation / multi-agent work; in-place stays
 # available for read-only reviews and tiny edits (ROADMAP §9-Q1). This is the
@@ -13,18 +13,18 @@
 # keys machine-local (docs/m0a/provider-and-egress-posture.md).
 #
 # Usage:
-#   tools/worktree/prime-worktree.sh create <name> [branch] [base]
-#   tools/worktree/prime-worktree.sh list
-#   tools/worktree/prime-worktree.sh enter <name>
-#   tools/worktree/prime-worktree.sh merge <name> [--into <branch>]
-#   tools/worktree/prime-worktree.sh remove <name>
-#   tools/worktree/prime-worktree.sh prune
+#   tools/worktree/helix-worktree.sh create <name> [branch] [base]
+#   tools/worktree/helix-worktree.sh list
+#   tools/worktree/helix-worktree.sh enter <name>
+#   tools/worktree/helix-worktree.sh merge <name> [--into <branch>]
+#   tools/worktree/helix-worktree.sh remove <name>
+#   tools/worktree/helix-worktree.sh prune
 #
 # Exit: 0 ok · 1 error · 2 bad usage.
 
 set -euo pipefail
 
-die() { echo "prime-worktree: $*" >&2; exit 1; }
+die() { echo "helix-worktree: $*" >&2; exit 1; }
 usage() { sed -n '13,24p' "$0" | sed 's/^# \{0,1\}//'; }
 
 require_repo() {
@@ -130,7 +130,7 @@ main() {
     remove) require_repo; cmd_remove "$@" ;;
     prune)  require_repo; cmd_prune "$@" ;;
     -h|--help|"") usage ;;
-    *) echo "prime-worktree: unknown command '$sub'" >&2; usage >&2; exit 2 ;;
+    *) echo "helix-worktree: unknown command '$sub'" >&2; usage >&2; exit 2 ;;
   esac
 }
 

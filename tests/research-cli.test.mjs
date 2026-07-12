@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const cli = join(root, "tools", "research", "prime-research.mjs");
+const cli = join(root, "tools", "research", "helix-research.mjs");
 const runsRoot = join(root, "dispatch", "runs");
 
 function runCli(args) {

@@ -1,4 +1,4 @@
-// M9 — the toggle combination matrix: Prime must operate NOMINALLY under every
+// M9 — the toggle combination matrix: Helix must operate NOMINALLY under every
 // combination — all-on, all-off, each only-X-on singleton, and the owner's
 // three named scenarios. OFF degenerates; only explicit conflicts refuse.
 // Plus: every chain in the five-loop catalog executes end to end (mock, no-live).
@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import { runStagedTaskLoop, makeGitWorktreeEffect, createStagedMockAdapter } from "../dispatch/lib/runner.mjs";
 import { runResearch } from "../dispatch/lib/research.mjs";
 import { loadPresetRegistry } from "../dispatch/lib/presets.mjs";
-import { PRIME_TOGGLES } from "../dispatch/lib/settings.mjs";
+import { HELIX_TOGGLES } from "../dispatch/lib/settings.mjs";
 
 const NOW = 1_751_731_200;
 const presets = loadPresetRegistry(new URL("../dispatch/config/matrices/", import.meta.url).pathname).presets;
@@ -20,18 +20,18 @@ const chainRegistry = JSON.parse(readFileSync(new URL("../dispatch/config/chains
 const baseConfig = JSON.parse(readFileSync(new URL("../dispatch/config/run-configs.json", import.meta.url), "utf8")).configs[0];
 
 function vector(overrides = {}) {
-  return Object.fromEntries(PRIME_TOGGLES.map((t) => [t, overrides[t] ?? true]));
+  return Object.fromEntries(HELIX_TOGGLES.map((t) => [t, overrides[t] ?? true]));
 }
 
 function onlyOn(name) {
-  return Object.fromEntries(PRIME_TOGGLES.map((t) => [t, t === name]));
+  return Object.fromEntries(HELIX_TOGGLES.map((t) => [t, t === name]));
 }
 
 function tempRepo(files = { "proposal.txt": "initial\n" }) {
-  const cwd = mkdtempSync(join(tmpdir(), "prime-matrix-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-matrix-"));
   execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["config", "user.email", "prime@example.invalid"], { cwd });
-  execFileSync("git", ["config", "user.name", "Prime Matrix"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Matrix"], { cwd });
   const fixture = { "PLAN.md": "Real plan fixture for staged execution.\n", ...files };
   for (const [name, content] of Object.entries(fixture)) writeFileSync(join(cwd, name), content, "utf8");
   execFileSync("git", ["add", "-A"], { cwd });
@@ -74,7 +74,7 @@ test("all toggles ON: the flagship composite run converges (the baseline)", asyn
 });
 
 test("all toggles OFF: a solo plain-model config still operates nominally (single pass, gate reports)", async () => {
-  const toggles = Object.fromEntries(PRIME_TOGGLES.map((t) => [t, false]));
+  const toggles = Object.fromEntries(HELIX_TOGGLES.map((t) => [t, false]));
   const { result } = await runCombo({
     toggles,
     config: { ...baseConfig, ...SOLO_ASSIGNMENTS },
@@ -91,13 +91,13 @@ test("all toggles OFF: a solo plain-model config still operates nominally (singl
 });
 
 test("all toggles OFF but a composite cast: the explicit conflict refuses by toggle name", async () => {
-  const toggles = Object.fromEntries(PRIME_TOGGLES.map((t) => [t, false]));
+  const toggles = Object.fromEntries(HELIX_TOGGLES.map((t) => [t, false]));
   const { result } = await runCombo({ toggles, runId: "combo-all-off-composite" });
   assert.equal(result.ok, false);
   assert.equal(result.code, "toggle-disabled:multi-model");
 });
 
-for (const only of PRIME_TOGGLES) {
+for (const only of HELIX_TOGGLES) {
   test(`singleton: only '${only}' on — nominal operation or a clean structural refusal`, async () => {
     const toggles = onlyOn(only);
     const config = only === "multi-model" ? baseConfig : { ...baseConfig, ...SOLO_ASSIGNMENTS };

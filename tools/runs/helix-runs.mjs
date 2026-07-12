@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// prime-runs.mjs — list/status/prune structural Prime run records.
+// helix-runs.mjs — list/status/prune structural Helix run records.
 
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -10,9 +10,9 @@ const runsRoot = join(root, "dispatch", "runs");
 
 function usage(exitCode = 0) {
   console.log(`Usage:
-  node tools/runs/prime-runs.mjs list
-  node tools/runs/prime-runs.mjs status <run-id>
-  node tools/runs/prime-runs.mjs prune <run-id>
+  node tools/runs/helix-runs.mjs list
+  node tools/runs/helix-runs.mjs status <run-id>
+  node tools/runs/helix-runs.mjs prune <run-id>
 
 Reads only structural JSON under dispatch/runs/.`);
   process.exit(exitCode);
@@ -36,5 +36,5 @@ if (cmd === "prune") {
   process.exit(result.ok ? 0 : 1);
 }
 if (cmd === "-h" || cmd === "--help" || !cmd) usage(0);
-console.error(`prime-runs: unknown command ${cmd}`);
+console.error(`helix-runs: unknown command ${cmd}`);
 usage(2);

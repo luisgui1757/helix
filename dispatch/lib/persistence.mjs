@@ -1,4 +1,4 @@
-// Prime dispatch — root-confined local persistence.
+// Helix dispatch — root-confined local persistence.
 //
 // Structural records are public-safe data, but their storage paths are still an
 // external boundary: a caller-controlled symlink must never turn a local write

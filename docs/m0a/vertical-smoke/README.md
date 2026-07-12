@@ -1,6 +1,6 @@
 # First thin vertical smoke (M0b/M0c staging)
 
-The **smallest complete** usable path through Prime's intended workflow, shipped as
+The **smallest complete** usable path through Helix's intended workflow, shipped as
 checklists + one status script — **before** the full systems exist. It lets a human or a
 future agent run one meaningful task end-to-end using only Pi natives + `git` + these
 docs, and it is the manual stand-in that each later phase will replace with real tooling.

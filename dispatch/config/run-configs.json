@@ -15,7 +15,7 @@
       "objective_gate": {
         "type": "file-contains",
         "path": "proposal.txt",
-        "contains": "PRIME_LOOP_PASS"
+        "contains": "HELIX_LOOP_PASS"
       },
       "parallel": {
         "max_concurrency": 2

@@ -3,7 +3,7 @@
 Keeps Pi's yolo-by-default speed while fencing irreversible / high-blast-radius operations
 behind an explicit confirm. Phase-1 keystone (ROADMAP §7-Theme E).
 
-- Extension: `extensions/prime-fence.ts`
+- Extension: `extensions/helix-fence.ts`
 - Pure rules: `extensions/lib/fence-rules.mjs`
 - Tests: `tests/fence-rules.test.mjs`, `tests/fence-extension.test.mjs`
 
@@ -71,6 +71,6 @@ Containment must come from the OS / a virtualization boundary, not this regex:
   blocked in **every non-tui mode** (`rpc` with `hasUI:true`, `json`, `print`), incl. an
   explicit RPC regression case; safe allowed; protected write blocked; TTY confirm
   allow/deny honored; risky `user_bash` refused off-terminal. 10/10.
-- Loads into real Pi 0.80.3 offline (`pi -e ./extensions/prime-fence.ts … --list-models`,
+- Loads into real Pi 0.80.3 offline (`pi -e ./extensions/helix-fence.ts … --list-models`,
   exit 0). A full model-driven block is additionally exercisable via the lockdown mock, but
   the deterministic proof is the harness above.

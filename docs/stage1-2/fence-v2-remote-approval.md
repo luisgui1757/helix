@@ -3,7 +3,7 @@
 Status: design note only, 2026-07-08. No remote approval is enabled.
 
 Remote control is remote code execution on the development machine. The current
-`prime-fence` contract therefore remains:
+`helix-fence` contract therefore remains:
 
 ```ts
 ctx.mode === "tui"
@@ -15,7 +15,7 @@ when `ctx.hasUI` is true.
 ## Why Remote Approval Is Not Enabled
 
 Routing approvals through a remote device would relax the current yolo-fence
-contract. That requires a new design, not an exception in `prime-fence`.
+contract. That requires a new design, not an exception in `helix-fence`.
 `remote-pi` also remains blocked until package audit, relay evidence, and current
 Pi compatibility clear.
 

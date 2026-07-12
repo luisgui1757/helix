@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const TRUTH_BEGIN = "<!-- PRIME-DOCS-TRUTH:BEGIN -->";
-const TRUTH_END = "<!-- PRIME-DOCS-TRUTH:END -->";
+const TRUTH_BEGIN = "<!-- HELIX-DOCS-TRUTH:BEGIN -->";
+const TRUTH_END = "<!-- HELIX-DOCS-TRUTH:END -->";
 export const HISTORICAL_STAGE_BANNER = "Historical implementation record — not current operational documentation";
 
 function readText(root, rel) {
@@ -57,7 +57,7 @@ export function collectDocsTruthFacts(root = ROOT) {
       extension_entries: pkg.pi?.extensions?.length ?? 0,
     },
     extension_slash_commands: countExtensionSlashCommands(root, pkg),
-    prime_command_surface: "one /prime command with verbs",
+    helix_command_surface: "one /helix command with verbs",
     roadmap_status_snippet: "Stage 3P whole-repo gap closure",
   };
 }
@@ -66,11 +66,11 @@ export function parseReadmeTruthBlock(readmeText) {
   const begin = readmeText.indexOf(TRUTH_BEGIN);
   const end = readmeText.indexOf(TRUTH_END);
   if (begin === -1 || end === -1 || end <= begin) {
-    throw new Error("README.md is missing PRIME-DOCS-TRUTH block");
+    throw new Error("README.md is missing HELIX-DOCS-TRUTH block");
   }
   const body = readmeText.slice(begin + TRUTH_BEGIN.length, end);
   const match = body.match(/```json\s*([\s\S]*?)\s*```/);
-  if (!match) throw new Error("README.md PRIME-DOCS-TRUTH block must contain a json fence");
+  if (!match) throw new Error("README.md HELIX-DOCS-TRUTH block must contain a json fence");
   return JSON.parse(match[1]);
 }
 
@@ -109,7 +109,7 @@ export function checkDocsTruth(root = ROOT) {
     locked = null;
   }
   if (locked && !sameJson(locked, facts)) {
-    errors.push(`README.md PRIME-DOCS-TRUTH drifted: expected ${JSON.stringify(facts)} got ${JSON.stringify(locked)}`);
+    errors.push(`README.md HELIX-DOCS-TRUTH drifted: expected ${JSON.stringify(facts)} got ${JSON.stringify(locked)}`);
   }
   requireSnippet(errors, root, "ROADMAP.md", facts.roadmap_status_snippet);
   requireSnippet(errors, root, "ROADMAP.md", "Current v1 | Publication hardening");
@@ -122,8 +122,8 @@ export function checkDocsTruth(root = ROOT) {
   rejectSnippet(errors, root, "ROADMAP_SUMMARY.html", "322 tests");
   rejectSnippet(errors, root, "ROADMAP_SUMMARY.html", "362 node tests");
   rejectSnippet(errors, root, "ROADMAP_SUMMARY.html", "358 top-level node test declarations");
-  requireSnippet(errors, root, "docs/resources/README.md", "/prime help");
-  requireSnippet(errors, root, "docs/manual.md", "/prime help");
+  requireSnippet(errors, root, "docs/resources/README.md", "/helix help");
+  requireSnippet(errors, root, "docs/manual.md", "/helix help");
   requireSnippet(errors, root, "docs/stage3/design-contracts.md", "Fail closed on structure, YOLO on behavior");
   requireSnippet(errors, root, "docs/stage3/design-contracts.md", "Named Stage 3B-N implementation pages are dated historical records");
   requireHistoricalStageBanners(errors, root);

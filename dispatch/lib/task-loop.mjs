@@ -1,4 +1,4 @@
-// Prime dispatch — bounded task-loop entrypoint (Stage 3M/N).
+// Helix dispatch — bounded task-loop entrypoint (Stage 3M/N).
 //
 // This is the code-level entrypoint for daily-use loop configs. It composes the
 // existing Stage 3 primitives instead of adding new authority:
@@ -276,7 +276,7 @@ export async function runTaskLoop(config, registries, deps = {}) {
   const mock = deps.adapter ? null : createNoLiveMockAdapter();
   const dispatchAdapter = deps.adapter ?? mock.dispatchAdapter;
   const revisionModelAdapter = deps.revisionAdapter ?? mock?.revisionAdapter({
-    [config.objective_gate.path]: `Prime synthetic proposal\n${config.objective_gate.contains}\n`,
+    [config.objective_gate.path]: `Helix synthetic proposal\n${config.objective_gate.contains}\n`,
   }) ?? null;
 
   const revise = makeModelRevision({

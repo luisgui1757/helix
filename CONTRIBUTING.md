@@ -1,6 +1,6 @@
 # Contributing
 
-Prime uses `AGENTS.md` as the repository entrypoint and Operating Contract. Read
+Helix uses `AGENTS.md` as the repository entrypoint and Operating Contract. Read
 it before changing code, behavior, architecture, or review artifacts.
 
 ## Instruction Sync
@@ -32,14 +32,14 @@ drift and the maintainer approves pinning a minimal non-negotiable subset.
 - Do not run live provider proofs without explicit maintainer approval for the
   named proof.
 - Do not merge PRs without maintainer approval.
-- Keep Prime's command surface consolidated under one `/prime` slash command
+- Keep Helix's command surface consolidated under one `/helix` slash command
   with verbs unless a future design explicitly justifies a top-level command.
 
 ## Publication Discipline
 
-- Treat the original `prime` repository as a permanently private archive. Do
+- Treat the legacy repository as a permanently private archive. Do
   not change its visibility or use it as the publishing remote.
-- Publish `prime-reloaded` only from a fresh single-root history containing the
+- Publish `helix` only from a fresh single-root history containing the
   reviewed tracked snapshot. Never mirror or fetch the old object database,
   refs, tags, pull-request refs, commits, or repository-network relationship
   into it. Independently regenerated, byte-identical audited-safe blobs and
@@ -48,7 +48,7 @@ drift and the maintainer approves pinning a minimal non-negotiable subset.
 - Use the maintainer's verified GitHub noreply identity for every public
   candidate commit. Commit messages and repository metadata must not carry
   session links, provenance footers, personal email, or private paths.
-- Keep `prime-reloaded` private until the final independent audit, fresh secret
+- Keep `helix` private until the final independent audit, fresh secret
   scan, and confirmation that prior Claude Code web sessions are Private or
   deleted. Keep the root MIT `LICENSE` and package metadata aligned. Visibility
   changes remain maintainer-owned.

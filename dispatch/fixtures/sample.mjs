@@ -1,4 +1,4 @@
-// Prime dispatch — deterministic sample builders for tests and fixtures.
+// Helix dispatch — deterministic sample builders for tests and fixtures.
 //
 // These produce structurally valid role envelopes over synthetic content only
 // (no private code, no secrets). Overrides are merged shallowly; `usage` and

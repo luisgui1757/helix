@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Prime lockdown smoke image — the canonical "Plain Docker" boundary from Pi's
+# Helix lockdown smoke image — the canonical "Plain Docker" boundary from Pi's
 # own docs/containerization.md, pinned to the Pi version this repo is verified
 # against (ROADMAP §4).
 #

@@ -1,13 +1,13 @@
-// Prime dispatch — canonical provider identity + canonical→Pi mapping.
+// Helix dispatch — canonical provider identity + canonical→Pi mapping.
 //
-// Provider identifiers in run records are Prime-canonical, not the verbatim Pi
+// Provider identifiers in run records are Helix-canonical, not the verbatim Pi
 // provider id (spec §"Provider And Cost Policy"). Stage 3B owns this mapping.
 
 /**
- * The canonical Prime provider set. Order is stable and used by the role
+ * The canonical Helix provider set. Order is stable and used by the role
  * envelope provider enum.
  */
-export const PRIME_PROVIDERS = Object.freeze([
+export const HELIX_PROVIDERS = Object.freeze([
   "openai-codex",
   "openai-api",
   "openrouter",
@@ -18,7 +18,7 @@ export const PRIME_PROVIDERS = Object.freeze([
 ]);
 
 /**
- * Canonical Prime provider → Pi/runtime source. Descriptive only (no ids, no
+ * Canonical Helix provider → Pi/runtime source. Descriptive only (no ids, no
  * secrets). Source of truth: fusion-dispatch-research.md §"Provider And Cost
  * Policy".
  */
@@ -40,8 +40,8 @@ export const PROVIDER_PI_SOURCE = Object.freeze({
 export const NON_AUTOMATED_PROVIDERS = Object.freeze(["claude-local"]);
 
 /** @param {unknown} provider */
-export function isPrimeProvider(provider) {
-  return typeof provider === "string" && PRIME_PROVIDERS.includes(provider);
+export function isHelixProvider(provider) {
+  return typeof provider === "string" && HELIX_PROVIDERS.includes(provider);
 }
 
 /**
@@ -57,7 +57,7 @@ export function piSourceFor(provider) {
 
 /** Whether a canonical provider is eligible for automated dispatch this stage. */
 export function isAutomatedDispatchProvider(provider) {
-  return isPrimeProvider(provider) && !NON_AUTOMATED_PROVIDERS.includes(provider);
+  return isHelixProvider(provider) && !NON_AUTOMATED_PROVIDERS.includes(provider);
 }
 
 /**

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# no-egress-smoke.sh — Prime Level-2 lockdown smoke (canonical boundary: Plain
+# no-egress-smoke.sh — Helix Level-2 lockdown smoke (canonical boundary: Plain
 # Docker with `--network none`, per Pi's docs/containerization.md).
 #
 # WHAT IT PROVES (deny-by-default, no secrets, no spend, no host firewall changes):
@@ -9,7 +9,7 @@
 #                      BLOCKED (no route). Deny-by-default is real, not configured.
 #   2. startup-offline — a representative Pi startup path (`pi --version`,
 #                      `pi --approve --no-session --list-models`, which loads the
-#                      committed .pi/settings.json + prime-ui skill + Rose Pine
+#                      committed .pi/settings.json + helix-ui skill + Rose Pine
 #                      themes) completes with exit 0 and ZERO network available.
 #   3. active-mock (opt-in, --active) — a full Pi session (`pi -p`) routed at a
 #                      LOCAL mock "approved provider" on 127.0.0.1 returns its
@@ -31,7 +31,7 @@
 set -euo pipefail
 
 PI_VERSION="0.80.3"
-IMAGE="prime-lockdown-smoke:${PI_VERSION}"
+IMAGE="helix-lockdown-smoke:${PI_VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
@@ -66,7 +66,7 @@ drun() {
     "${IMAGE}" "$@"
 }
 
-echo "# Prime Level-2 lockdown smoke"
+echo "# Helix Level-2 lockdown smoke"
 echo "  boundary:   Plain Docker, docker run --network none (deny-by-default)"
 echo "  image:      ${IMAGE}"
 echo "  repo mount: ${REPO_ROOT} -> /workspace (read-only)"
@@ -95,39 +95,39 @@ echo "## Checks"
 # --- Check 1: deny-by-default egress ----------------------------------------
 # An outbound fetch to a non-allowlisted endpoint must fail (no route in --network none).
 for host in "https://pi.dev/api/latest-version" "https://api.openai.com/v1/models"; do
-  if drun node -e "fetch('${host}',{signal:AbortSignal.timeout(5000)}).then(()=>{console.log('REACHED');process.exit(9)}).catch(e=>{console.log('blocked:'+(e.cause&&e.cause.code||e.name));process.exit(0)})" >/tmp/prime_deny.$$ 2>&1; then
-    record "deny-egress -> ${host}" "PASS" "$(cat /tmp/prime_deny.$$)"
+  if drun node -e "fetch('${host}',{signal:AbortSignal.timeout(5000)}).then(()=>{console.log('REACHED');process.exit(9)}).catch(e=>{console.log('blocked:'+(e.cause&&e.cause.code||e.name));process.exit(0)})" >/tmp/helix_deny.$$ 2>&1; then
+    record "deny-egress -> ${host}" "PASS" "$(cat /tmp/helix_deny.$$)"
   else
     record "deny-egress -> ${host}" "FAIL" "endpoint was REACHABLE (exit $?)"
   fi
-  rm -f /tmp/prime_deny.$$
+  rm -f /tmp/helix_deny.$$
 done
 
 # --- Check 2: representative Pi startup path, offline + no network -----------
-if drun pi --version >/tmp/prime_ver.$$ 2>&1 && grep -q "${PI_VERSION}" /tmp/prime_ver.$$; then
+if drun pi --version >/tmp/helix_ver.$$ 2>&1 && grep -q "${PI_VERSION}" /tmp/helix_ver.$$; then
   record "startup: pi --version" "PASS" "exit 0, reports ${PI_VERSION}"
 else
   record "startup: pi --version" "FAIL" "exit $? / version mismatch"
 fi
-rm -f /tmp/prime_ver.$$
+rm -f /tmp/helix_ver.$$
 
-if drun pi --approve --no-session --list-models >/tmp/prime_lm.$$ 2>&1; then
-  record "startup: pi --approve --list-models (loads .pi settings + prime-ui + themes)" "PASS" "exit 0"
+if drun pi --approve --no-session --list-models >/tmp/helix_lm.$$ 2>&1; then
+  record "startup: pi --approve --list-models (loads .pi settings + helix-ui + themes)" "PASS" "exit 0"
 else
   record "startup: pi --approve --list-models" "FAIL" "exit $?"
 fi
-rm -f /tmp/prime_lm.$$
+rm -f /tmp/helix_lm.$$
 
 # --- Check 3 (opt-in): active session to a LOCAL mock approved endpoint ------
 if [ "$DO_ACTIVE" -eq 1 ]; then
-  if drun bash /workspace/tools/lockdown/container-active-probe.sh >/tmp/prime_active.$$ 2>&1; then
-    detail="$(grep -E '^(RESULT|MOCK|PI_RC)' /tmp/prime_active.$$ | tr '\n' ';')"
+  if drun bash /workspace/tools/lockdown/container-active-probe.sh >/tmp/helix_active.$$ 2>&1; then
+    detail="$(grep -E '^(RESULT|MOCK|PI_RC)' /tmp/helix_active.$$ | tr '\n' ';')"
     record "active-mock: pi session reaches only 127.0.0.1 mock" "PASS" "${detail:-ok}"
   else
-    detail="$(tail -3 /tmp/prime_active.$$ | tr '\n' ' ')"
+    detail="$(tail -3 /tmp/helix_active.$$ | tr '\n' ' ')"
     record "active-mock: pi session reaches only 127.0.0.1 mock" "FAIL" "${detail}"
   fi
-  rm -f /tmp/prime_active.$$
+  rm -f /tmp/helix_active.$$
 else
   record "active-mock (opt-in, --active)" "SKIP" "not requested; run with --active to exercise the mock session"
 fi

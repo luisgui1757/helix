@@ -2,7 +2,7 @@
 
 Status: behavior-level guidance only, 2026-07-08. No slash UX is added here.
 
-Prime's planning discipline is adopted by reference from `AGENTS.md` and the
+Helix's planning discipline is adopted by reference from `AGENTS.md` and the
 Operating Contract. A future plan-mode extension may make that discipline easier
 to follow, but it must not duplicate the full contract or create a sprawling
 planning UI.

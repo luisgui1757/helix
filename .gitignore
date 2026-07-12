@@ -19,7 +19,7 @@ reviews/runs/*
 # until a mechanical public-safe export step exists — Stage 3B).
 dispatch/runs/
 
-# User-local Prime state: feature-toggle settings + profiles (personal casts).
+# User-local Helix state: feature-toggle settings + profiles (personal casts).
 # Never tracked — real member lineups depend on personal provider logins.
 dispatch/local/
 

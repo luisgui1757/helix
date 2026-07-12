@@ -2,7 +2,7 @@
   "schema_version": 1,
   "preset_id": "overlord",
   "display_name": "Overlord",
-  "description": "Max multi-provider panel for hard/risky work: strongest planner and builder, provider-independent reviewers and red-team, blind judge and synthesizer. Tracked SKELETON with mock members — real lineups live in your untracked profile, assembled via /prime setup from your actual provider logins.",
+  "description": "Max multi-provider panel for hard/risky work: strongest planner and builder, provider-independent reviewers and red-team, blind judge and synthesizer. Tracked SKELETON with mock members — real lineups live in your untracked profile, assembled via /helix setup from your actual provider logins.",
   "degradation": "fail-closed",
   "roles": {
     "planner": [

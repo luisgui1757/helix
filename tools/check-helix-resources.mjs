@@ -109,16 +109,16 @@ function checkPackage() {
   const pkg = readJson("package.json");
   if (!pkg) return;
   if (!sameArray(pkg.keywords, ["pi-package", "pi-skill", "pi-theme", "pi-extension"])) {
-    fail("package.json: keywords must identify the Prime Pi package surface");
+    fail("package.json: keywords must identify the Helix Pi package surface");
   }
-  if (!sameArray(pkg.pi?.skills, ["./skills/prime-ui"])) {
-    fail("package.json: pi.skills must expose exactly ./skills/prime-ui");
+  if (!sameArray(pkg.pi?.skills, ["./skills/helix-ui"])) {
+    fail("package.json: pi.skills must expose exactly ./skills/helix-ui");
   }
   if (!sameArray(pkg.pi?.themes, ["./themes"])) {
     fail("package.json: pi.themes must expose exactly ./themes");
   }
-  if (!sameArray(pkg.pi?.extensions, ["./extensions/prime-fence.ts", "./extensions/prime-answer.ts", "./extensions/prime-command.ts"])) {
-    fail("package.json: pi.extensions must expose exactly prime-fence.ts, prime-answer.ts, and prime-command.ts");
+  if (!sameArray(pkg.pi?.extensions, ["./extensions/helix-fence.ts", "./extensions/helix-answer.ts", "./extensions/helix-command.ts"])) {
+    fail("package.json: pi.extensions must expose exactly helix-fence.ts, helix-answer.ts, and helix-command.ts");
   }
   for (const depKey of ["dependencies", "optionalDependencies", "peerDependencies"]) {
     if (pkg[depKey] && Object.keys(pkg[depKey]).length > 0) {
@@ -139,23 +139,23 @@ function checkSettings() {
   if (settings.defaultProvider !== undefined) {
     fail(".pi/settings.json: defaultProvider must remain machine-local");
   }
-  if (settings.theme !== "prime-rose-pine") {
-    fail(".pi/settings.json: theme must be prime-rose-pine");
+  if (settings.theme !== "helix-rose-pine") {
+    fail(".pi/settings.json: theme must be helix-rose-pine");
   }
-  if (!sameArray(settings.skills, ["../skills/prime-ui"])) {
-    fail(".pi/settings.json: skills must point only at ../skills/prime-ui");
+  if (!sameArray(settings.skills, ["../skills/helix-ui"])) {
+    fail(".pi/settings.json: skills must point only at ../skills/helix-ui");
   }
   if (!sameArray(settings.themes, ["../themes"])) {
     fail(".pi/settings.json: themes must point only at ../themes");
   }
-  if (!sameArray(settings.extensions, ["../extensions/prime-fence.ts", "../extensions/prime-answer.ts", "../extensions/prime-command.ts"])) {
-    fail(".pi/settings.json: extensions must point only at prime-fence.ts, prime-answer.ts, and prime-command.ts");
+  if (!sameArray(settings.extensions, ["../extensions/helix-fence.ts", "../extensions/helix-answer.ts", "../extensions/helix-command.ts"])) {
+    fail(".pi/settings.json: extensions must point only at helix-fence.ts, helix-answer.ts, and helix-command.ts");
   }
 }
 
 function checkExtensions() {
   const tsFiles = walk("extensions", (path) => path.endsWith(".ts")).sort();
-  const expected = ["extensions/prime-answer.ts", "extensions/prime-command.ts", "extensions/prime-fence.ts"];
+  const expected = ["extensions/helix-answer.ts", "extensions/helix-command.ts", "extensions/helix-fence.ts"];
   if (!sameArray(tsFiles, expected)) {
     fail(`extensions: expected exactly ${expected.join(", ")}, got ${tsFiles.join(", ") || "(none)"}`);
   }
@@ -163,25 +163,25 @@ function checkExtensions() {
 
 function checkSkills() {
   const skillFiles = walk("skills", (path) => path.endsWith("/SKILL.md"));
-  if (!sameArray(skillFiles, ["skills/prime-ui/SKILL.md"])) {
-    fail(`skills: expected only skills/prime-ui/SKILL.md, got ${skillFiles.join(", ")}`);
+  if (!sameArray(skillFiles, ["skills/helix-ui/SKILL.md"])) {
+    fail(`skills: expected only skills/helix-ui/SKILL.md, got ${skillFiles.join(", ")}`);
     return;
   }
   const text = readFileSync(join(root, skillFiles[0]), "utf8");
   const frontmatter = parseFrontmatter(text);
-  if (frontmatter.name !== "prime-ui") {
-    fail("skills/prime-ui/SKILL.md: frontmatter name must be prime-ui");
+  if (frontmatter.name !== "helix-ui") {
+    fail("skills/helix-ui/SKILL.md: frontmatter name must be helix-ui");
   }
   if (!frontmatter.description || frontmatter.description.length > 1024) {
-    fail("skills/prime-ui/SKILL.md: description is required and must be <= 1024 chars");
+    fail("skills/helix-ui/SKILL.md: description is required and must be <= 1024 chars");
   }
 }
 
 function checkThemes() {
   const expectedNames = [
-    "prime-rose-pine",
-    "prime-rose-pine-dawn",
-    "prime-rose-pine-moon"
+    "helix-rose-pine",
+    "helix-rose-pine-dawn",
+    "helix-rose-pine-moon"
   ];
   const themeFiles = walk("themes", (path) => path.endsWith(".json")).sort();
   const names = [];
@@ -265,4 +265,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log("Prime resource checks passed.");
+console.log("Helix resource checks passed.");

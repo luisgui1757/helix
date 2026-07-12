@@ -1,4 +1,4 @@
-// Prime dispatch — structural run directory hygiene/status tooling (Stage 3N).
+// Helix dispatch — structural run directory hygiene/status tooling (Stage 3N).
 //
 // Run records stay gitignored under dispatch/runs until a public export step
 // exists. This module only manages structural JSON records and summaries; it

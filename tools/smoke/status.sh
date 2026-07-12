@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# status.sh — Prime thin-vertical-smoke status visibility (offline, no secrets).
+# status.sh — Helix thin-vertical-smoke status visibility (offline, no secrets).
 #
 # A one-shot, read-only view of the safety/provider/worktree context a future
 # status bar will surface. It makes NO network call and reads NO secrets: it
@@ -16,7 +16,7 @@ export PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0
 
 kv() { printf '  %-26s %s\n' "$1" "$2"; }
 
-echo "# Prime status (offline, no secrets)"
+echo "# Helix status (offline, no secrets)"
 
 # --- Pi ---------------------------------------------------------------------
 if command -v pi >/dev/null 2>&1; then

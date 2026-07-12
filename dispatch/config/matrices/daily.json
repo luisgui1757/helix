@@ -2,7 +2,7 @@
   "schema_version": 1,
   "preset_id": "daily",
   "display_name": "Daily",
-  "description": "Light crew for normal work: one strong builder, one cheap reviewer, a fast scout. Tracked SKELETON with mock members — real lineups live in your untracked profile, assembled via /prime setup.",
+  "description": "Light crew for normal work: one strong builder, one cheap reviewer, a fast scout. Tracked SKELETON with mock members — real lineups live in your untracked profile, assembled via /helix setup.",
   "degradation": "fail-closed",
   "roles": {
     "planner": [

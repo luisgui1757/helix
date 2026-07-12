@@ -1,4 +1,4 @@
-// Prime dispatch — staged chain registry (M3, owner interview 2026-07-09).
+// Helix dispatch — staged chain registry (M3, owner interview 2026-07-09).
 //
 // A chain is an ordered list of STAGES; each stage is a mini-loop. A reviewer
 // VERDICT may route control (stay in the stage, advance, or jump back to a

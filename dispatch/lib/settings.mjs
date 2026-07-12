@@ -1,6 +1,6 @@
-// Prime dispatch — feature-toggle settings substrate (M2, owner interview 2026-07-09).
+// Helix dispatch — feature-toggle settings substrate (M2, owner interview 2026-07-09).
 //
-// Six user-local toggles select Prime's behavior; all default ON. OFF never
+// Six user-local toggles select Helix's behavior; all default ON. OFF never
 // errors — each feature defines its degenerate form (multi-model off ⇒ solo
 // model; loops off ⇒ single pass; autoresearch off ⇒ verb refusal;
 // context-engine off ⇒ transcript pass-through; worktree off ⇒ working-tree
@@ -14,7 +14,7 @@
 // toggle vector so every run is reproducible against the settings it ran under.
 //
 // NOT toggleable (invariants, not features): public-safe structural records,
-// CI-never-live, the single /prime command, the max_iterations rail, and
+// CI-never-live, the single /helix command, the max_iterations rail, and
 // structural fail-closed validation.
 
 import { existsSync, readFileSync } from "node:fs";
@@ -23,7 +23,7 @@ import { validate } from "./schema.mjs";
 import { writeTextAtomic } from "./persistence.mjs";
 
 /** The six product toggles, in display order. */
-export const PRIME_TOGGLES = Object.freeze([
+export const HELIX_TOGGLES = Object.freeze([
   "multi-model",
   "loops",
   "autoresearch",
@@ -36,10 +36,10 @@ export const PRIME_TOGGLES = Object.freeze([
 export const DEFAULT_SETTINGS_REL_PATH = "dispatch/local/settings.json";
 
 export const SETTINGS_CODES = Object.freeze({
-  UNREADABLE: "prime-settings-unreadable",
-  INVALID: "prime-settings-invalid",
-  VERSION_MISMATCH: "prime-settings-version-mismatch",
-  WRITE_FAILED: "prime-settings-write-failed",
+  UNREADABLE: "helix-settings-unreadable",
+  INVALID: "helix-settings-invalid",
+  VERSION_MISMATCH: "helix-settings-version-mismatch",
+  WRITE_FAILED: "helix-settings-write-failed",
 });
 
 export const SETTINGS_SCHEMA = Object.freeze({
@@ -51,8 +51,8 @@ export const SETTINGS_SCHEMA = Object.freeze({
     toggles: {
       type: "object",
       additionalProperties: false,
-      required: [...PRIME_TOGGLES],
-      properties: Object.fromEntries(PRIME_TOGGLES.map((t) => [t, { type: "boolean" }])),
+      required: [...HELIX_TOGGLES],
+      properties: Object.fromEntries(HELIX_TOGGLES.map((t) => [t, { type: "boolean" }])),
     },
   },
 });
@@ -63,7 +63,7 @@ export const SETTINGS_SCHEMA_VERSION = 1;
 export function defaultSettings() {
   return Object.freeze({
     schema_version: SETTINGS_SCHEMA_VERSION,
-    toggles: Object.freeze(Object.fromEntries(PRIME_TOGGLES.map((t) => [t, true]))),
+    toggles: Object.freeze(Object.fromEntries(HELIX_TOGGLES.map((t) => [t, true]))),
   });
 }
 
@@ -146,7 +146,7 @@ export function saveSettings(settings, path) {
  * @returns {{ok:true}|{ok:false, code:string}}
  */
 export function requireToggle(settings, toggle) {
-  if (!PRIME_TOGGLES.includes(toggle)) {
+  if (!HELIX_TOGGLES.includes(toggle)) {
     return { ok: false, code: `unknown-toggle:${String(toggle)}` };
   }
   if (settings?.toggles?.[toggle] === true) return { ok: true };
@@ -159,5 +159,5 @@ export function requireToggle(settings, toggle) {
  */
 export function toggleVector(settings) {
   const toggles = settings?.toggles ?? {};
-  return Object.freeze(Object.fromEntries(PRIME_TOGGLES.map((t) => [t, toggles[t] === true])));
+  return Object.freeze(Object.fromEntries(HELIX_TOGGLES.map((t) => [t, toggles[t] === true])));
 }

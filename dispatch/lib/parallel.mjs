@@ -1,4 +1,4 @@
-// Prime dispatch — thin parallel-launch substrate (bounded, deterministic output).
+// Helix dispatch — thin parallel-launch substrate (bounded, deterministic output).
 //
 // Source of truth: the Pi `examples/extensions/subagent` pattern the ROADMAP
 // points at: parallel mode runs at most a fixed number of tasks concurrently via
@@ -6,7 +6,7 @@
 // reproduces just that pattern, pure and dependency-free — no subprocesses,
 // no network, no ambient effects. Only embarrassingly-parallel candidate launches
 // use it; the orchestrator still sequences judge/synthesis/gate/verification.
-// The concurrency cap is a resource bound, not cost control (Prime has none).
+// The concurrency cap is a resource bound, not cost control (Helix has none).
 
 /**
  * Map `items` through `fn` with at most `concurrency` calls in flight, returning

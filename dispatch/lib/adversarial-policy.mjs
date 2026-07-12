@@ -1,4 +1,4 @@
-// Prime dispatch — default-on adversarial policy for meaningful work (Stage 3H).
+// Helix dispatch — default-on adversarial policy for meaningful work (Stage 3H).
 //
 // Source of truth: fusion-dispatch-research.md §"Multi-agent orchestration"
 // (adversarial/multi-team debate) and ROADMAP §7-Theme B / §9-Q2:

@@ -1,4 +1,4 @@
-// Prime dispatch — canonical grammars for persisted public structural fields.
+// Helix dispatch — canonical grammars for persisted public structural fields.
 //
 // Character allowlists alone are insufficient: URI and absolute-path strings
 // can be composed entirely from otherwise-valid model/code characters. These

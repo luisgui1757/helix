@@ -1,14 +1,14 @@
 ---
-name: prime-ui
-description: Runs Prime's canonical UI quality workflow for frontend and interface work: design context, UX shaping, accessibility, performance, theme, responsive behavior, layout, typography, copy, color, motion, polish, and final optimization. Use when building, reviewing, or upgrading a UI to production quality.
+name: helix-ui
+description: Runs Helix's canonical UI quality workflow for frontend and interface work: design context, UX shaping, accessibility, performance, theme, responsive behavior, layout, typography, copy, color, motion, polish, and final optimization. Use when building, reviewing, or upgrading a UI to production quality.
 version: 1.0.0
 user-invocable: true
 argument-hint: "[target]"
 ---
 
-# Prime UI
+# Helix UI
 
-Prime UI is the single consolidated UI-quality skill for Prime. It absorbs the
+Helix UI is the single consolidated UI-quality skill for Helix. It absorbs the
 useful checks from the former design-skill fanout into one workflow so the slash
 surface stays focused.
 

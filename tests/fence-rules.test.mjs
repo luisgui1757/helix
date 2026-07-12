@@ -73,7 +73,7 @@ test("classifyWritePath allows normal project files", () => {
     "README.md",
     ".pi/settings.json",
     "docs/environment.md",
-    "extensions/prime-fence.ts",
+    "extensions/helix-fence.ts",
   ];
   for (const p of ok) {
     assert.equal(classifyWritePath(p).protectedPath, false, `expected allowed: ${p}`);

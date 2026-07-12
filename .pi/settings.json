@@ -1,16 +1,16 @@
 {
   "enableInstallTelemetry": false,
   "enableAnalytics": false,
-  "theme": "prime-rose-pine",
+  "theme": "helix-rose-pine",
   "skills": [
-    "../skills/prime-ui"
+    "../skills/helix-ui"
   ],
   "themes": [
     "../themes"
   ],
   "extensions": [
-    "../extensions/prime-fence.ts",
-    "../extensions/prime-answer.ts",
-    "../extensions/prime-command.ts"
+    "../extensions/helix-fence.ts",
+    "../extensions/helix-answer.ts",
+    "../extensions/helix-command.ts"
   ]
 }

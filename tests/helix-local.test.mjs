@@ -1,4 +1,4 @@
-// M10 regression: profile substrate fail-closed paths (prime-local.mjs) had
+// M10 regression: profile substrate fail-closed paths (helix-local.mjs) had
 // zero coverage, and the "profiles override casts, never chain/gate" boundary
 // was only asserted vacuously. These exercise both directly.
 
@@ -19,11 +19,11 @@ import {
   applyProfileToConfig,
   applyProfileToPresets,
   profilesDir,
-} from "../extensions/lib/prime-local.mjs";
+} from "../extensions/lib/helix-local.mjs";
 import { loadPresetRegistry } from "../dispatch/lib/presets.mjs";
 
 function tempRoot() {
-  return mkdtempSync(join(tmpdir(), "prime-local-"));
+  return mkdtempSync(join(tmpdir(), "helix-local-"));
 }
 
 test("a valid profile round-trips; the active pointer switches", () => {

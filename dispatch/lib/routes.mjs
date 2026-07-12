@@ -1,13 +1,13 @@
-// Prime dispatch — task-class routes + panel resolution.
+// Helix dispatch — task-class routes + panel resolution.
 //
 // Source of truth: fusion-dispatch-research.md §"Routing Policy" (route table +
 // rules). Panel bounds come from the route alone: a route's min_successes applies
 // to the LAUNCHED candidates, and a panel is never silently shrunk — any
-// reduction is recorded as a warning. Prime performs no cost control; spend is
+// reduction is recorded as a warning. Helix performs no cost control; spend is
 // bounded by the backend control instance (billing ceiling), not the harness.
 
 import { validate } from "./schema.mjs";
-import { PRIME_PROVIDERS } from "./providers.mjs";
+import { HELIX_PROVIDERS } from "./providers.mjs";
 import { ROLES } from "./role-envelope.mjs";
 import { MODEL_ID_PATTERN } from "./public-values.mjs";
 
@@ -21,7 +21,7 @@ export const ROLE_MATRIX_ENTRY_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model", "effort", "instances"],
   properties: {
-    provider: { type: "string", enum: PRIME_PROVIDERS },
+    provider: { type: "string", enum: HELIX_PROVIDERS },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     effort: { type: "string", enum: EFFORTS },
     instances: { type: "integer", minimum: 1 },
@@ -67,7 +67,7 @@ function route(def) {
   return Object.freeze({ role_matrix: {}, ...def });
 }
 
-/** The built-in Prime routes, one per task class (spec §"Routing Policy" table). */
+/** The built-in Helix routes, one per task class (spec §"Routing Policy" table). */
 export const ROUTES = Object.freeze({
   trivial: route({
     id: "trivial", task_class: "trivial", roles: ["builder"],

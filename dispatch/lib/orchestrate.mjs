@@ -1,4 +1,4 @@
-// Prime dispatch — thin one-cycle orchestrator over the Stage 3B policy core.
+// Helix dispatch — thin one-cycle orchestrator over the Stage 3B policy core.
 //
 // Source of truth: docs/architecture/fusion-dispatch-research.md (accepted Stage
 // 3A spec, amended 2026-07-09: cost control removed from the harness — spend is
@@ -19,7 +19,7 @@ import { validate } from "./schema.mjs";
 import { MODEL_ID_PATTERN } from "./public-values.mjs";
 import { classify } from "./classify.mjs";
 import { routeForClass, resolvePanel, validateRouteConfig, EFFORTS } from "./routes.mjs";
-import { PRIME_PROVIDERS, providerFamily, isAutomatedDispatchProvider } from "./providers.mjs";
+import { HELIX_PROVIDERS, providerFamily, isAutomatedDispatchProvider } from "./providers.mjs";
 import { ROLES, isRoleValidForStage, validateRoleEnvelope } from "./role-envelope.mjs";
 import { projectCandidatesForJudge, evaluateJudgeSelection } from "./judge.mjs";
 import { detectContradictions, contradictionsDropped, projectForSynthesis } from "./synthesis.mjs";
@@ -35,7 +35,7 @@ const CANDIDATE_SPEC_SCHEMA = Object.freeze({
   required: ["role", "provider", "model"],
   properties: {
     role: { type: "string", enum: ROLES },
-    provider: { type: "string", enum: PRIME_PROVIDERS },
+    provider: { type: "string", enum: HELIX_PROVIDERS },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     effort: { type: "string", enum: EFFORTS },
   },
@@ -47,7 +47,7 @@ const JUDGE_SPEC_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model", "rubric_id"],
   properties: {
-    provider: { type: "string", enum: PRIME_PROVIDERS },
+    provider: { type: "string", enum: HELIX_PROVIDERS },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     rubric_id: { type: "string", minLength: 1 },
     eligible_alternatives: { type: "array", items: { type: "string", minLength: 1 } },
@@ -76,7 +76,7 @@ const SYNTHESIS_SPEC_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model"],
   properties: {
-    provider: { type: "string", enum: PRIME_PROVIDERS },
+    provider: { type: "string", enum: HELIX_PROVIDERS },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     rubric_id: { type: "string", minLength: 1 },
   },
@@ -88,7 +88,7 @@ const VERIFICATION_SPEC_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model"],
   properties: {
-    provider: { type: "string", enum: PRIME_PROVIDERS },
+    provider: { type: "string", enum: HELIX_PROVIDERS },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     rubric_id: { type: "string", minLength: 1 },
   },
@@ -332,7 +332,7 @@ export async function runDispatch(request, deps = {}) {
       ...(synthesisEnvelope ? [request.synthesis] : []),
       ...(verifierEnvelope ? [request.verification] : []),
     ];
-    // Token counts are capacity telemetry only (context-pressure cues) — Prime
+    // Token counts are capacity telemetry only (context-pressure cues) — Helix
     // performs no cost accounting; spend is the backend control instance's job.
     const usage_rollup = {
       input_tokens: envelopes.reduce((sum, e) => sum + e.usage.input_tokens, 0),
@@ -422,7 +422,7 @@ export async function runDispatch(request, deps = {}) {
     }
   }
 
-  // Structural provider check only: the provider must be a known Prime provider
+  // Structural provider check only: the provider must be a known Helix provider
   // eligible for automated dispatch (claude-local stays excluded by roadmap gate).
   // No cost/price projection exists — presence = live.
   const providerPolicyRefusal = (provider) =>
