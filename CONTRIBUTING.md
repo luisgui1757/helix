@@ -74,10 +74,12 @@ If this setting is removed or the GitHub API cannot update it safely during a
 future gap-closure branch, record that in the PR body and have a maintainer apply
 the setting in the repository UI before merging.
 
-The `test` workflow pins GitHub Actions by full SHA and runs no-live checks only:
-unit/self-tests, resource checks, docs-truth checks, no-live egress checks,
-public-safety diff scan, deterministic dispatch/revision smokes, static Pi load
-proof, and `git diff --check`.
+Repository policy allows GitHub-owned Actions only and requires every action to
+be pinned by full SHA. Dependabot checks those pins weekly and groups routine
+version updates separately from security updates. The `test` workflow runs
+no-live checks only: unit/self-tests, resource checks, docs-truth checks,
+no-live egress checks, public-safety diff scan, deterministic
+dispatch/revision smokes, static Pi load proof, and `git diff --check`.
 
 ## Local Checks
 
