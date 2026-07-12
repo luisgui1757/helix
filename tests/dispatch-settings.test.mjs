@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
-  PRIME_TOGGLES,
+  HELIX_TOGGLES,
   SETTINGS_CODES,
   SETTINGS_SCHEMA_VERSION,
   defaultSettings,
@@ -26,15 +26,15 @@ import { makeEnvelope } from "../dispatch/fixtures/sample.mjs";
 const NOW = 1_751_731_200;
 
 function tmpFile(name = "settings.json") {
-  const dir = mkdtempSync(join(tmpdir(), "prime-settings-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-settings-"));
   return { dir, path: join(dir, "local", name) };
 }
 
 test("default settings turn every toggle ON and validate", () => {
   const settings = defaultSettings();
   assert.equal(settings.schema_version, SETTINGS_SCHEMA_VERSION);
-  assert.deepEqual(Object.keys(settings.toggles), [...PRIME_TOGGLES]);
-  assert.ok(PRIME_TOGGLES.every((t) => settings.toggles[t] === true));
+  assert.deepEqual(Object.keys(settings.toggles), [...HELIX_TOGGLES]);
+  assert.ok(HELIX_TOGGLES.every((t) => settings.toggles[t] === true));
   assert.equal(validateSettings(settings).valid, true);
 });
 
@@ -161,7 +161,7 @@ test("requireToggle refuses only explicit conflicts, with the toggle named", () 
 
 test("toggleVector is exactly the six booleans (missing reads as false)", () => {
   const vector = toggleVector({ toggles: { loops: true } });
-  assert.deepEqual(Object.keys(vector), [...PRIME_TOGGLES]);
+  assert.deepEqual(Object.keys(vector), [...HELIX_TOGGLES]);
   assert.equal(vector.loops, true);
   assert.equal(vector["multi-model"], false);
   assert.ok(Object.isFrozen(vector));
@@ -188,7 +188,7 @@ test("run records embed a valid toggle vector and refuse a malformed one", () =>
     run_target: { repo: "self" },
   };
   const withToggles = buildRunRecord({ ...base, toggles: toggleVector(defaultSettings()) });
-  assert.deepEqual(Object.keys(withToggles.toggles), [...PRIME_TOGGLES]);
+  assert.deepEqual(Object.keys(withToggles.toggles), [...HELIX_TOGGLES]);
   const without = buildRunRecord(base);
   assert.ok(!("toggles" in without), "toggles stays optional for pre-toggle callers");
   assert.throws(
@@ -219,15 +219,15 @@ test("runDispatch threads deps.toggles into the public-safe record", async () =>
     toggles: toggleVector(defaultSettings()),
   });
   assert.equal(result.ok, true, JSON.stringify({ code: result.code, detail: result.detail }));
-  assert.deepEqual(Object.keys(result.record.toggles), [...PRIME_TOGGLES]);
+  assert.deepEqual(Object.keys(result.record.toggles), [...HELIX_TOGGLES]);
   assert.equal(result.record.toggles.loops, true);
 });
 
 function tempRepo() {
-  const cwd = mkdtempSync(join(tmpdir(), "prime-settings-loop-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-settings-loop-"));
   execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["config", "user.email", "prime@example.invalid"], { cwd });
-  execFileSync("git", ["config", "user.name", "Prime Settings"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Settings"], { cwd });
   writeFileSync(join(cwd, "proposal.txt"), "initial proposal\n", "utf8");
   execFileSync("git", ["add", "proposal.txt"], { cwd });
   execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });

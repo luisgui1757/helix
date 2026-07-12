@@ -1,4 +1,4 @@
-// Prime dispatch — minimal runtime structural validator (zero dependencies).
+// Helix dispatch — minimal runtime structural validator (zero dependencies).
 //
 // WHY THIS EXISTS INSTEAD OF LITERAL TypeBox
 // ------------------------------------------
@@ -6,7 +6,7 @@
 // *runtime* validator (TypeScript types alone are insufficient because
 // provider/model output arrives at runtime) and names TypeBox as the Pi-native
 // mechanism. But this package is dependency-free by invariant:
-// tools/check-prime-resources.mjs fails the build if package.json declares ANY
+// tools/check-helix-resources.mjs fails the build if package.json declares ANY
 // runtime dependency, and the bare `typebox` specifier resolves only inside Pi's
 // runtime (it is MODULE_NOT_FOUND under `node --test`). So the tested policy core
 // cannot import TypeBox. See docs/stage3/dispatch-policy-core.md for the full

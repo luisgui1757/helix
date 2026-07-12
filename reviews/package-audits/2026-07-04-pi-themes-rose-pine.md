@@ -4,8 +4,8 @@ Date: 2026-07-04
 
 Decision: ADOPT BY VENDORING THEME JSON ONLY.
 
-Prime vendors the three theme JSON files with `prime-`-prefixed theme names and
-preserves the upstream MIT license. Prime does not auto-install the npm package
+Helix vendors the three theme JSON files with `helix-`-prefixed theme names and
+preserves the upstream MIT license. Helix does not auto-install the npm package
 at project startup.
 
 ## Source
@@ -20,7 +20,7 @@ at project startup.
 ```bash
 npm view pi-themes-rose-pine@0.1.0 name version license dependencies peerDependencies dist.unpackedSize dist.tarball --json
 npm view pi-themes-rose-pine@0.1.0 dist --json
-npm pack pi-themes-rose-pine@0.1.0 --pack-destination /tmp/prime-rose-pine-audit --json
+npm pack pi-themes-rose-pine@0.1.0 --pack-destination /tmp/helix-rose-pine-audit --json
 ```
 
 ## Registry Facts
@@ -61,9 +61,9 @@ dependencies, or network-capable code. The package manifest only declares:
 
 ## Local Modifications
 
-- `rose-pine` -> `prime-rose-pine`
-- `rose-pine-moon` -> `prime-rose-pine-moon`
-- `rose-pine-dawn` -> `prime-rose-pine-dawn`
+- `rose-pine` -> `helix-rose-pine`
+- `rose-pine-moon` -> `helix-rose-pine-moon`
+- `rose-pine-dawn` -> `helix-rose-pine-dawn`
 - Theme schema URL updated from the package's older repository path to Pi's
   current documented schema URL.
 

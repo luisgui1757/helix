@@ -21,7 +21,7 @@ import {
 } from "../dispatch/lib/persistence.mjs";
 
 function tempRoot() {
-  return mkdtempSync(join(tmpdir(), "prime-persistence-"));
+  return mkdtempSync(join(tmpdir(), "helix-persistence-"));
 }
 
 test("atomic writes replace regular files and exclusive writes never clobber", () => {

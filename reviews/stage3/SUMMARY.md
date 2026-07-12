@@ -310,7 +310,7 @@ IS installed at `@earendil-works/pi-coding-agent/examples/extensions/subagent`. 
 runs parallel tasks via `mapWithConcurrencyLimit(items, concurrency, fn)` — a fixed
 pool of `min(concurrency, n)` workers that pull the next index off a shared counter
 and collect results in INPUT order (`MAX_PARALLEL_TASKS = 8`, `MAX_CONCURRENCY = 4`),
-spawning isolated `pi` subprocesses. Prime does NOT spawn subprocesses (a live /
+spawning isolated `pi` subprocesses. Helix does NOT spawn subprocesses (a live /
 tooling concern out of scope); it reproduces only the pure concurrency-limiter shape
 in `dispatch/lib/parallel.mjs`, over injected adapters, dependency-free.
 
@@ -506,7 +506,7 @@ filesystem-mutating revision, only the pure `adversarial-policy.mjs`).
   `roadmap-reconciliation`, `pr-preflight`; a unit asserts `MEANINGFUL_WORK_CLASSES`
   tracks the role-based definition). The `/adversarial off` opt-out rides the
   existing `task.override.disable_adversarial` channel — **no new slash command**
-  (the repo's extensions stay pinned to `prime-fence`/`prime-answer`, so
+  (the repo's extensions stay pinned to `helix-fence`/`helix-answer`, so
   `check:resources` still passes) — and is recorded as the stable `adversarial-opt-out`
   code (plus `single-pass-route`). The policy never widens a panel, so heavier 3+
   model / every-task runs stay explicit opt-in.
@@ -714,10 +714,10 @@ config/markdown validation only and makes no provider call.
 Scope: `dispatch/lib/role-matrix.mjs`, `dispatch/config/role-matrix-defaults.json`,
 `dispatch/lib/chains.mjs`, `dispatch/config/chains.json`,
 `dispatch/lib/run-configs.mjs`, `dispatch/config/run-configs.json`,
-`dispatch/lib/task-loop.mjs`, `tools/loop/prime-task-loop.mjs`,
-`dispatch/lib/run-manager.mjs`, `tools/runs/prime-runs.mjs`,
+`dispatch/lib/task-loop.mjs`, `tools/loop/helix-task-loop.mjs`,
+`dispatch/lib/run-manager.mjs`, `tools/runs/helix-runs.mjs`,
 `tools/smoke/openrouter-free-multimodel-revision-smoke.mjs`,
-`tools/worktree/prime-worktree.sh`, `tools/worktree/selftest.sh`,
+`tools/worktree/helix-worktree.sh`, `tools/worktree/selftest.sh`,
 `tests/dispatch-role-matrix.test.mjs`,
 `tests/dispatch-chains-run-configs.test.mjs`,
 `tests/dispatch-run-manager.test.mjs`, `docs/stage3/role-matrix-task-loop.md`,
@@ -764,10 +764,10 @@ Verification run in this slice:
 
 - `npm test` — 317 node tests, worktree self-test 12, objective-gate-loop self-test 8.
 - Focused no-live loop smoke:
-  `node tools/loop/prime-task-loop.mjs --run-id loop-cli-smoke-focused` converged in 3
+  `node tools/loop/helix-task-loop.mjs --run-id loop-cli-smoke-focused` converged in 3
   iterations, total tokens 135, with the expected no-spend provider-independence warning.
 - Structural run status:
-  `node tools/runs/prime-runs.mjs status loop-cli-smoke-focused` listed 3 dispatch
+  `node tools/runs/helix-runs.mjs status loop-cli-smoke-focused` listed 3 dispatch
   iteration records plus the debate summary.
 - Live proof:
   `node tools/smoke/openrouter-free-multimodel-revision-smoke.mjs` passed for
@@ -793,7 +793,7 @@ Post-review fix on 2026-07-07:
 - Inline profile objects remain trusted local config after `assertProfileUsable`;
   this is documented as the Stage 3L/M/N contract until a future external profile
   loader introduces semantic policy fields.
-- `tools/loop/prime-task-loop.mjs` cleans default synthetic temp repos after the run
+- `tools/loop/helix-task-loop.mjs` cleans default synthetic temp repos after the run
   and reports `records_replaced` when a reused run id replaces a prior structural run
   directory.
 
@@ -806,9 +806,9 @@ paid/metered provider calls.
 | ID | Severity | Finding | Fix |
 | --- | --- | --- | --- |
 | P1 | High | Downstream stage validation happened after candidate launch: missing judge/synthesis/verifier config or adapter hooks failed closed only after candidate adapter calls had already run. | `runDispatch` now prevalidates all route-required singleton configs, adapter hooks, judge seed, and provider/cost eligibility before candidate launch. Existing stable codes are preserved (`missing-judge-config`, `adapter-missing-run-judge`, `missing-synthesis-config`, `adapter-missing-run-synthesis`, `missing-verification-config`, `adapter-missing-run-verifier`, `judge-not-eligible`, `synthesis-not-eligible`, `verifier-not-eligible`, `missing-judge-seed`). Regressions prove candidate calls stay `0` for the six reported missing downstream config/hook cases, and valid judge/synthesis/verifier routes still launch normally. |
-| R1 | Low | `docs/resources/README.md` claimed the manifest exposed only `./skills/prime-ui` and `./themes`, omitting `./extensions/prime-fence.ts` and `./extensions/prime-answer.ts`. | Resource docs now list the exact skill, theme, and extension surface enforced by `npm run check:resources`. |
-| R2 | Low | `extensions/prime-answer.ts` had no fake-Pi extension-level unit test, and its runtime `typebox` import made standalone unit loading impossible in this dependency-free resource package. | The extension now uses TypeBox-compatible JSON Schema descriptors with no runtime dependency. `tests/answer-extension.test.mjs` proves it registers tool `{ name: "answer" }` and its non-interactive execute path returns the deterministic top recommendation. |
-| R3 | Low | Fable requested a no-paid/no-auth skill discoverability proof for `prime-ui`. | Pi 0.80.3 headless RPC `get_commands` was tested with a temporary Pi config, `PI_OFFLINE=1`, `PI_TELEMETRY=0`, `--offline`, `--approve`, and `--no-session`; it listed user-global skills but did not expose `skill:prime-ui` from the package or explicit `--skill` variants. Docs now state this limitation and do not claim headless `-p`/RPC model visibility for `prime-ui`. |
+| R1 | Low | `docs/resources/README.md` claimed the manifest exposed only `./skills/helix-ui` and `./themes`, omitting `./extensions/helix-fence.ts` and `./extensions/helix-answer.ts`. | Resource docs now list the exact skill, theme, and extension surface enforced by `npm run check:resources`. |
+| R2 | Low | `extensions/helix-answer.ts` had no fake-Pi extension-level unit test, and its runtime `typebox` import made standalone unit loading impossible in this dependency-free resource package. | The extension now uses TypeBox-compatible JSON Schema descriptors with no runtime dependency. `tests/answer-extension.test.mjs` proves it registers tool `{ name: "answer" }` and its non-interactive execute path returns the deterministic top recommendation. |
+| R3 | Low | Fable requested a no-paid/no-auth skill discoverability proof for `helix-ui`. | Pi 0.80.3 headless RPC `get_commands` was tested with a temporary Pi config, `PI_OFFLINE=1`, `PI_TELEMETRY=0`, `--offline`, `--approve`, and `--no-session`; it listed user-global skills but did not expose `skill:helix-ui` from the package or explicit `--skill` variants. Docs now state this limitation and do not claim headless `-p`/RPC model visibility for `helix-ui`. |
 | R4 | Low | The roadmap/DoD described a CI gate, but no GitHub Actions workflow existed. | Added `.github/workflows/ci.yml` with the minimal gate requested for PRs and pushes to `main`: `npm test`, `npm run check:resources`, and `git diff --check`. Broader e2e/deny-egress CI remains tracked as future growth. |
 | R5 | Low | Root-commit provenance trailer issue needed disposition. | Recorded as historical/pre-policy: do not rewrite repository history in this hardening PR. Current policy remains no unsolicited provenance trailers in new commits/PR bodies; local gates scan for them. |
 
@@ -817,87 +817,87 @@ node suite before shell self-tests; the full ship bundle is recorded in the PR
 handoff. No live OpenRouter proof was rerun because the requested fixes are pure
 policy/docs/tests/CI and live proof was unnecessary under the no-spend constraint.
 
-## 2026-07-08 — Stage 3O PR1 `/prime` control surface
+## 2026-07-08 — Stage 3O PR1 `/helix` control surface
 
-Scope: `extensions/prime-command.ts`, `extensions/lib/prime-command-core.mjs`,
-package/settings/resource pins, `tests/prime-command-core.test.mjs`,
-`tests/prime-command-extension.test.mjs`, README/resources/command-surface/
+Scope: `extensions/helix-command.ts`, `extensions/lib/helix-command-core.mjs`,
+package/settings/resource pins, `tests/helix-command-core.test.mjs`,
+`tests/helix-command-extension.test.mjs`, README/resources/command-surface/
 Stage 3 loop docs, roadmap/summary updates, and this ledger. Public-safe summary;
 no raw prompts, model responses, provider payloads, auth files, transcripts,
 private paths, live provider calls, or paid/metered calls.
 
 Delivered the first Pi-native UX layer over the existing Stage 3 machinery:
 
-- one extension slash command, `/prime`, with argument-completed verbs;
-- `/prime` dashboard for default config, resolved profile/caps, chain, role
+- one extension slash command, `/helix`, with argument-completed verbs;
+- `/helix` dashboard for default config, resolved profile/caps, chain, role
   matrix summary, no-live schema status, last structural run, dry-run warnings/
   refusals, and high-level package/resource status;
-- `/prime run [config-id]` preflight that resolves config/profile/chain/route/
+- `/helix run [config-id]` preflight that resolves config/profile/chain/route/
   matrix, expands through existing provider/cost policy, shows objective gate,
   write allowlist and caps, and prints the exact existing task-loop CLI command
   without launching it;
-- `/prime runs list|status <run-id>|prune <run-id>` over existing run-manager
+- `/helix runs list|status <run-id>|prune <run-id>` over existing run-manager
   structural paths, with prune as the only mutation;
-- `/prime models`, `/prime chains`, and `/prime profiles` as view-only browsers.
+- `/helix models`, `/helix chains`, and `/helix profiles` as view-only browsers.
 
 Guardrails: prune requires `ctx.mode === "tui"` plus explicit confirmation;
-`rpc`, `json`, and `print` fail closed as `prime-prune-requires-tui-confirm`, and
-false/absent confirmation returns `prime-prune-cancelled`. Unknown verbs return
+`rpc`, `json`, and `print` fail closed as `helix-prune-requires-tui-confirm`, and
+false/absent confirmation returns `helix-prune-cancelled`. Unknown verbs return
 usage with non-mutating details. Unsafe run ids are refused by the existing
 run-manager validation. The command never reads credentials, auth files,
 transcripts, private run payloads, raw prompts, raw model responses, or provider
 payloads.
 
 The accepted command-surface direction is one slash command, not the rejected
-split. Do not add `/prime-run`, `/prime-runs`, `/prime-models`, `/prime-chains`,
-`/prime-profiles`, `/prime-worktrees`, or `/prime-resources` as top-level commands
+split. Do not add `/helix-run`, `/helix-runs`, `/helix-models`, `/helix-chains`,
+`/helix-profiles`, `/helix-worktrees`, or `/helix-resources` as top-level commands
 for this UX surface.
 
 Verification added in this slice: 11 focused node tests for fake-Pi registration,
 argument completions, unknown-verb usage, dashboard/preflight, stable unknown
 config failure, view-only browsers, structural run list/status, and prune gating.
 Headless Pi 0.80.3 RPC `get_commands` was also run offline with `--approve` and
-`--no-session`; it listed `prime` without provider prompts, credentials, sessions,
+`--no-session`; it listed `helix` without provider prompts, credentials, sessions,
 live calls, or model traffic. No live provider smoke was run because PR1 is
 no-live UX/preflight only.
 
 ## 2026-07-08 — PR #25 Fable review fixes F1-F5
 
 Scope: `dispatch/lib/run-manager.mjs`, `dispatch/lib/task-loop.mjs`,
-`tools/loop/prime-task-loop.mjs`, `extensions/lib/prime-command-core.mjs`,
-`extensions/prime-command.ts`, focused tests, README, Stage 3 loop docs, roadmap/
+`tools/loop/helix-task-loop.mjs`, `extensions/lib/helix-command-core.mjs`,
+`extensions/helix-command.ts`, focused tests, README, Stage 3 loop docs, roadmap/
 summary updates, and this ledger. Public-safe summary; no credentials, auth/env
 files, transcripts, private run payloads, provider payloads, live provider calls,
 or paid/metered calls.
 
 | ID | Severity | Finding | Fix |
 | --- | --- | --- | --- |
-| F1 | Medium | `prune "."` resolved to the runs root, so the shared safe-path guard allowed root replacement/deletion. | `validateRunId` now rejects `.`/`..`, `safeRunDir` also refuses resolved paths equal to the runs root, `statusRun` uses the same guard, and `prime-task-loop --run-id .`, `prime-runs prune .`, and `/prime runs prune .` all fail closed as `unsafe-run-id`. Regressions prove the root sentinel survives and safe dotted ids such as `run.1` still work. |
+| F1 | Medium | `prune "."` resolved to the runs root, so the shared safe-path guard allowed root replacement/deletion. | `validateRunId` now rejects `.`/`..`, `safeRunDir` also refuses resolved paths equal to the runs root, `statusRun` uses the same guard, and `helix-task-loop --run-id .`, `helix-runs prune .`, and `/helix runs prune .` all fail closed as `unsafe-run-id`. Regressions prove the root sentinel survives and safe dotted ids such as `run.1` still work. |
 | F2 | Low | Argument completions could eagerly parse local registry JSON and throw raw syntax errors if config input was corrupt. | Top-level completions are static and do not parse registries; run-config completions are wrapped fail-closed and return `null` on malformed input while `runs` static completions remain available. |
-| F3 | Low | `/prime chains` derived loop-runnability from chain steps instead of the same route rule used by the task loop. | Chain view now uses `routeForClass(chain.task_class).roles.includes("builder")`; a regression covers a builder-step chain whose architecture route remains non-loop-runnable. |
-| F4 | Low | `/prime run` copied task-loop profile/matrix/cap preflight semantics. | `dispatch/lib/task-loop.mjs` now exports `preflightTaskLoopConfig`; both `runTaskLoop` and `/prime run` use it, and a regression proves `/prime` returns the same cap-refusal code as task-loop preflight. |
-| F5 | Low | `extensions/prime-command.ts` sent `display` as a string title, but Pi expects a boolean. | The extension now sends `display: true` and preserves the title in `details.title`; the fake-Pi test locks this shape. |
+| F3 | Low | `/helix chains` derived loop-runnability from chain steps instead of the same route rule used by the task loop. | Chain view now uses `routeForClass(chain.task_class).roles.includes("builder")`; a regression covers a builder-step chain whose architecture route remains non-loop-runnable. |
+| F4 | Low | `/helix run` copied task-loop profile/matrix/cap preflight semantics. | `dispatch/lib/task-loop.mjs` now exports `preflightTaskLoopConfig`; both `runTaskLoop` and `/helix run` use it, and a regression proves `/helix` returns the same cap-refusal code as task-loop preflight. |
+| F5 | Low | `extensions/helix-command.ts` sent `display` as a string title, but Pi expects a boolean. | The extension now sends `display: true` and preserves the title in `details.title`; the fake-Pi test locks this shape. |
 
 Focused verification before the full gate: 27 impacted node tests passed across
-run-manager, chain/run-config, `/prime` core, and fake-Pi extension tests. Direct
-CLI checks for `node tools/loop/prime-task-loop.mjs --run-id .` and
-`node tools/runs/prime-runs.mjs prune .` both returned `unsafe-run-id` without
+run-manager, chain/run-config, `/helix` core, and fake-Pi extension tests. Direct
+CLI checks for `node tools/loop/helix-task-loop.mjs --run-id .` and
+`node tools/runs/helix-runs.mjs prune .` both returned `unsafe-run-id` without
 touching structural records.
 
 ## 2026-07-08 — PR #25 final Info review fix
 
-Scope: `extensions/lib/prime-command-core.mjs`,
-`tests/prime-command-core.test.mjs`, README, Stage 3 loop docs, roadmap/summary
+Scope: `extensions/lib/helix-command-core.mjs`,
+`tests/helix-command-core.test.mjs`, README, Stage 3 loop docs, roadmap/summary
 updates, and this ledger. Public-safe summary; no credentials, auth/env files,
 transcripts, private run payloads, provider payloads, live provider calls, or
 paid/metered calls.
 
 | ID | Severity | Finding | Fix |
 | --- | --- | --- | --- |
-| I1 | Info | `/prime` execution still surfaced raw parser exceptions if a local registry/config JSON file was malformed. | The `/prime` dependency load path now catches JSON read/parse failures and returns `prime-config-unreadable` with only a safe basename such as `run-configs.json`; it never includes raw exception messages or full filesystem paths. Because dependency loading happens before verb dispatch, dashboard, structural run list, and confirmed prune all fail closed before mutation. Regressions cover dashboard/list/prune malformed-config execution and prove prune leaves the run directory intact. |
+| I1 | Info | `/helix` execution still surfaced raw parser exceptions if a local registry/config JSON file was malformed. | The `/helix` dependency load path now catches JSON read/parse failures and returns `helix-config-unreadable` with only a safe basename such as `run-configs.json`; it never includes raw exception messages or full filesystem paths. Because dependency loading happens before verb dispatch, dashboard, structural run list, and confirmed prune all fail closed before mutation. Regressions cover dashboard/list/prune malformed-config execution and prove prune leaves the run directory intact. |
 
 Focused verification before the full gate: `node --test
-tests/prime-command-core.test.mjs` passed 14 tests.
+tests/helix-command-core.test.mjs` passed 14 tests.
 
 ## 2026-07-08 — Final non-Phase-4 hardening push
 
@@ -942,12 +942,12 @@ Regression coverage added:
 | No-live egress guard | `tests/no-live-egress-check.test.mjs`: CI-safe wiring passes; workflow/provider/live-smoke/run-config violations fail closed. |
 
 Runtime no-live proof run this slice: `node tools/smoke/pi-e2e-load.mjs
---runtime-rpc` passed package/resource loadability, found the Prime `prime`
+--runtime-rpc` passed package/resource loadability, found the Helix `helix`
 extension command via RPC `get_commands`, preserved the known headless
-`skill:prime-ui` limitation, and skipped live-provider proof.
+`skill:helix-ui` limitation, and skipped live-provider proof.
 
 Not run / not included: any live provider call, paid/metered call, package
-install/adoption, remote approval, `/prime` slash UX changes, `pi-annotate`,
+install/adoption, remote approval, `/helix` slash UX changes, `pi-annotate`,
 hosted adapter, autonomous loop, Neovim/Pi integration, firstmate-style
 orchestration, HTML theming, optional roadmap/plan/changelog artifact engines,
 or stronger endpoint-exclusivity claims than the existing Docker no-network/local
@@ -979,9 +979,9 @@ Delivered:
   static Pi load proof. The diff scanner uses a diff-aware path for staged/PR
   diffs so removed signature literals do not self-match, while PR bodies and
   generated records are scanned as full text.
-- `docs/manual.md` adds the direct user manual; `/prime help` is view-only,
+- `docs/manual.md` adds the direct user manual; `/helix help` is view-only,
   public-safe, non-TUI compatible, and does not require local registry JSON.
-- `/prime` refusals report a stable code, human-readable reason, and next safe
+- `/helix` refusals report a stable code, human-readable reason, and next safe
   action; flat smoke records are labelled non-prunable in list/status.
 - Runtime RPC Pi load proof defaults to a 60s timeout after the 20s candidate
   default timed out in local no-live verification.
@@ -1000,7 +1000,7 @@ Regression coverage added or expanded:
 | Git diff surface | Repo-targeting env var scrub and expanded sensitive-path denylist. |
 | Stable failure details | Diff-checker thrown prose fallback plus adapter/judge/synthesis/verifier/gate/write-failure safe details. |
 | Public safety | Diff scanner stable-code output and macOS/Linux/Windows home-path scans. |
-| `/prime` UX | `/prime help`, help completions, refusal guidance, prunable/non-prunable list/status labels. |
+| `/helix` UX | `/helix help`, help completions, refusal guidance, prunable/non-prunable list/status labels. |
 | Runtime RPC | 60s default timeout helper lock. |
 | Docs truth | README truth block locked to package surface, command count, test declarations, and roadmap status snippet. |
 
@@ -1031,7 +1031,7 @@ Corrections and accepted fixes:
   algorithm from the input source, so non-diff stdin text could be scanned as a
   diff and dash-prefixed leak lines could be skipped; resolution is explicit
   `--mode diff|text` plus caller and regression coverage.
-- P1 accepted and fixed: `/prime` run/status/prune refusals could render raw
+- P1 accepted and fixed: `/helix` run/status/prune refusals could render raw
   user-supplied run/config details through refusal text and structured details;
   resolution is stable detail categories plus public-safety regressions for
   macOS, Linux, and Windows home-path-shaped inputs.
@@ -1056,7 +1056,7 @@ recommendation — recorded, not implied):
 - Protection follows Pi defaults (YOLO): no fences, no write allowlists, no
   command allowlists, no confirmation ceremonies in loops. Worktree-per-run
   isolation survives as workflow infrastructure (protects the user's checkout),
-  not as a fence. The prime-fence extension is untouched, deferred future work.
+  not as a fence. The helix-fence extension is untouched, deferred future work.
 - Presence = live: a run config naming real providers is live as-is. The
   `live.enabled` flag, per-provider enablement docs, and approval expiries are
   removed. Rejected alternatives: standing-enablement docs, time-boxed
@@ -1076,9 +1076,9 @@ codes, profile caps, token budgets, and write allowlists is not a regression —
 it is this deliberate, owner-directed product pivot. Do not re-open those as
 missing safety features; the design contracts document the new posture.
 
-## 2026-07-09 — Prime v1 single-PR build
+## 2026-07-09 — Helix v1 single-PR build
 
-Scope: the eight implementation milestones (M1–M8) on branch `prime-v1`,
+Scope: the eight implementation milestones (M1–M8) on branch `helix-v1`,
 built to the amended design contracts from the same-day owner interview, plus
 the M9 verification pass. Public-safe summary from the milestone commit
 messages; adversarial review (M10) follows this entry.
@@ -1089,7 +1089,7 @@ openrouter-free smokes/fixtures/tests; removed USD/token caps, price-TTL
 freshness, `:free` verification, write allowlists, `live.enabled` flags, and
 input classes end to end. Kept exactly two rails: `max_iterations` (mandatory,
 fail-closed) and `max_concurrency`; token counts survive as capacity telemetry
-(envelope/record schema_version 2). `/prime` now derives live status from the
+(envelope/record schema_version 2). `/helix` now derives live status from the
 resolved panel providers and the old profiles verb was retired. The diff
 surface content-hashes all untracked regular files; symlinks, non-files, and
 credential-shaped paths become structural markers instead of loop-killing
@@ -1158,8 +1158,8 @@ conflict; loops OFF degenerates to one-shot research. Research records are
 structural (sha256 refs, metric, per-iteration measurements, stop reason);
 experiment text never enters the record.
 
-**M8 — the `/prime` surface.** All new capability landed as verbs under the
-single `/prime` command: settings (six-checkbox view + set), profiles
+**M8 — the `/helix` surface.** All new capability landed as verbs under the
+single `/helix` command: settings (six-checkbox view + set), profiles
 (list/show/switch/create untracked overlay profiles, schema-limited to cast
 material — chain, gate, and run_target stay tracked-config territory), setup
 (guided cast assembly validated against the preset registry; typo'd executors
@@ -1181,7 +1181,7 @@ Adversarial review (M10) follows this entry.
 ## 2026-07-10 — M10 adversarial review: confirmed findings
 
 Four max-effort lenses (correctness, public-safety, termination, test-hollowness)
-over the prime-v1 diff; each finding handed to a max-effort skeptic to refute
+over the helix-v1 diff; each finding handed to a max-effort skeptic to refute
 against the real code. 15 confirmed real, 1 refuted, 9 verify agents cut off by a
 shared session limit and self-adjudicated against the code. The confirmed cluster
 is resume, the loop CLI's live/profile wiring, and the watch/resume renderers —
@@ -1213,12 +1213,12 @@ Correctness / resume:
   (not only at run end) and rehydrate it on resume.
 
 Public-safety:
-- [P2] /prime runs watch and resume rendered on-disk events/state JSON verbatim
+- [P2] /helix runs watch and resume rendered on-disk events/state JSON verbatim
   with no assertPublicSafe, while sibling readers (listRuns/statusRun) re-scan on
   read — a doctored or worktree-OFF-written file defeated the renderer contract.
   FIX: scan parsed events/state and validate rendered fields before display;
   refuse fail-closed like listRuns.
-- [P2] The /prime handler had no throw fence: an uncaught fs error could surface
+- [P2] The /helix handler had no throw fence: an uncaught fs error could surface
   a raw absolute path. FIX: the extension handler catches and returns a stable
   public-safe refusal.
 
@@ -1228,12 +1228,12 @@ Surface accuracy:
   record). FIX: the CLI refuses a non-mock cast with live-adapter-not-wired (the
   staged live transport is the deferred live-proof track); presence=live still
   holds — the config is ready, the CLI just will not fake it.
-- [P1] The active profile shown/confirmed at /prime run preflight was not applied
+- [P1] The active profile shown/confirmed at /helix run preflight was not applied
   by the printed CLI. FIX: the CLI applies the active profile exactly as
   preflight does.
-- [P2] /prime run's Live: signal derived from the legacy role matrix, not the
+- [P2] /helix run's Live: signal derived from the legacy role matrix, not the
   cast that executes. FIX: derive it from the resolved cast providers.
-- [P2] /prime runs status could not find staged runs (matcher expected legacy
+- [P2] /helix runs status could not find staged runs (matcher expected legacy
   -iter names). FIX: match the staged -p<N> per-pass record names.
 
 Refuted (recorded so it is not re-opened):
@@ -1259,7 +1259,7 @@ All fixed:
   a composite with a real judge/synthesizer (which land only in panel_roles on
   multi-member stages) ran the mock adapter while records claimed the real
   provider. FIX: a shared allCastProviders() scans roles AND panel_roles; the
-  runner guard and /prime's Live signal both use it.
+  runner guard and /helix's Live signal both use it.
 - [P1] Resume was presence-only on the repo: `--resume` with a different --repo
   silently ran against the wrong repository in a fresh worktree. FIX:
   create(reuse:true) refuses when the per-run worktree is ABSENT
@@ -1303,7 +1303,7 @@ not-converged rather than re-running only the pending gate.
 Scope: independent re-derivation against `docs/stage3/design-contracts.md`, the
 README/manual claims, the three same-family M10 rounds, and the owner-supplied
 invariants. The pass explicitly did **not** re-open the 2026-07-09 pivot: no
-harness cost control, live flag, loop fence/allowlist, prime-fence work, staged
+harness cost control, live flag, loop fence/allowlist, helix-fence work, staged
 live transport, web/remote/hosted behavior, scheduling, migrations, or
 compaction was added. Each accepted item below was challenged against another
 code path and backed by a focused regression or a read-only failure probe before
@@ -1314,16 +1314,16 @@ repair.
 | Severity | Confirmed behavior | Resolution / multi-location closure |
 |---|---|---|
 | P0 | Safe-looking schema integers could exceed JavaScript's safe range or expand impractically through iteration, concurrency, preset, matrix, and panel counts. | The shared validator now requires safe integers; practical global iteration (10,000) and stage-panel (64) ceilings are enforced before allocation across configs, chains, presets, matrices, debate, research, stage-machine, and both runners. |
-| P1 | A non-mock legacy/staged cast with no transport could fall through toward mock execution, including composite-only judge/synthesizer members, producing a silently wrong provider/model record. | Both runners and `/prime` inspect every effective cast member (roles plus panel roles) and refuse as `live-adapter-not-wired`; the executed route ID, not a requested-but-overridden ID, is recorded. CI resolves the effective mock presets too. |
+| P1 | A non-mock legacy/staged cast with no transport could fall through toward mock execution, including composite-only judge/synthesizer members, producing a silently wrong provider/model record. | Both runners and `/helix` inspect every effective cast member (roles plus panel roles) and refuse as `live-adapter-not-wired`; the executed route ID, not a requested-but-overridden ID, is recorded. CI resolves the effective mock presets too. |
 | P1 | Resume identity was not strong enough for every kill window: initialization could precede durable companions, in-flight pass bytes/HEAD/index were not recoverable exactly, settings/profile drift could change execution, and concurrent fresh/resume callers could share one run ID. | State schema v2 binds config semantics, exact cast/toggles, prompt resources, repository/worktree, baseline/full-checkout fingerprint, immutable disagreement generation, durable handoff source, run generation, and in-flight pass identity. A repository-private lease + state CAS serializes fresh/resume. Private mode-0700 Git-common-dir snapshots restore worktree bytes and HEAD/index without Git-object/ref-wide snapshots; deterministic generations heal pre-state kills and preserve unrelated refs. |
 | P1 | Terminal recovery validated an individual pending `run-end` but not the full lifecycle, allowing forged convergence without the final objective gate; a prior passing gate could also be followed by unrelated events and still satisfy the history. | Closed event-history validation now requires one start, contiguous seq/time/attempts, one terminal end, converged/stop agreement, and a converged end immediately after a passing conclusion gate. Pending recovery validates the hypothetical complete history before append. Only the objective gate can conclude. |
-| P1 | Public readers/renderers trusted open-shaped on-disk JSON and schema-valid registry prose; raw descriptions/notes/gate text or doctored state/events could reach `/prime`. The prompt compiler also retained an opt-in raw compiled-prompt dump. | Run records, debate summaries, events, runner state, disagreements, handoffs, research, run-manager reads, and `/prime` projections are closed and read-time scanned. Registry prose is omitted or hashed. Compiled prompts are now memory-only; the former debug dump is removed. A multi-surface canary proves ordinary and leak-shaped registry text does not render. |
-| P1 | `/prime setup` could save a replacement profile and then fail activation, leaving a partial mutation. Other `/prime` mutations were not uniformly attended-confirmed. | Setup now operates only on an explicitly created profile and save+activate restores the prior profile on activation refusal. Settings, profile create/switch, setup, and prune all require TUI mode plus explicit confirmation. |
-| P1 | The documented worktree result was a branch, but the implementation used detached worktrees. | Worktrees now use a deterministic public-safe `prime/run-<hash>` branch; resume verifies that exact registered branch and can recover an initialization window where the branch was created first. The CLI reports the safe branch name. |
+| P1 | Public readers/renderers trusted open-shaped on-disk JSON and schema-valid registry prose; raw descriptions/notes/gate text or doctored state/events could reach `/helix`. The prompt compiler also retained an opt-in raw compiled-prompt dump. | Run records, debate summaries, events, runner state, disagreements, handoffs, research, run-manager reads, and `/helix` projections are closed and read-time scanned. Registry prose is omitted or hashed. Compiled prompts are now memory-only; the former debug dump is removed. A multi-surface canary proves ordinary and leak-shaped registry text does not render. |
+| P1 | `/helix setup` could save a replacement profile and then fail activation, leaving a partial mutation. Other `/helix` mutations were not uniformly attended-confirmed. | Setup now operates only on an explicitly created profile and save+activate restores the prior profile on activation refusal. Settings, profile create/switch, setup, and prune all require TUI mode plus explicit confirmation. |
+| P1 | The documented worktree result was a branch, but the implementation used detached worktrees. | Worktrees now use a deterministic public-safe `helix/run-<hash>` branch; resume verifies that exact registered branch and can recover an initialization window where the branch was created first. The CLI reports the safe branch name. |
 | P2 | Valid staged companion files appeared as corrupt run records, and status prefix matching included unrelated run IDs. | Run-manager skips only exact state/research/latest/immutable-disagreement companion names and matches only exact parent IDs plus numeric `-iterN`/`-pN` children. Atomic non-recursive directory reservation replaces clean/reuse behavior. |
-| P2 | Research used coercive numeric parsing, incomplete stop reporting, and treated every change under `==` as improvement; loops-off reporting could claim the configured loop behavior. | Full-token finite decimal/scientific parsing, exactly four stop reasons, honest one-shot degeneration, and target-distance equality improvement are shared by `/prime`, CLI, and engine. |
+| P2 | Research used coercive numeric parsing, incomplete stop reporting, and treated every change under `==` as improvement; loops-off reporting could claim the configured loop behavior. | Full-token finite decimal/scientific parsing, exactly four stop reasons, honest one-shot degeneration, and target-distance equality improvement are shared by `/helix`, CLI, and engine. |
 | P2 | Ordered ship checks were not structurally proven to the verifier, missing injected revision effects could throw, and required artifacts could be satisfied by stale files. | Chain steps execute in declared phases; tests/docs/lint/public-safety produce structural pass proofs before verifier input and handoff remains last. Missing effects refuse stably, the legacy revision boundary no longer dereferences a missing fallback, and first-pass artifacts must be freshly produced. |
-| P2 | `/prime runs resume` performed only generic state validation, rejected the documented pre-event initialization window, and could label an impossible chain machine state resumable. The loop CLI read an unsafe resume ID before validating it. | `/prime` now handles only the exact initialization exception, validates immutable disagreements and event lifecycle, and checks machine counters against the recorded config/chain. The CLI validates the run ID before path construction and never renders an unsafe argument. |
+| P2 | `/helix runs resume` performed only generic state validation, rejected the documented pre-event initialization window, and could label an impossible chain machine state resumable. The loop CLI read an unsafe resume ID before validating it. | `/helix` now handles only the exact initialization exception, validates immutable disagreements and event lifecycle, and checks machine counters against the recorded config/chain. The CLI validates the run ID before path construction and never renders an unsafe argument. |
 | P2 | A live renderer exception at terminal delivery rewrote a durably converged run into `runner-unexpected-failure`; lease cleanup failure similarly risked changing truth. | Renderer failures are sanitized as `event-renderer-failed` and recorded as a returned warning after the already-appended terminal event; non-renderer append failures still propagate. Lease cleanup adds a warning without changing the durable outcome. |
 | P2 | Persisted cast validation averaged members across stages and used a narrower model-ID grammar than the public config/profile schemas. | State validation applies the 64-member ceiling per stage and uses the canonical model/executor grammar, while runner preflight independently rechecks the same per-stage cap. |
 
@@ -1361,7 +1361,7 @@ Scope: one final independent review of PR #29 at the post-repair head, covering
 all owner invariants, persistence/rendering writers, resume kill windows,
 objective-gate authority, loop rails, CI egress, toggle degeneration, and the
 single-command surface. The 2026-07-09 pivot remained fixed: this pass added no
-cost control, live flag, loop fence/allowlist, prime-fence work, or deferred
+cost control, live flag, loop fence/allowlist, helix-fence work, or deferred
 transport/remote/web/scheduled behavior. Each accepted item was reproduced
 against the pre-fix code and re-probed after repair.
 
@@ -1371,19 +1371,19 @@ against the pre-fix code and re-probed after repair.
 |---|---|---|
 | P1 | A staged real-provider cast completed successfully through an injected mock adapter while the returned cast claimed `openai-api/gpt-probe`; the legacy task loop had the same `!deps.adapter` bypass. | Both loop runners now reject every non-mock cast as `live-adapter-not-wired` before any injected adapter, revision, worktree, or chain-step effect. Role and panel-role coverage asserts zero calls. Dependency injection remains a mock-test seam, not authority to activate the deferred transport. |
 | P1 | `ship-pre-pr` invoked its outward handoff five times while five conclusion gates failed, because handoff ran at the end of each stage pass before the gate. | Handoff steps are removed from stage execution and run only after a passing `phase:conclusion` objective gate. The effect receives a stable `run:chain:stage:step` idempotency key for kill/resume deduplication; a failed gate produces zero handoff calls, while successful ordering is verifier -> gate -> handoff. |
-| P1 | A checkpoint with `pass_counts={plan:1,implement:0}` resumed and converged after its sole committed `pass-start` was relabeled `implement:1`; cardinality-only comparison accepted the wrong pass. | One shared event/checkpoint binder now serves the runner and `/prime runs resume`: pass attempts are mandatory/contiguous, the run-start config/chain/rail must match, every stage/pass executor and rail must match the recorded cast/config, and the checkpoint prefix must equal the exact committed pass set (multiple interrupted attempts of one logical pass remain valid). The doctored bundle now refuses as `resume-events-invalid`. |
-| P1 | A schema-valid profile persisted a session-URL-shaped model identifier before `/prime`'s final response scanner refused rendering; gitignored profile state was incorrectly treated as outside the persisted-data invariant. | Profile validation now applies the canonical public-safety scanner before save and on every list/load path. The same toxic fixture returns `invalid-profile` and no file is created; settings remain inherently closed booleans. |
+| P1 | A checkpoint with `pass_counts={plan:1,implement:0}` resumed and converged after its sole committed `pass-start` was relabeled `implement:1`; cardinality-only comparison accepted the wrong pass. | One shared event/checkpoint binder now serves the runner and `/helix runs resume`: pass attempts are mandatory/contiguous, the run-start config/chain/rail must match, every stage/pass executor and rail must match the recorded cast/config, and the checkpoint prefix must equal the exact committed pass set (multiple interrupted attempts of one logical pass remain valid). The doctored bundle now refuses as `resume-events-invalid`. |
+| P1 | A schema-valid profile persisted a session-URL-shaped model identifier before `/helix`'s final response scanner refused rendering; gitignored profile state was incorrectly treated as outside the persisted-data invariant. | Profile validation now applies the canonical public-safety scanner before save and on every list/load path. The same toxic fixture returns `invalid-profile` and no file is created; settings remain inherently closed booleans. |
 
 ### Multi-location/refutation result
 
 The follow-up sweep found no further material violations. Public writers now
 scan run records, debate summaries, events, runner state, disagreements,
-research, and profiles; `/prime` re-scans disk reads. Every execution loop is
+research, and profiles; `/helix` re-scans disk reads. Every execution loop is
 finite (`max_iterations`, finite per-stage counts, or finite input length), CI
 has one workflow with no credential wiring and resolves only mock casts, the
 staged/legacy no-live guards are unconditional, toggle combinations still
-degenerate, and `extensions/prime-command.ts` remains the sole registration of
-the single `/prime` command. No live or paid provider call was made.
+degenerate, and `extensions/helix-command.ts` remains the sole registration of
+the single `/helix` command. No live or paid provider call was made.
 
 ### Verification ledger
 
@@ -1396,7 +1396,7 @@ no-live egress, public-safety diff scan, dispatch/revision/Pi-load smokes,
 packet-level lockdown smoke and any live-provider proof remain intentionally
 outside this no-live PR verification.
 
-## 2026-07-10 — neutral-combiner remediation for `prime-reloaded`
+## 2026-07-10 — neutral-combiner remediation for `helix`
 
 Scope: fix the six independently confirmed runtime findings at source commit
 `77ffcc1497adbb1990c2a018a91efddd50f61c36`, document their durable invariants,
@@ -1409,7 +1409,7 @@ recorded session/share link.
 | Severity | Confirmed behavior | Resolution / regression proof |
 |---|---|---|
 | P1 | Root-shaped refs, arbitrary web URLs in model fields, and caller-supplied URL-shaped effect codes could enter persisted or rendered structures. | One canonical field-grammar module now governs model, provider, code, executor, and ref boundaries; URI/path/domain-path/dot-segment shapes refuse. Chain effects map failures to enumerated codes. Exact regressions cover root-shaped refs, arbitrary non-session URLs, and a hostile effect code that never reaches the event stream. |
-| P1 | An impossible implement → plan → implement event order could bind to a checkpoint, while completed state could report convergence despite terminal objective failure. | One ordered, chain-aware lifecycle reducer is shared by runner checkpoint binding and `/prime` watch/resume. It binds attempts, stage routing, gates, machine state, terminal state, and `run-end`; both impossible order and terminal disagreement now refuse. |
+| P1 | An impossible implement → plan → implement event order could bind to a checkpoint, while completed state could report convergence despite terminal objective failure. | One ordered, chain-aware lifecycle reducer is shared by runner checkpoint binding and `/helix` watch/resume. It binds attempts, stage routing, gates, machine state, terminal state, and `run-end`; both impossible order and terminal disagreement now refuse. |
 | P1 | A fresh worktree collision left resumable initialization state, and resume could adopt a pre-existing dirty worktree. | Collision preflight now occurs before state creation. Worktree creation installs a repository-private owner claim, and initialization reuse requires the exact run generation/repository/branch/baseline owner plus a clean checkout. Runner state schema v3 records the owner ref and deliberately refuses v2 checkpoints. |
 | P1 | Settings and profile pending/final symlinks could redirect atomic-looking writes outside their selected root. Equivalent direct writers existed elsewhere. | All structural persistence now uses one root-confined module with canonical containment, non-symlink parent/final checks, exclusive no-follow temporary creation, fsync, verified atomic install, and safe append/reservation. Private crash-checkpoint generations use its confined directory reservation/resolution/installation path too. Exact final-target, predictable-pending, descendant-parent, and checkpoint-parent symlink regressions prove outside victims remain unchanged. |
 | P2 | With only `visual-cues:false`, the CLI silently selected summary filtering and omitted most persisted events. | Visual-cues-off now selects plain line rendering only. Every persisted event renders unless the caller explicitly supplies `--summary`; the regression compares rendered and persisted counts. |
@@ -1417,13 +1417,13 @@ recorded session/share link.
 
 ### Publication boundary
 
-- The original `prime` repository is a permanently private archive. Branch
+- the legacy repository is a permanently private archive. Branch
   deletion or history rewriting is not accepted as sanitization because its
   repository network retains historical and pull-request refs.
-- `prime-reloaded` must receive only a fresh root commit containing the reviewed
+- `helix` must receive only a fresh root commit containing the reviewed
   tracked snapshot, authored and committed with the maintainer's verified
   GitHub noreply identity. No old ref, tag, PR ref, or Git object is copied.
-- `prime-reloaded` remains private until a separate final audit checks the live
+- `helix` remains private until a separate final audit checks the live
   object/ref graph, tracked content, commit and repository metadata, protection
   settings, and a fresh secret scan. The maintainer must also confirm prior
   session revocation and choose the project license before visibility changes.
@@ -1454,10 +1454,10 @@ root license so this release tree does not introduce a private name or email.
 
 - The root `LICENSE` contains the standard MIT terms, `package.json` declares
   `MIT`, and the packaged-file allowlist includes the license.
-- `prime-reloaded` remains private. The final independent publication audit and
+- `helix` remains private. The final independent publication audit and
   maintainer confirmation that both historical Claude Code web sessions are
   Private or deleted remain required before any visibility change.
-- The original `prime` repository remains a permanently private archive. No
+- the legacy repository remains a permanently private archive. No
   historical session/share link was opened during this change.
 
 ### Verification ledger
@@ -1547,13 +1547,13 @@ use a narrower layered policy instead:
 The one-review rule therefore remains the collaborator default while the
 maintainer can merge an audited, CI-green pull request without manufacturing a
 second-account approval. The maintainer also confirmed that both historical
-Prime-related Claude Code web sessions are Private. Both repositories remain
+Helix-related Claude Code web sessions are Private. Both repositories remain
 private pending the post-merge publication checks.
 
 ## 2026-07-11 — post-migration closure of the inherited runtime review
 
 Scope: independently revalidate the six neutral-combiner findings inherited
-from the pre-migration `prime` review against current `prime-reloaded` main,
+from the pre-migration review against current `helix` main,
 without assuming that the migrated fix ledger was proof. The exact adversarial
 boundaries and their current regression surfaces were inspected and executed
 before deciding whether another runtime patch was warranted.
@@ -1572,7 +1572,7 @@ change as a new code remediation.
 | A fresh worktree collision could leave resumable state and resume could adopt a dirty, unowned worktree. | Fresh collision refusal occurred before state creation; initializing resume rejected the dirty colliding tree without the private owner binding. | Fixed; reproduced-safe. |
 | Settings/profile and equivalent structural writers followed final, pending, parent, or checkpoint symlinks outside their root. | Shared persistence, settings, profile, and private-checkpoint regressions refused final-target, predictable-pending, descendant-parent, directory-installation, and checkpoint-parent symlinks while outside victims stayed unchanged. | Fixed; reproduced-safe. |
 | `visual-cues:false` silently selected summary filtering. | The real loop CLI rendered exactly one plain line for every persisted event unless `--summary` was explicitly supplied. | Fixed; reproduced-safe. |
-| `saveSettings` wrote a future schema version that `loadSettings` rejected. | Save returned `prime-settings-version-mismatch` before creating the file; the read boundary returned the same stable category for an on-disk future version. | Fixed; reproduced-safe. |
+| `saveSettings` wrote a future schema version that `loadSettings` rejected. | Save returned `helix-settings-version-mismatch` before creating the file; the read boundary returned the same stable category for an on-disk future version. | Fixed; reproduced-safe. |
 
 ### Verification and publication boundary
 
@@ -1592,5 +1592,21 @@ change as a new code remediation.
   was opened; the prior maintainer privacy confirmation remains the recorded
   authority for that external state.
 - Repository visibility and governance settings were inspected read-only and
-  were not changed. `prime-reloaded` remains private; this closure does not
+  were not changed. `helix` remains private; this closure does not
   authorize a visibility change or publication.
+
+## 2026-07-12 — canonical Helix identity migration
+
+Scope: the complete tracked repository surface, including runtime identifiers,
+package resources, slash commands, stable codes, environment variables,
+worktree branches, filenames, tests, documentation, and release metadata.
+
+The repository now has one canonical identity: `helix`. The migration is
+intentionally breaking and provides no compatibility aliases because retaining
+an alias would preserve a second product identity. A case-insensitive scan of
+tracked content and working-tree paths found no retired identity residue.
+
+Verification passed 510 Node tests, 12 worktree self-tests, 8 objective-loop
+self-tests, resource validation, docs-truth validation, the static no-live-egress
+guard, the public-safety diff scan, and `git diff --check`. No live provider call
+or visibility change was made.

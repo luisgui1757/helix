@@ -1,4 +1,4 @@
-// Prime dispatch — lean agent-team defaults + canonical role identity.
+// Helix dispatch — lean agent-team defaults + canonical role identity.
 //
 // Source of truth: ROADMAP Theme J / Stage 3K. Agent-team defaults are config
 // artifacts that feed later role-matrix/chain work; they do not launch models,

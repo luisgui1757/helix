@@ -1,4 +1,4 @@
-// Prime lockdown smoke — local mock "approved provider" endpoint.
+// Helix lockdown smoke — local mock "approved provider" endpoint.
 //
 // A zero-dependency, OpenAI-Chat-Completions-compatible stub used to prove that
 // an active Pi session routes model traffic ONLY to the approved (local) endpoint
@@ -14,7 +14,7 @@
 //     echoes or stores it.
 //
 // Usage: node mock-openai-endpoint.mjs [--port N] [--model ID]
-//   Defaults: port 8080, model "prime-mock/echo-1".
+//   Defaults: port 8080, model "helix-mock/echo-1".
 
 import { createServer } from "node:http";
 
@@ -24,8 +24,8 @@ function argValue(flag, fallback) {
 }
 
 const PORT = Number.parseInt(argValue("--port", process.env.MOCK_PORT || "8080"), 10);
-const MODEL = argValue("--model", process.env.MOCK_MODEL || "prime-mock/echo-1");
-const CANNED = "prime-lockdown-mock-ok";
+const MODEL = argValue("--model", process.env.MOCK_MODEL || "helix-mock/echo-1");
+const CANNED = "helix-lockdown-mock-ok";
 
 let requestCount = 0;
 
@@ -40,7 +40,7 @@ function drain(req) {
 
 function chatCompletion() {
   return {
-    id: "chatcmpl-prime-mock",
+    id: "chatcmpl-helix-mock",
     object: "chat.completion",
     created: 0,
     model: MODEL,
@@ -61,7 +61,7 @@ function streamChunks(res) {
     "Cache-Control": "no-cache",
     Connection: "keep-alive"
   });
-  const base = { id: "chatcmpl-prime-mock", object: "chat.completion.chunk", created: 0, model: MODEL };
+  const base = { id: "chatcmpl-helix-mock", object: "chat.completion.chunk", created: 0, model: MODEL };
   res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] })}\n\n`);
   res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { content: CANNED }, finish_reason: null }] })}\n\n`);
   res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
@@ -78,7 +78,7 @@ const server = createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname.endsWith("/models")) {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ object: "list", data: [{ id: MODEL, object: "model", owned_by: "prime-mock" }] }));
+    res.end(JSON.stringify({ object: "list", data: [{ id: MODEL, object: "model", owned_by: "helix-mock" }] }));
     return;
   }
 

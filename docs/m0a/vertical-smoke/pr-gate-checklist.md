@@ -26,7 +26,7 @@ Run the repo's focused checks and paste results into the PR body:
 
 - [ ] `tools/m0a/collect-evidence.sh` → exit 0, version pin + docs checksum **OK**
       (record drift only if drift).
-- [ ] `npm run check:resources` → **Prime resource checks passed.**
+- [ ] `npm run check:resources` → **Helix resource checks passed.**
 - [ ] `shellcheck` on any shell script you touched/added.
 - [ ] `git diff --check` → clean (no whitespace/conflict markers).
 - [ ] If `ROADMAP_SUMMARY.html` changed: HTML parses + tags balance.

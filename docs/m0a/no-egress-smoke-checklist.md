@@ -75,7 +75,7 @@ Inside the boundary (no non-loopback interface), with the approved endpoint prov
 
 - [x] **Idle / startup** makes no unapproved outbound connection — a representative Pi
       startup (`pi --version`, `pi --approve --no-session --list-models` loading settings +
-      `prime-ui` + themes + pinned extensions) completes offline with exit 0 and zero
+      `helix-ui` + themes + pinned extensions) completes offline with exit 0 and zero
       network available.
 - [x] **Active session** (`pi -p`) reaches **only** the approved endpoint (the local mock;
       two requests: `GET /v1/models` + `POST /v1/chat/completions`); a **non-allowlisted**

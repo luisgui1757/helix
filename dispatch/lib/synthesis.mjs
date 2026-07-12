@@ -1,4 +1,4 @@
-// Prime dispatch — synthesis stage (final recommendation; preserves contradictions).
+// Helix dispatch — synthesis stage (final recommendation; preserves contradictions).
 //
 // Source of truth: fusion-dispatch-research.md §"Roles" (the `synthesizer`
 // produces the final recommendation/action plan from the judge analysis and the

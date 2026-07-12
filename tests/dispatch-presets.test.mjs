@@ -121,7 +121,7 @@ test("preset validation rejects unsafe or oversized expanded panels", () => {
 });
 
 test("the registry loader fails closed on malformed files and duplicate ids", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-presets-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-presets-"));
   try {
     writeFileSync(join(dir, "broken.json"), "{nope", "utf8");
     assert.equal(loadPresetRegistry(dir).code, PRESET_CODES.UNREADABLE);

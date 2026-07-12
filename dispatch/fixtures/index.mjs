@@ -1,4 +1,4 @@
-// Prime dispatch — deterministic evaluation fixtures + oracles.
+// Helix dispatch — deterministic evaluation fixtures + oracles.
 //
 // Source of truth: fusion-dispatch-research.md §"Evaluation Fixtures" (amended
 // 2026-07-09: cost control removed from the harness — no profiles, no price/
@@ -16,7 +16,7 @@ function baseRecord(overrides) {
     timestamp: "2026-07-05T00:00:00Z",
     provider_ids: ["mock"],
     model_ids: ["mock-model"],
-    // Tokens are capacity telemetry only — Prime does no cost accounting.
+    // Tokens are capacity telemetry only — Helix does no cost accounting.
     usage_rollup: { input_tokens: 30, output_tokens: 40 },
     iteration_count: 1,
     warning_codes: [],
@@ -130,7 +130,7 @@ const securityPosture = {
     exit_status: "fail-closed",
     gate: { command_names: ["public-safety"], kind: "objective", result: "fail", source: "deterministic-checker" },
     warning_codes: ["floor-raised-classification", "provider-not-automated:claude-local"],
-    branch: "stage3/dispatch-policy-core", gate_file_paths: ["tools/check-prime-resources.mjs"],
+    branch: "stage3/dispatch-policy-core", gate_file_paths: ["tools/check-helix-resources.mjs"],
   }),
   expect: {
     task_class: "security", route_id: "security", classify_warnings_include: ["floor-raised-classification"],
@@ -139,10 +139,10 @@ const securityPosture = {
   },
 };
 
-/** 5. prime-ui path recommends a design; verifier keeps a11y/perf checks objective. */
+/** 5. helix-ui path recommends a design; verifier keeps a11y/perf checks objective. */
 const uiQuality = {
   id: "ui-quality",
-  description: "prime-ui path produces a design recommendation; the verifier keeps accessibility/performance checks objective, separate from model taste.",
+  description: "helix-ui path produces a design recommendation; the verifier keeps accessibility/performance checks objective, separate from model taste.",
   task: { class_hint: "ui-quality", signals: [], confident: true, mode: "tui" },
   candidates: [
     { envelope: makeEnvelope({ role: "builder", recommendation: "layout-A" }), expect_valid: true },
@@ -153,7 +153,7 @@ const uiQuality = {
     role_ids: ["builder", "reviewer"],
     exit_status: "ok",
     gate: { command_names: ["visual-check", "a11y-check", "perf-check"], kind: "objective", result: "pass", source: "deterministic-checker" },
-    branch: "stage3/dispatch-policy-core", gate_file_paths: ["skills/prime-ui/SKILL.md"],
+    branch: "stage3/dispatch-policy-core", gate_file_paths: ["skills/helix-ui/SKILL.md"],
   }),
   expect: {
     task_class: "ui-quality", route_id: "ui-quality", classify_warnings_include: [],

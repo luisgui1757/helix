@@ -1,5 +1,5 @@
 /**
- * Prime yolo-fence
+ * Helix yolo-fence
  *
  * Keeps Pi's yolo-by-default speed while fencing irreversible / high-blast-radius
  * operations behind an explicit confirm. Source-verified against Pi 0.80.3:
@@ -22,7 +22,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { classifyCommand, classifyWritePath } from "./lib/fence-rules.mjs";
 
-export default function primeFence(pi: ExtensionAPI) {
+export default function helixFence(pi: ExtensionAPI) {
   // Agent tool calls: bash commands + write/edit targets.
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName === "bash") {
@@ -51,15 +51,15 @@ export default function primeFence(pi: ExtensionAPI) {
     if (!risky) return undefined;
 
     if (ctx.mode !== "tui") {
-      return refuse(`prime-fence blocked user command (${rule}); no interactive terminal to confirm (mode=${ctx.mode})`);
+      return refuse(`helix-fence blocked user command (${rule}); no interactive terminal to confirm (mode=${ctx.mode})`);
     }
     const allowed = await ctx.ui.confirm(
-      `⚠️ prime-fence: risky command (${rule})`,
+      `⚠️ helix-fence: risky command (${rule})`,
       `Run this shell command?\n\n  ${command}`,
     );
     if (!allowed) {
-      ctx.ui.notify(`prime-fence: command cancelled (${rule})`, "warning");
-      return refuse(`prime-fence: user declined command (${rule})`);
+      ctx.ui.notify(`helix-fence: command cancelled (${rule})`, "warning");
+      return refuse(`helix-fence: user declined command (${rule})`);
     }
     return undefined;
   });
@@ -76,15 +76,15 @@ async function decide(
   detail: string,
 ): Promise<{ block: true; reason: string } | undefined> {
   if (ctx.mode !== "tui") {
-    return { block: true, reason: `prime-fence: ${label} blocked (fail-closed: interactive confirm requires a terminal; mode=${ctx.mode})` };
+    return { block: true, reason: `helix-fence: ${label} blocked (fail-closed: interactive confirm requires a terminal; mode=${ctx.mode})` };
   }
   const choice = await ctx.ui.select(
-    `⚠️ prime-fence: ${label}\n\n  ${detail}\n\nAllow this operation?`,
+    `⚠️ helix-fence: ${label}\n\n  ${detail}\n\nAllow this operation?`,
     ["No, block it", "Yes, allow once"],
   );
   if (choice !== "Yes, allow once") {
-    ctx.ui.notify(`prime-fence: blocked ${label}`, "warning");
-    return { block: true, reason: `prime-fence: ${label} blocked by user` };
+    ctx.ui.notify(`helix-fence: blocked ${label}`, "warning");
+    return { block: true, reason: `helix-fence: ${label} blocked by user` };
   }
   return undefined;
 }

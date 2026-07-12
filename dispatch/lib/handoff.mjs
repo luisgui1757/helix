@@ -1,4 +1,4 @@
-// Prime dispatch — clean-context handoff packets + disagreement log (M6).
+// Helix dispatch — clean-context handoff packets + disagreement log (M6).
 //
 // Each stage starts FRESH: it receives a handoff packet (claims, counterclaims,
 // evidence refs, unresolved disagreement ids) instead of a dragged transcript.

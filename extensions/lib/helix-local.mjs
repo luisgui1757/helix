@@ -1,4 +1,4 @@
-// Prime /prime — user-local state helpers (M8): named profiles + active
+// Helix /helix — user-local state helpers (M8): named profiles + active
 // pointer over gitignored dispatch/local/. Profiles are saved CASTS: they may
 // override assignments, complete preset member lineups, the default assignment,
 // and the default run config —
@@ -15,15 +15,15 @@ import { assertPublicSafe } from "../../dispatch/lib/run-record.mjs";
 import { writeTextAtomic } from "../../dispatch/lib/persistence.mjs";
 
 export const PROFILE_CODES = Object.freeze({
-  UNREADABLE: "prime-profile-unreadable",
+  UNREADABLE: "helix-profile-unreadable",
   INVALID: "invalid-profile",
-  VERSION_MISMATCH: "prime-profile-version-mismatch",
+  VERSION_MISMATCH: "helix-profile-version-mismatch",
   UNKNOWN: "unknown-profile",
-  EXISTS: "prime-profile-exists",
-  ACTIVE_INVALID: "prime-active-profile-invalid",
-  PRESET_UNKNOWN: "prime-profile-preset-unknown",
-  TRANSACTION_FAILED: "prime-profile-transaction-failed",
-  WRITE_FAILED: "prime-profile-write-failed",
+  EXISTS: "helix-profile-exists",
+  ACTIVE_INVALID: "helix-active-profile-invalid",
+  PRESET_UNKNOWN: "helix-profile-preset-unknown",
+  TRANSACTION_FAILED: "helix-profile-transaction-failed",
+  WRITE_FAILED: "helix-profile-write-failed",
 });
 
 const PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;

@@ -1,4 +1,4 @@
-// Prime dispatch — prompt compiler (M6, owner interview 2026-07-09).
+// Helix dispatch — prompt compiler (M6, owner interview 2026-07-09).
 //
 // Step prompts compile from SOURCE-CONTROLLED templates + the role's tracked
 // brief + the task envelope + the handoff packet. Records and events persist

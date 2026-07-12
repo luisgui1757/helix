@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Prime no-auth/no-live Pi load helper.
+// Helix no-auth/no-live Pi load helper.
 //
 // Separates four proof types that earlier handoffs were prone to collapse:
 // package/resource loadability, Pi command/skill discoverability, no-live
@@ -17,22 +17,22 @@ import { fileURLToPath } from "node:url";
 const DEFAULT_ROOT = resolve(new URL("../..", import.meta.url).pathname);
 export const DEFAULT_RUNTIME_RPC_TIMEOUT_MS = 60_000;
 const EXPECTED = Object.freeze({
-  skill: "./skills/prime-ui",
+  skill: "./skills/helix-ui",
   themes: "./themes",
   extensions: [
-    "./extensions/prime-fence.ts",
-    "./extensions/prime-answer.ts",
-    "./extensions/prime-command.ts",
+    "./extensions/helix-fence.ts",
+    "./extensions/helix-answer.ts",
+    "./extensions/helix-command.ts",
   ],
-  settingsSkill: "../skills/prime-ui",
+  settingsSkill: "../skills/helix-ui",
   settingsThemes: "../themes",
   settingsExtensions: [
-    "../extensions/prime-fence.ts",
-    "../extensions/prime-answer.ts",
-    "../extensions/prime-command.ts",
+    "../extensions/helix-fence.ts",
+    "../extensions/helix-answer.ts",
+    "../extensions/helix-command.ts",
   ],
-  command: "prime",
-  skillCommand: "skill:prime-ui",
+  command: "helix",
+  skillCommand: "skill:helix-ui",
 });
 
 function readJson(path) {
@@ -58,7 +58,7 @@ function staticLoadability(root) {
   if (!sameArray(settings.themes, [EXPECTED.settingsThemes])) failures.push("settings-theme-surface");
   if (!sameArray(settings.extensions, EXPECTED.settingsExtensions)) failures.push("settings-extension-surface");
 
-  for (const rel of ["skills/prime-ui/SKILL.md", "themes", "extensions/prime-fence.ts", "extensions/prime-answer.ts", "extensions/prime-command.ts"]) {
+  for (const rel of ["skills/helix-ui/SKILL.md", "themes", "extensions/helix-fence.ts", "extensions/helix-answer.ts", "extensions/helix-command.ts"]) {
     if (!existsSync(join(root, rel))) failures.push(`missing:${rel}`);
   }
 
@@ -81,7 +81,7 @@ function sanitizeCommand(command) {
 }
 
 function runRpcInventory(root, { piBin = "pi", timeoutMs = DEFAULT_RUNTIME_RPC_TIMEOUT_MS } = {}) {
-  const temp = mkdtempSync(join(tmpdir(), "prime-pi-load-"));
+  const temp = mkdtempSync(join(tmpdir(), "helix-pi-load-"));
   try {
     const env = {
       ...process.env,
@@ -96,7 +96,7 @@ function runRpcInventory(root, { piBin = "pi", timeoutMs = DEFAULT_RUNTIME_RPC_T
       ["--offline", "--approve", "--mode", "rpc", "--no-session"],
       {
         cwd: root,
-        input: JSON.stringify({ id: "prime-load", type: "get_commands" }) + "\n",
+        input: JSON.stringify({ id: "helix-load", type: "get_commands" }) + "\n",
         encoding: "utf8",
         env,
         timeout: timeoutMs,
@@ -113,7 +113,7 @@ function runRpcInventory(root, { piBin = "pi", timeoutMs = DEFAULT_RUNTIME_RPC_T
       } catch {
         return null;
       }
-    }).find((line) => line?.id === "prime-load" && line?.command === "get_commands");
+    }).find((line) => line?.id === "helix-load" && line?.command === "get_commands");
     if (!response?.success) {
       return { ok: false, code: "rpc-get-commands-failed", detail: response?.error ?? `exit=${proc.status}` };
     }
@@ -146,8 +146,8 @@ function discoverability(root, options) {
     "command/tool/skill discoverability",
     status,
     skillFound
-      ? "runtime RPC inventory found Prime command and Prime skill command"
-      : "runtime RPC inventory found Prime command; project skill command remains a known Pi 0.80.3 headless limitation",
+      ? "runtime RPC inventory found Helix command and Helix skill command"
+      : "runtime RPC inventory found Helix command; project skill command remains a known Pi 0.80.3 headless limitation",
     {
       command_found: commandFound,
       skill_command_found: skillFound,

@@ -1,4 +1,4 @@
-// M10 regression: the loop CLI (tools/loop/prime-task-loop.mjs) had zero
+// M10 regression: the loop CLI (tools/loop/helix-task-loop.mjs) had zero
 // automated coverage despite driving fresh runs, resume, and the guards.
 // These exercise it as a child process against the real repo config.
 
@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { defaultSettings, saveSettings } from "../dispatch/lib/settings.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const CLI = join(root, "tools", "loop", "prime-task-loop.mjs");
+const CLI = join(root, "tools", "loop", "helix-task-loop.mjs");
 
 function runCli(args) {
   const res = spawnSync("node", [CLI, ...args], { cwd: root, encoding: "utf8" });
@@ -20,10 +20,10 @@ function runCli(args) {
 }
 
 function tempRepo() {
-  const cwd = mkdtempSync(join(tmpdir(), "prime-cli-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-cli-"));
   execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["config", "user.email", "prime@example.invalid"], { cwd });
-  execFileSync("git", ["config", "user.name", "Prime CLI"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix CLI"], { cwd });
   writeFileSync(join(cwd, "proposal.txt"), "initial\n", "utf8");
   writeFileSync(join(cwd, "PLAN.md"), "Real plan fixture for the staged contract.\n", "utf8");
   execFileSync("git", ["add", "proposal.txt", "PLAN.md"], { cwd });
@@ -40,7 +40,7 @@ test("a fresh CLI run over a synthetic repo converges and writes structural arti
     const parsed = JSON.parse(out.stdout.slice(out.stdout.indexOf("{")));
     assert.equal(parsed.converged, true);
     assert.deepEqual(parsed.cast.map((c) => c.executor_ref), ["composite:overlord", "composite:daily"]);
-    assert.match(parsed.worktree_branch, /^prime\/run-[0-9a-f]{24}$/);
+    assert.match(parsed.worktree_branch, /^helix\/run-[0-9a-f]{24}$/);
     assert.match(parsed.events_path, /\.events\.jsonl$/);
   } finally {
     rmSync(join(root, "dispatch", "runs", runId), { recursive: true, force: true });

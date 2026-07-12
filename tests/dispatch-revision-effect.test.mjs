@@ -44,11 +44,11 @@ function readdirLength(dir) {
 }
 
 // ----------------------------------------------------------------------------
-// No provider/cost gating: any Prime provider builder reaches the adapter
+// No provider/cost gating: any Helix provider builder reaches the adapter
 // ----------------------------------------------------------------------------
 
-test("any Prime provider builder is accepted — no cost/eligibility gate before the adapter", async () => {
-  const cwd = tmp("prime-rev-");
+test("any Helix provider builder is accepted — no cost/eligibility gate before the adapter", async () => {
+  const cwd = tmp("helix-rev-");
   try {
     // These providers were refused under the demolished cost policy; presence = live
     // now, so the effect goes straight to the injected adapter for all of them.
@@ -77,7 +77,7 @@ test("any Prime provider builder is accepted — no cost/eligibility gate before
 test("a config still carrying removed cost-control fields fails closed as invalid", async () => {
   // The config schema is exactly { cwd, builder } with additionalProperties:false —
   // demolished fields are rejected structurally, never silently ignored.
-  const cwd = tmp("prime-rev-");
+  const cwd = tmp("helix-rev-");
   try {
     const legacies = [
       { profile: "no-spend-test" },
@@ -99,7 +99,7 @@ test("a config still carrying removed cost-control fields fails closed as invali
 });
 
 test("a malformed config, bad cwd, or missing adapter fails closed before any model call", async () => {
-  const cwd = tmp("prime-rev-");
+  const cwd = tmp("helix-rev-");
   try {
     const adapter = countingAdapter([{ path: "proposal.txt", content: "x" }]);
     // Missing required builder.
@@ -128,7 +128,7 @@ test("a malformed config, bad cwd, or missing adapter fails closed before any mo
 // ----------------------------------------------------------------------------
 
 test("malformed model output fails closed without surfacing model text", async () => {
-  const cwd = tmp("prime-rev-");
+  const cwd = tmp("helix-rev-");
   try {
     const LEAK = "SECRET-MODEL-NARRATIVE-ZZZ";
     for (const bad of [LEAK, { edits: [] }, { edits: [{ path: "proposal.txt" }] }, { edits: [{ path: "proposal.txt", content: 5 }] }, { edits: [{ path: "proposal.txt", content: LEAK, extra: 1 }] }, { notes: LEAK }]) {
@@ -150,8 +150,8 @@ test("malformed model output fails closed without surfacing model text", async (
 // ----------------------------------------------------------------------------
 
 test("traversal, absolute, and null-byte write paths fail closed and mutate nothing", async () => {
-  const cwd = tmp("prime-rev-");
-  const outside = tmp("prime-rev-out-");
+  const cwd = tmp("helix-rev-");
+  const outside = tmp("helix-rev-out-");
   try {
     const before = readdirLength(cwd);
     // The REAL destinations `../escape.txt` and `/etc/passwd` would resolve to
@@ -178,7 +178,7 @@ test("traversal, absolute, and null-byte write paths fail closed and mutate noth
 test("an in-tree secret-shaped filename IS writable (containment only, no denylist)", async () => {
   // Owner YOLO decision (2026-07-09): the write fence is worktree containment, not
   // filename shape. A secret-shaped path INSIDE the tree is a legitimate edit target.
-  const cwd = tmp("prime-rev-");
+  const cwd = tmp("helix-rev-");
   try {
     const adapter = countingAdapter([
       { path: ".env", content: "SYNTHETIC_FIXTURE=1\n" },
@@ -199,8 +199,8 @@ test("an in-tree secret-shaped filename IS writable (containment only, no denyli
 });
 
 test("a symlinked existing target is refused (never followed/overwritten)", async () => {
-  const cwd = tmp("prime-rev-");
-  const outside = tmp("prime-rev-out-");
+  const cwd = tmp("helix-rev-");
+  const outside = tmp("helix-rev-out-");
   try {
     writeFileSync(join(outside, "target.txt"), "outside-secret");
     // proposal.txt is a symlink pointing outside the tree.
@@ -217,8 +217,8 @@ test("a symlinked existing target is refused (never followed/overwritten)", asyn
 });
 
 test("a write through a symlinked parent that escapes the tree is refused", async () => {
-  const cwd = tmp("prime-rev-");
-  const outside = tmp("prime-rev-out-");
+  const cwd = tmp("helix-rev-");
+  const outside = tmp("helix-rev-out-");
   try {
     // cwd/sub -> outside: a new file under sub/ would land outside the work tree.
     symlinkSync(outside, join(cwd, "sub"));
@@ -235,7 +235,7 @@ test("a write through a symlinked parent that escapes the tree is refused", asyn
 });
 
 test("a non-file target (existing directory) is refused", async () => {
-  const cwd = tmp("prime-rev-");
+  const cwd = tmp("helix-rev-");
   try {
     mkdirSync(join(cwd, "a-dir"));
     const adapter = countingAdapter([{ path: "a-dir", content: "CLOBBER" }]);
@@ -249,7 +249,7 @@ test("a non-file target (existing directory) is refused", async () => {
 });
 
 test("a disk write failure rolls back earlier edits", async () => {
-  const cwd = tmp("prime-rev-");
+  const cwd = tmp("helix-rev-");
   try {
     writeFileSync(join(cwd, "a.txt"), "old-a");
     writeFileSync(join(cwd, "b.txt"), "old-b");
@@ -277,7 +277,7 @@ test("a disk write failure rolls back earlier edits", async () => {
 // ----------------------------------------------------------------------------
 
 test("a valid revision writes the worktree and returns a sha256 ref (not canned)", async () => {
-  const cwd = tmp("prime-rev-");
+  const cwd = tmp("helix-rev-");
   try {
     const adapter = countingAdapter([{ path: "draft.txt", content: "revised-by-model\n" }]);
     const revise = makeModelRevision(revisionConfig(cwd), { modelAdapter: adapter });
@@ -297,7 +297,7 @@ test("a valid revision writes the worktree and returns a sha256 ref (not canned)
 });
 
 test("a thrown model adapter fails closed as revision-adapter-failed without leaking its message", async () => {
-  const cwd = tmp("prime-rev-");
+  const cwd = tmp("helix-rev-");
   // Split literal so repo-wide public-safety scanners do not self-match this source.
   const HOMEISH = "/Us" + "ers/alice/private/secret.diff";
   try {
@@ -320,10 +320,10 @@ const GIT_ENV = {
   ...process.env,
   GIT_CONFIG_GLOBAL: devNull,
   GIT_CONFIG_SYSTEM: devNull,
-  GIT_AUTHOR_NAME: "prime-test",
-  GIT_AUTHOR_EMAIL: "prime@test.invalid",
-  GIT_COMMITTER_NAME: "prime-test",
-  GIT_COMMITTER_EMAIL: "prime@test.invalid",
+  GIT_AUTHOR_NAME: "helix-test",
+  GIT_AUTHOR_EMAIL: "helix@test.invalid",
+  GIT_COMMITTER_NAME: "helix-test",
+  GIT_COMMITTER_EMAIL: "helix@test.invalid",
   LC_ALL: "C",
   TZ: "UTC",
 };
@@ -334,7 +334,7 @@ function gitCmd(cwd, args) {
 }
 
 function makeRepo() {
-  const dir = mkdtempSync(join(tmpdir(), "prime-rev-git-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-rev-git-"));
   gitCmd(dir, ["init", "-q"]);
   writeFileSync(join(dir, "proposal.txt"), "base\n");
   gitCmd(dir, ["add", "proposal.txt"]);
@@ -367,7 +367,7 @@ function gate(result) {
 
 test("a real temp-repo debate: the model-backed revision mutates the proposal and converges on diff-stability + gate-pass", async () => {
   const repo = makeRepo();
-  const records = tmp("prime-rev-rec-"); // kept OUT of the repo tree (avoid untracked churn)
+  const records = tmp("helix-rev-rec-"); // kept OUT of the repo tree (avoid untracked churn)
   try {
     // The model returns a CONSTANT proposal: iteration 1's revision changes the tree,
     // iteration 2's is a no-op, so the real git diff surface reports diff-stable and
@@ -401,7 +401,7 @@ test("a real temp-repo debate: the model-backed revision mutates the proposal an
 
 test("a legacy-config revision inside a debate fails closed before the model adapter is called", async () => {
   const repo = makeRepo();
-  const records = tmp("prime-rev-rec-");
+  const records = tmp("helix-rev-rec-");
   try {
     // A config still carrying a demolished field is structurally invalid → the
     // revision refuses before the model adapter, so the debate fails closed with the
@@ -427,7 +427,7 @@ test("a legacy-config revision inside a debate fails closed before the model ada
 
 test("a revision whose model adapter throws preserves prior iteration evidence and leaks nothing", async () => {
   const repo = makeRepo();
-  const records = tmp("prime-rev-rec-");
+  const records = tmp("helix-rev-rec-");
   const HOMEISH = "/Us" + "ers/bob/secret-plan.diff";
   try {
     let calls = 0;
@@ -462,7 +462,7 @@ test("a revision whose model adapter throws preserves prior iteration evidence a
 test("a fixed input yields byte-identical debate summaries across two runs (determinism)", async () => {
   const run = async () => {
     const repo = makeRepo();
-    const records = tmp("prime-rev-rec-");
+    const records = tmp("helix-rev-rec-");
     try {
       const revise = makeModelRevision(revisionConfig(repo), { modelAdapter: countingAdapter([{ path: "proposal.txt", content: "base\nrevised-by-model\n" }]) });
       const result = await runDebate(

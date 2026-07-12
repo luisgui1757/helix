@@ -7,7 +7,7 @@ Stage 3C added the thin one-cycle orchestrator over it — mock adapters only,
 still no live model calls
 ([`docs/stage3/dispatch-orchestrator.md`](../stage3/dispatch-orchestrator.md)).
 
-Prime's Phase 3 multi-model architecture uses the concept behind OpenRouter
+Helix's Phase 3 multi-model architecture uses the concept behind OpenRouter
 Fusion, not the hosted `openrouter/fusion` model as the core design. The
 canonical architecture is a policy-bound model panel, structured comparison,
 synthesis, and objective verification loop.
@@ -48,13 +48,13 @@ OpenRouter Fusion separates a multi-model pipeline into:
 4. Bounded invocation rules such as a max tool-call count and recursion
    protection.
 
-The papers above support four Prime requirements:
+The papers above support four Helix requirements:
 
 - **Routing is a cost/quality policy decision, not a fixed model count.**
   RouterBench and RouteLLM show that model routing must be evaluated against
   cost and task quality, not assumed.
 - **Cheap-first cascades are legitimate when quality gates hold.** FrugalGPT
-  supports routing/cascading as a way to reduce cost, but Prime must still
+  supports routing/cascading as a way to reduce cost, but Helix must still
   stop when the objective gate fails.
 - **Fusion/debate need structure.** Mixture-of-Agents, LLM-Blender, and
   multiagent debate support panel, comparison, and synthesis patterns; they do
@@ -90,7 +90,7 @@ The papers above support four Prime requirements:
 
 ## Provider And Cost Policy
 
-Prime has three dispatch profiles.
+Helix has three dispatch profiles.
 
 | Profile | Purpose | Eligible providers | Cost rule | Network rule |
 | --- | --- | --- | --- | --- |
@@ -132,11 +132,11 @@ Copilot tests require a pinned config entry with model id, verification date,
 source, included/zero-multiplier status if available, and overage policy. If the
 pin is stale or absent, Copilot dispatch stops.
 
-Provider identifiers in run records are Prime-canonical, not necessarily the
+Provider identifiers in run records are Helix-canonical, not necessarily the
 verbatim Pi provider id. Stage 3B owns the canonical-to-Pi mapping table. The
 initial canonical set is:
 
-| Prime provider | Pi/runtime source |
+| Helix provider | Pi/runtime source |
 | --- | --- |
 | `openai-codex` | Pi native OpenAI Codex OAuth/subscription provider |
 | `openai-api` | Pi native/OpenAI-compatible API-key provider |
@@ -214,7 +214,7 @@ judge/synthesis.
 
 Stage 3B implementation note (recorded contradiction). The tested policy core
 cannot import TypeBox: this package forbids installed runtime dependencies
-(`tools/check-prime-resources.mjs`) and pins `extensions/` to its two existing
+(`tools/check-helix-resources.mjs`) and pins `extensions/` to its two existing
 files, and the bare `typebox` specifier resolves only inside Pi's runtime, not
 under `node --test`. The runtime validator (`dispatch/lib/schema.mjs`) is
 therefore a zero-dependency structural checker whose schema descriptors are
@@ -250,7 +250,7 @@ first; it must be testable and visible in logs.
 | `roadmap-reconciliation` | planner/reviewer panel + judge + synthesis | 2-3 | panel size | contradiction ledger required | roadmap consistency check |
 | `pr-preflight` | reviewer/redteam panel + verifier | 2-3 | panel size | preserve blockers; no synthesis success without gates | pr-gate/checklist |
 | `risky-change` | builder + independent reviewer/redteam | 2-3 | panel size | synthesize only after reviewer/redteam pass | relevant tests + risk gate |
-| `ui-quality` | prime-ui skill path + reviewer | 1-2 | panel size | synthesize only material alternatives | visual/accessibility/perf checks |
+| `ui-quality` | helix-ui skill path + reviewer | 1-2 | panel size | synthesize only material alternatives | visual/accessibility/perf checks |
 
 Rules:
 
@@ -380,7 +380,7 @@ model quality.
    shapes; synthesis selects the one matching Pi APIs and no slash clutter.
 4. `security-posture`: redteam flags a hidden egress or provenance leak;
    dispatcher refuses success until the public-safety gate passes.
-5. `ui-quality`: prime-ui path produces a design recommendation; verifier keeps
+5. `ui-quality`: helix-ui path produces a design recommendation; verifier keeps
    accessibility/performance checks separate from model taste.
 
 Success metrics:

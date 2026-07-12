@@ -6,27 +6,27 @@ import assert from "node:assert/strict";
 import { DEFAULT_RUNTIME_RPC_TIMEOUT_MS, runPiE2ELoad } from "../tools/smoke/pi-e2e-load.mjs";
 
 function fixtureRoot() {
-  const root = mkdtempSync(join(tmpdir(), "prime-load-helper-"));
+  const root = mkdtempSync(join(tmpdir(), "helix-load-helper-"));
   mkdirSync(join(root, ".pi"), { recursive: true });
-  mkdirSync(join(root, "skills/prime-ui"), { recursive: true });
+  mkdirSync(join(root, "skills/helix-ui"), { recursive: true });
   mkdirSync(join(root, "themes"), { recursive: true });
   mkdirSync(join(root, "extensions"), { recursive: true });
-  writeFileSync(join(root, "skills/prime-ui/SKILL.md"), "---\nname: prime-ui\n---\n", "utf8");
-  for (const file of ["prime-fence.ts", "prime-answer.ts", "prime-command.ts"]) {
+  writeFileSync(join(root, "skills/helix-ui/SKILL.md"), "---\nname: helix-ui\n---\n", "utf8");
+  for (const file of ["helix-fence.ts", "helix-answer.ts", "helix-command.ts"]) {
     writeFileSync(join(root, "extensions", file), "export default function x() {}\n", "utf8");
   }
-  writeFileSync(join(root, "themes/prime-rose-pine.json"), "{}\n", "utf8");
+  writeFileSync(join(root, "themes/helix-rose-pine.json"), "{}\n", "utf8");
   writeFileSync(join(root, "package.json"), JSON.stringify({
     pi: {
-      skills: ["./skills/prime-ui"],
+      skills: ["./skills/helix-ui"],
       themes: ["./themes"],
-      extensions: ["./extensions/prime-fence.ts", "./extensions/prime-answer.ts", "./extensions/prime-command.ts"],
+      extensions: ["./extensions/helix-fence.ts", "./extensions/helix-answer.ts", "./extensions/helix-command.ts"],
     },
   }), "utf8");
   writeFileSync(join(root, ".pi/settings.json"), JSON.stringify({
-    skills: ["../skills/prime-ui"],
+    skills: ["../skills/helix-ui"],
     themes: ["../themes"],
-    extensions: ["../extensions/prime-fence.ts", "../extensions/prime-answer.ts", "../extensions/prime-command.ts"],
+    extensions: ["../extensions/helix-fence.ts", "../extensions/helix-answer.ts", "../extensions/helix-command.ts"],
   }), "utf8");
   return root;
 }

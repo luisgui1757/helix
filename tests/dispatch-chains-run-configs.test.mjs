@@ -43,25 +43,25 @@ function agentTeam() {
 }
 
 function tempRepo() {
-  const cwd = mkdtempSync(join(tmpdir(), "prime-loop-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-loop-"));
   execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["config", "user.email", "prime@example.invalid"], { cwd });
-  execFileSync("git", ["config", "user.name", "Prime Test"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Test"], { cwd });
   writeFileSync(join(cwd, "proposal.txt"), "initial proposal\n", "utf8");
   execFileSync("git", ["add", "proposal.txt"], { cwd });
   execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
   return cwd;
 }
 
-function tempRepoWithSymlinkedProposal(marker = "PRIME_LOOP_PASS\n") {
-  const outside = mkdtempSync(join(tmpdir(), "prime-loop-outside-"));
+function tempRepoWithSymlinkedProposal(marker = "HELIX_LOOP_PASS\n") {
+  const outside = mkdtempSync(join(tmpdir(), "helix-loop-outside-"));
   const outsidePath = join(outside, "outside.txt");
   writeFileSync(outsidePath, marker, "utf8");
 
-  const cwd = mkdtempSync(join(tmpdir(), "prime-loop-symlink-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-loop-symlink-"));
   execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["config", "user.email", "prime@example.invalid"], { cwd });
-  execFileSync("git", ["config", "user.name", "Prime Test"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Test"], { cwd });
   symlinkSync(outsidePath, join(cwd, "proposal.txt"));
   execFileSync("git", ["add", "proposal.txt"], { cwd });
   execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
@@ -178,7 +178,7 @@ test("run config iteration and concurrency rails have practical maxima", () => {
 
 test("bounded task loop converges over a real temp repo with no-live mock adapters", async () => {
   const cwd = tempRepo();
-  const recordDir = mkdtempSync(join(tmpdir(), "prime-loop-records-"));
+  const recordDir = mkdtempSync(join(tmpdir(), "helix-loop-records-"));
   const config = resolveRunConfig(runRegistry(), "mock-core-loop").config;
   const result = await runTaskLoop(config, {
     chainRegistry: chainRegistry(),
@@ -197,7 +197,7 @@ test("bounded task loop converges over a real temp repo with no-live mock adapte
   assert.equal(result.debate.iterations_run, 3);
   assert.equal(result.calls.candidates, 9);
   assert.equal(result.calls.revisions, 2);
-  assert.equal(readFileSync(join(cwd, "proposal.txt"), "utf8").includes("PRIME_LOOP_PASS"), true);
+  assert.equal(readFileSync(join(cwd, "proposal.txt"), "utf8").includes("HELIX_LOOP_PASS"), true);
   assert.ok(existsSync(join(recordDir, "task-loop-test.debate.json")));
 });
 
@@ -224,7 +224,7 @@ test("an injected dispatch adapter without a revision adapter fails closed inste
 
 test("task loop refuses a symlinked objective gate before accepting outside evidence", async () => {
   const { cwd, outsidePath } = tempRepoWithSymlinkedProposal();
-  const recordDir = mkdtempSync(join(tmpdir(), "prime-loop-records-"));
+  const recordDir = mkdtempSync(join(tmpdir(), "helix-loop-records-"));
   const config = resolveRunConfig(runRegistry(), "mock-core-loop").config;
   const result = await runTaskLoop(config, {
     chainRegistry: chainRegistry(),
@@ -319,7 +319,7 @@ test("task loop refuses a real-provider cast before any injected adapter or revi
     now: NOW,
     seed: 7,
     adapter: injected.dispatchAdapter,
-    revisionAdapter: injected.revisionAdapter({ "proposal.txt": "PRIME_LOOP_PASS\n" }),
+    revisionAdapter: injected.revisionAdapter({ "proposal.txt": "HELIX_LOOP_PASS\n" }),
   });
 
   assert.equal(result.status, "fail-closed");

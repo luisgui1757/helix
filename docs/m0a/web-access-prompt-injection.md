@@ -33,7 +33,7 @@ operating instructions.
 
 ## Test Matrix Required For Any Local Helper
 
-If Prime later adds a local fetch helper, it needs no-live tests for:
+If Helix later adds a local fetch helper, it needs no-live tests for:
 
 - `127.0.0.1`, `localhost`, `::1`, and IPv4-mapped loopback blocked,
 - RFC1918 ranges blocked,

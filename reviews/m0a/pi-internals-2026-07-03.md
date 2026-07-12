@@ -68,11 +68,11 @@ Verified both ways:
 The maintainer's `~/.pi/agent/settings.json` does **not** set `enableSkillCommands`
 (top-level keys present: `lastChangelogVersion`, `theme`), so the default `true` applies.
 
-### prime-added `/` surface = 0
+### helix-added `/` surface = 0
 
-`prime` still ships no extensions/skills/prompt-templates/themes → **0** slash
+`helix` still ships no extensions/skills/prompt-templates/themes → **0** slash
 commands, **0** shortcuts, **0** tools added. Baseline for the per-phase `/`-menu audit:
-Pi built-ins = 22; skill commands would be **on** by default the moment prime ships a
+Pi built-ins = 22; skill commands would be **on** by default the moment helix ships a
 skill (budget consequence noted in `command-surface-inventory.md`).
 
 ---
@@ -96,7 +96,7 @@ Confirms ROADMAP §7-Theme I and §5. All from installed docs:
 **Verified vs inferred:** every row above is quoted from the installed docs tree
 (checksum-pinned, §4). The wider "~30 providers / ~30 lifecycle events" counts in §5 are
 carried from prior slices and are **not** re-verified here (out of this evidence file's
-scope). **Gating posture:** default is all built-ins on + parallel; prime will lean on
+scope). **Gating posture:** default is all built-ins on + parallel; helix will lean on
 `--tools`/`-xt`/skill `allowed-tools` for the plan-mode read-only restriction and the
 yolo-fence, not on disabling tools wholesale.
 
@@ -161,7 +161,7 @@ transcript.
 ## Bottom line
 
 - Interactive `/` baseline: **captured** (22 built-ins; `enableSkillCommands` default
-  `true`; prime-added = 0). Closes the open command-surface sub-item.
+  `true`; helix-added = 0). Closes the open command-surface sub-item.
 - Native tool/function calling: **verified**; nothing to build; gating posture recorded.
 - Compaction vs context files: **resolved by code** — no drift, no `APPEND_SYSTEM.md`.
   Closes the last §9-Q6 runtime sub-question.

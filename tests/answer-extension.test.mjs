@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import primeAnswer from "../extensions/prime-answer.ts";
+import helixAnswer from "../extensions/helix-answer.ts";
 
 function loadAnswerTool() {
   const tools = [];
-  primeAnswer({
+  helixAnswer({
     registerTool(tool) {
       tools.push(tool);
     },
@@ -13,7 +13,7 @@ function loadAnswerTool() {
   return tools[0];
 }
 
-test("prime-answer registers the model-callable answer tool", () => {
+test("helix-answer registers the model-callable answer tool", () => {
   const tool = loadAnswerTool();
   assert.equal(tool.name, "answer");
   assert.equal(tool.label, "Answer");
@@ -21,7 +21,7 @@ test("prime-answer registers the model-callable answer tool", () => {
   assert.deepEqual(tool.parameters.required, ["question", "recommendation"]);
 });
 
-test("prime-answer non-interactive execute returns the deterministic recommendation", async () => {
+test("helix-answer non-interactive execute returns the deterministic recommendation", async () => {
   const tool = loadAnswerTool();
   const result = await tool.execute(
     "tool-call-1",

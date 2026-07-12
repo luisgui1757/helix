@@ -1,4 +1,4 @@
-// Prime dispatch — structural loop event stream (M5, owner interview 2026-07-09).
+// Helix dispatch — structural loop event stream (M5, owner interview 2026-07-09).
 //
 // The runner emits an append-only stream of STRUCTURAL events; every renderer
 // (TUI widget, plain lines, JSONL file) consumes the SAME stream. Events carry
@@ -202,7 +202,7 @@ export function validateEventHistory(events, { run_id: expectedRunId, allow_empt
 
 /**
  * Reduce one event stream through the declared chain in order. This is the
- * lifecycle source of truth shared by runner recovery and `/prime`: counts alone
+ * lifecycle source of truth shared by runner recovery and `/helix`: counts alone
  * cannot prove that a later stage was reached by a valid advance or back-jump.
  */
 export function reduceEventLifecycle(events, {

@@ -31,10 +31,10 @@ const GIT_ENV = {
   ...process.env,
   GIT_CONFIG_GLOBAL: devNull,
   GIT_CONFIG_SYSTEM: devNull,
-  GIT_AUTHOR_NAME: "prime-smoke",
-  GIT_AUTHOR_EMAIL: "prime@smoke.invalid",
-  GIT_COMMITTER_NAME: "prime-smoke",
-  GIT_COMMITTER_EMAIL: "prime@smoke.invalid",
+  GIT_AUTHOR_NAME: "helix-smoke",
+  GIT_AUTHOR_EMAIL: "helix@smoke.invalid",
+  GIT_COMMITTER_NAME: "helix-smoke",
+  GIT_COMMITTER_EMAIL: "helix@smoke.invalid",
   LC_ALL: "C",
   TZ: "UTC",
 };
@@ -45,8 +45,8 @@ function git(cwd, args) {
 }
 
 // A temp repo with a committed proposal.txt on a clean tree.
-const repo = mkdtempSync(join(tmpdir(), "prime-rev-smoke-"));
-const records = mkdtempSync(join(tmpdir(), "prime-rev-smoke-rec-")); // OUT of the diffed tree
+const repo = mkdtempSync(join(tmpdir(), "helix-rev-smoke-"));
+const records = mkdtempSync(join(tmpdir(), "helix-rev-smoke-rec-")); // OUT of the diffed tree
 git(repo, ["init", "-q"]);
 writeFileSync(join(repo, "proposal.txt"), "base\n");
 git(repo, ["add", "proposal.txt"]);

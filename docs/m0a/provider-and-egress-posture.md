@@ -88,9 +88,9 @@ the trust-independent controls are the env switches (`PI_OFFLINE=1` / `PI_TELEME
 {
   "enableInstallTelemetry": false,
   "enableAnalytics": false,
-  "theme": "prime-rose-pine",
+  "theme": "helix-rose-pine",
   "skills": [
-    "../skills/prime-ui"
+    "../skills/helix-ui"
   ],
   "themes": [
     "../themes"
@@ -102,8 +102,8 @@ the trust-independent controls are the env switches (`PI_OFFLINE=1` / `PI_TELEME
   switches above are the trust-independent belt-and-suspenders.
 - `enableAnalytics: false` is already the Pi default — it is pinned here so the
   telemetry posture is explicit and auditable in one place.
-- `theme`, `skills`, `themes`, and `extensions` load the Prime resource package
-  surface: one Prime-owned skill (`prime-ui`), the Prime Rose Pine themes, and the two
+- `theme`, `skills`, `themes`, and `extensions` load the Helix resource package
+  surface: one Helix-owned skill (`helix-ui`), the Helix Rose Pine themes, and the two
   pinned extensions. They do not set a provider default or read credentials.
 
 **`defaultProvider` is deliberately NOT committed here** (maintainer's choice, so the

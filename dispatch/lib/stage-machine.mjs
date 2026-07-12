@@ -1,4 +1,4 @@
-// Prime dispatch — staged chain state machine (M3, owner interview 2026-07-09).
+// Helix dispatch — staged chain state machine (M3, owner interview 2026-07-09).
 //
 // Executes a staged chain: each stage is a mini-loop routed by a reviewer
 // VERDICT (approve = advance, revise = stay, revise-jump = jump back to the

@@ -1,9 +1,9 @@
 {
-  "name": "prime-pi",
+  "name": "helix-pi",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
-  "description": "Prime resources for the Pi CLI.",
+  "description": "Helix resources for the Pi CLI.",
   "engines": {
     "node": ">=26 <27"
   },
@@ -24,7 +24,7 @@
     "docs/resources"
   ],
   "scripts": {
-    "check:resources": "node tools/check-prime-resources.mjs",
+    "check:resources": "node tools/check-helix-resources.mjs",
     "check:docs-truth": "node tools/ci/docs-truth-check.mjs",
     "check:public-safety-diff": "node tools/ci/public-safety-diff-scan.mjs --mode diff",
     "check:no-live-egress": "node tools/ci/no-live-egress-check.mjs",
@@ -32,15 +32,15 @@
   },
   "pi": {
     "skills": [
-      "./skills/prime-ui"
+      "./skills/helix-ui"
     ],
     "themes": [
       "./themes"
     ],
     "extensions": [
-      "./extensions/prime-fence.ts",
-      "./extensions/prime-answer.ts",
-      "./extensions/prime-command.ts"
+      "./extensions/helix-fence.ts",
+      "./extensions/helix-answer.ts",
+      "./extensions/helix-command.ts"
     ]
   }
 }

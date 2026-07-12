@@ -86,7 +86,7 @@ function verifierRequest(overrides = {}) {
 }
 
 test("success path: routine mock dispatch writes a valid structural run record", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-orc-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-orc-"));
   const result = await runDispatch(baseRequest(), baseDeps({ record_dir: dir }));
   assert.equal(result.status, "ok", JSON.stringify({ code: result.code, detail: result.detail }));
   assert.equal(result.ok, true);
@@ -392,7 +392,7 @@ test("judge synthesis verifier adapter failures expose stable details only", asy
 });
 
 test("run-record write failures expose a stable detail only", async () => {
-  const fileAsDir = join(mkdtempSync(join(tmpdir(), "prime-record-fail-")), "records-file");
+  const fileAsDir = join(mkdtempSync(join(tmpdir(), "helix-record-fail-")), "records-file");
   writeFileSync(fileAsDir, "not a directory", "utf8");
   const result = await runDispatch(baseRequest(), baseDeps({ record_dir: fileAsDir }));
   assert.equal(result.status, "fail-closed");

@@ -1,4 +1,4 @@
-// Prime dispatch — deterministic task classifier + classification floors.
+// Helix dispatch — deterministic task classifier + classification floors.
 //
 // Source of truth: fusion-dispatch-research.md §"Routing Policy" (Rules:
 // classification floors, uncertain-routes-upward, user overrides) and

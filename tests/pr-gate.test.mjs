@@ -43,7 +43,7 @@ exit 0
 }
 
 test("pr gate refuses detached HEAD instead of passing an empty feature branch", () => {
-  const root = mkdtempSync(join(tmpdir(), "prime-pr-gate-"));
+  const root = mkdtempSync(join(tmpdir(), "helix-pr-gate-"));
   try {
     const detached = runGate(root, "");
     assert.equal(detached.status, 1, detached.stderr);

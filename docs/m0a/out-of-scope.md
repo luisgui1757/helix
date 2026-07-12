@@ -27,7 +27,7 @@ for done. Mapping is to `ROADMAP.md` §8 (milestones) and §10 (phases).
 [`reviews/m0a/pi-internals-2026-07-03.md`](../../reviews/m0a/pi-internals-2026-07-03.md):
 
 - ✅ **Interactive `/` baseline captured** from source (22 built-ins; `enableSkillCommands`
-  default `true`; prime-added = 0) — [`command-surface-inventory.md`](./command-surface-inventory.md).
+  default `true`; helix-added = 0) — [`command-surface-inventory.md`](./command-surface-inventory.md).
 - ✅ **Native tool/function calling verified** (7 built-in tools, `registerTool`/TypeBox,
   parallel-exec default-on, `--tools`/`-xt`/`-nbt`/`-nt` gating) — nothing to build.
 - ✅ **Compaction probe resolved by code** (§9-Q6): context files live in the system

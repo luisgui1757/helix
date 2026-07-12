@@ -1,23 +1,23 @@
-# Prime User Manual
+# Helix User Manual
 
-Status: current surface after the Prime v1 cross-family hardening (2026-07-10). Prime
+Status: current surface after the Helix v1 cross-family hardening (2026-07-10). Helix
 turns Pi into a multi-model team runner: staged loops with reviewer verdicts,
-composite casts, and attended research — all under one `/prime` command.
+composite casts, and attended research — all under one `/helix` command.
 
 ## Daily Flow
 
-1. **Log into your providers in Pi** as you normally would. Prime never
+1. **Log into your providers in Pi** as you normally would. Helix never
    manages credentials and never re-implements a platform control.
-2. **Assemble your cast once.** Run `/prime setup` bare to see the presets,
+2. **Assemble your cast once.** Run `/helix setup` bare to see the presets,
    chain stages, and Pi's available-model inventory. Mutating setup is
    TUI-only and asks for confirmation. Create the named profile first, then
    assign stage executors and, when needed, replace a composite's role members:
 
    ```text
-   /prime profiles create my-crew
-   /prime setup my-crew plan=overlord implement=daily
-   /prime setup my-crew implement=openai-codex/gpt-5:high
-   /prime setup my-crew daily.builder=openai-codex/gpt-5:high daily.reviewer=openai-codex/gpt-5:medium*2
+   /helix profiles create my-crew
+   /helix setup my-crew plan=overlord implement=daily
+   /helix setup my-crew implement=openai-codex/gpt-5:high
+   /helix setup my-crew daily.builder=openai-codex/gpt-5:high daily.reviewer=openai-codex/gpt-5:medium*2
    ```
 
    A member token is `provider/model[:effort][*instances]`; multiple members
@@ -28,7 +28,7 @@ composite casts, and attended research — all under one `/prime` command.
    corrupt profiles/pointers are never silently overwritten. The public-safety
    scanner runs before profile persistence, so secret/session/path-shaped model
    data cannot be saved even to this gitignored state.
-3. **Preflight.** `/prime run [config-id]` overlays the active profile's stage
+3. **Preflight.** `/helix run [config-id]` overlays the active profile's stage
    assignments and composite members, then shows the chain, gate, and cast
    source. A mock-only cast prints the exact CLI. A real-provider cast declares
    live intent but refuses as `live-adapter-not-wired`, because the staged live
@@ -37,20 +37,20 @@ composite casts, and attended research — all under one `/prime` command.
 4. **Run the printed CLI**, for example:
 
    ```bash
-   node tools/loop/prime-task-loop.mjs --config <id> --run-id <run-id> --repo <path>
+   node tools/loop/helix-task-loop.mjs --config <id> --run-id <run-id> --repo <path>
    ```
 
    Without `--repo` it runs over a synthetic temp repo with the mock adapter
    (no-live by construction). With `--repo` it works in a per-run git worktree
    on your repository and results stay on a deterministic
-   `prime/run-<hash>` branch.
-5. **Watch.** `/prime runs watch <run-id>` renders the loop widget from the
+   `helix/run-<hash>` branch.
+5. **Watch.** `/helix runs watch <run-id>` renders the loop widget from the
    run's event stream: stage position, pass N/max, cast, gate result, verdict,
    context pressure, blocked code + next action, elapsed time. The same ordered
    lifecycle reducer used by resume rejects impossible stage order or terminal
    disagreement before rendering.
 6. **Interrupted?** Ctrl-C or a crash leaves a zero-pass or post-pass structural
-   checkpoint. `/prime runs resume <run-id>` validates the state, event stream,
+   checkpoint. `/helix runs resume <run-id>` validates the state, event stream,
    disagreement generation, recorded config/chain machine state, repository
    binding, private worktree ownership, and clean baseline, then prints a CLI
    containing `--config` and the required
@@ -61,11 +61,11 @@ composite casts, and attended research — all under one `/prime` command.
    when state, conclusion gate, and `run-end` agree. Runner state schema v3 is
    required; older checkpoints fail closed instead of being adopted.
 
-`/prime help` prints the public-safe cheat sheet with every verb, any time.
+`/helix help` prints the public-safe cheat sheet with every verb, any time.
 
 ## The Six Toggles
 
-`/prime settings` shows six checkboxes; `/prime settings set <toggle> on|off`
+`/helix settings` shows six checkboxes; `/helix settings set <toggle> on|off`
 flips one after attended TUI confirmation. Profile create/switch, setup, and
 run prune use the same mutation gate; RPC/JSON/print cannot mutate. All toggles
 default ON (an absent settings file means all on; a corrupt one fails closed).
@@ -75,18 +75,18 @@ default ON (an absent settings file means all on; a corrupt one fails closed).
 |---|---|
 | `multi-model` | One solo model fills every role: panels of one, self-review, blinding and cross-family advisories suppressed. A config naming a composite is the explicit conflict: `toggle-disabled:multi-model`. |
 | `loops` | Every stage runs at most once; the finite global rail still binds and gates still run/report. Research becomes one-shot, returning `max-iterations` with `ok:false` if that one measurement misses the target. |
-| `autoresearch` | `/prime research` refuses politely: `toggle-disabled:autoresearch`. |
+| `autoresearch` | `/helix research` refuses politely: `toggle-disabled:autoresearch`. |
 | `context-engine` | Transcript-style pass-through between steps instead of compiled fresh-context handoffs. |
 | `worktree` | Runs mutate your working tree directly (recorded in the run record). |
 | `visual-cues` | Plain line-per-event output instead of the loop widget. Every persisted event is still rendered; only an explicit CLI `--summary` request filters lines. |
 
 Every run record embeds the toggle vector it ran under. Not toggleable:
-public-safe records, CI-never-live, the single `/prime` command,
+public-safe records, CI-never-live, the single `/helix` command,
 `max_iterations`, and structural fail-closed validation.
 
 ## The Five Loops
 
-`/prime chains` shows the catalog. Each loop is a distinct convergence shape;
+`/helix chains` shows the catalog. Each loop is a distinct convergence shape;
 casts and sizes are configuration, not new chains.
 
 | Chain | Use when | How it converges |
@@ -103,16 +103,16 @@ back-jump spends the global `max_iterations` budget, so runs always terminate.
 
 ## Research
 
-`/prime research` is attended-only and explicit — it never auto-triggers. What
+`/helix research` is attended-only and explicit — it never auto-triggers. What
 is mandatory is the shape: no run starts without a declared metric and stop
 condition. Preflight in Pi, then run the printed CLI:
 
 The rendered preflight shows only a `sha256` question ref and prints
 `<private-question>` as a placeholder; replace it locally so question text never
-enters a rendered `/prime` message.
+enters a rendered `/helix` message.
 
 ```bash
-node tools/research/prime-research.mjs \
+node tools/research/helix-research.mjs \
   --question "does the cache help" \
   --metric latency-ms "<=" 100 --max 5 --plateau 2 \
   --measure-cmd "node bench.mjs"
@@ -129,7 +129,7 @@ and `dead-end` — a refuted hypothesis with no successor, reported as a
 
 There is no live flag, no enablement ledger, no per-provider approval file. A
 cast naming real providers is live intent as-is. This build has no approved
-staged live transport, so `/prime run` and the CLI refuse that cast as
+staged live transport, so `/helix run` and the CLI refuse that cast as
 `live-adapter-not-wired`; neither may fall back to mock while recording real
 providers, even through an injected adapter seam. This is honest and fail-closed:
 
@@ -146,24 +146,24 @@ providers, even through an injected adapter seam. This is honest and fail-closed
 
 ## Refusal Codes
 
-When Prime refuses, it gives you three things: a **stable code** (grep-able,
+When Helix refuses, it gives you three things: a **stable code** (grep-able,
 never reworded), a **reason**, and a **next safe action**. Common codes:
 
 | Code | Next action |
 |---|---|
-| `prime-config-unreadable` | Run `npm run check:resources`; fix or restore the named JSON file. |
-| `unknown-run-config` | `/prime run` with no argument shows the default; `/prime chains` lists loops. |
-| `unknown-preset` | Check `/prime models` for valid preset ids; fix the `/prime setup` assignment. |
-| `toggle-disabled:multi-model` | `/prime settings set multi-model on`, or assign a plain provider/model. |
-| `toggle-disabled:autoresearch` | `/prime settings set autoresearch on`, then retry. |
+| `helix-config-unreadable` | Run `npm run check:resources`; fix or restore the named JSON file. |
+| `unknown-run-config` | `/helix run` with no argument shows the default; `/helix chains` lists loops. |
+| `unknown-preset` | Check `/helix models` for valid preset ids; fix the `/helix setup` assignment. |
+| `toggle-disabled:multi-model` | `/helix settings set multi-model on`, or assign a plain provider/model. |
+| `toggle-disabled:autoresearch` | `/helix settings set autoresearch on`, then retry. |
 | `research-requires-attended` | Run research from an interactive TUI session and stay at the terminal. |
-| `prime-settings-unreadable` | Fix or delete the user-local settings file (absent = all toggles on). |
-| `prime-mutation-requires-tui-confirm` / `prime-mutation-cancelled` | Settings, profile create/switch, setup, and prune mutate only after attended TUI confirmation. |
+| `helix-settings-unreadable` | Fix or delete the user-local settings file (absent = all toggles on). |
+| `helix-mutation-requires-tui-confirm` / `helix-mutation-cancelled` | Settings, profile create/switch, setup, and prune mutate only after attended TUI confirmation. |
 | `live-adapter-not-wired` | Use `mock-core-loop` for no-live proof; the separately approved staged live transport is not shipped. |
-| `preset-member-unavailable` / `prime-model-inventory-unavailable` | Choose an exact member shown by `/prime setup`, or retry from Pi after provider login. |
+| `preset-member-unavailable` / `helix-model-inventory-unavailable` | Choose an exact member shown by `/helix setup`, or retry from Pi after provider login. |
 | `invalid-resume-state` / `resume-events-invalid` / `resume-disagreements-invalid` | Resume only from the original schema-v3, structurally complete run bundle. Older state, impossible lifecycle order, terminal disagreement, or a missing ownership binding refuses. |
 | `worktree-run-id-collision` / `resume-worktree-missing` / `resume-repository-mismatch` | Do not reuse or modify the colliding directory. Resume only the privately owned, clean worktree at its bound repository baseline. |
-| `missing-run-id` / `unsafe-run-id` / `run-not-found` | Use an exact id from `/prime runs list`. |
+| `missing-run-id` / `unsafe-run-id` / `run-not-found` | Use an exact id from `/helix runs list`. |
 
 Fail closed on structure, YOLO on behavior: malformed configs, schemas,
 registries, missing composite members, and dropped contradictions refuse with
@@ -171,7 +171,7 @@ codes like these. What models do inside their worktree is unrestricted.
 
 ## The Public-Safe Records Promise
 
-Everything Prime persists or renders outside a worktree is structural: ids,
+Everything Helix persists or renders outside a worktree is structural: ids,
 hashes, refs, stable codes, counts, and measurements. Run records, event
 streams, research records, and the watch widget never contain raw prompts,
 model responses, provider payloads, transcripts, private paths, secrets, or
@@ -191,22 +191,22 @@ paths, predictable pending paths, and temporary-path collisions refuse; an
 atomic write cannot be redirected outside its selected root.
 
 The one operational exception is crash recovery: while a pass is in flight,
-Prime stores a mode-`0700` private copy of the worktree plus Git HEAD/index
+Helix stores a mode-`0700` private copy of the worktree plus Git HEAD/index
 state under the target repository's Git common directory at
-`.git/prime-checkpoints/`. It is never placed in Git objects, run records,
-events, or `/prime` output. Its generation directory is root-confined and
+`.git/helix-checkpoints/`. It is never placed in Git objects, run records,
+events, or `/helix` output. Its generation directory is root-confined and
 symlink-refusing, and it is removed after the pass commits or rolls back. A hard
 kill can leave an abandoned private generation; after confirming
 the run will not be resumed, remove that run's directory there manually.
 
 ## Troubleshooting
 
-- `/prime` missing: run `node tools/smoke/pi-e2e-load.mjs --runtime-rpc` for a
+- `/helix` missing: run `node tools/smoke/pi-e2e-load.mjs --runtime-rpc` for a
   no-auth command inventory, then check `.pi/settings.json` still points at
-  the Prime extensions.
-- A run looks stuck: `/prime runs watch <run-id>` shows the current stage and
+  the Helix extensions.
+- A run looks stuck: `/helix runs watch <run-id>` shows the current stage and
   pass; hung provider calls are bounded only by Pi/provider timeouts.
-- Settings weirdness: `/prime settings` reads the user-local file; if it is
+- Settings weirdness: `/helix settings` reads the user-local file; if it is
   corrupt the verb fails closed and tells you — deleting it restores all-on.
 - Keep the proof gates separate: package loadability, command discoverability,
   no-live behavior, and live-provider proof are four different facts. Passing

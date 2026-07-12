@@ -29,7 +29,7 @@ The ROADMAP directs the parallel layer to be built thinly on Pi's
 via `mapWithConcurrencyLimit(items, concurrency, fn)` — a fixed pool of
 `min(concurrency, n)` workers that pull the next index off a shared counter and
 **collect results in input order** (`MAX_PARALLEL_TASKS = 8`, `MAX_CONCURRENCY = 4`).
-Prime does **not** spawn `pi` subprocesses (that is a live/tooling concern out of
+Helix does **not** spawn `pi` subprocesses (that is a live/tooling concern out of
 scope here); it reproduces just the pure concurrency-limiter shape in
 `dispatch/lib/parallel.mjs`, over injected adapters, deterministic and dependency-free.
 

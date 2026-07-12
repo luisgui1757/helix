@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# collect-evidence.sh — M0a evidence refresh for the `prime` Pi CLI extensions repo.
+# collect-evidence.sh — M0a evidence refresh for the `helix` Pi CLI extensions repo.
 #
 # Captures the environment facts that ROADMAP.md §4 pins, so they can be
 # re-verified after `pi update` or on a new machine. This is the repeatable
@@ -60,7 +60,7 @@ section() { printf '\n## %s\n\n' "$1"; }
 kv()      { printf '  %-28s %s\n' "$1" "$2"; }
 
 # --- Header ------------------------------------------------------------------
-printf '# prime — M0a evidence snapshot\n\n'
+printf '# helix — M0a evidence snapshot\n\n'
 kv "generated (UTC):"  "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 kv "mode:"             "$( [ "$WITH_NETWORK" -eq 1 ] && echo 'ONLINE (--network: npm metadata)' || echo 'offline (default, no network)' )"
 kv "host os:"          "$(uname -srm)"

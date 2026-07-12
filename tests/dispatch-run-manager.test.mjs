@@ -21,10 +21,10 @@ function readJson(rel) {
 }
 
 function tempRepo() {
-  const cwd = mkdtempSync(join(tmpdir(), "prime-run-manager-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-run-manager-"));
   execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["config", "user.email", "prime@example.invalid"], { cwd });
-  execFileSync("git", ["config", "user.name", "Prime Test"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Test"], { cwd });
   writeFileSync(join(cwd, "proposal.txt"), "initial proposal\n", "utf8");
   execFileSync("git", ["add", "proposal.txt"], { cwd });
   execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
@@ -87,7 +87,7 @@ function reserveInChild(rootDir, runId) {
 }
 
 test("prepareRunDirectory reserves ids and never cleans existing evidence", () => {
-  const rootDir = mkdtempSync(join(tmpdir(), "prime-runs-root-"));
+  const rootDir = mkdtempSync(join(tmpdir(), "helix-runs-root-"));
   const first = prepareRunDirectory(rootDir, "loop-safe", { clean: false });
   assert.equal(first.ok, true);
   writeFileSync(join(first.path, "old.json"), "{}", "utf8");
@@ -104,7 +104,7 @@ test("prepareRunDirectory reserves ids and never cleans existing evidence", () =
 });
 
 test("prepareRunDirectory atomically grants one concurrent reservation", async () => {
-  const rootDir = mkdtempSync(join(tmpdir(), "prime-runs-atomic-"));
+  const rootDir = mkdtempSync(join(tmpdir(), "helix-runs-atomic-"));
   const results = await Promise.all([
     reserveInChild(rootDir, "atomic-run"),
     reserveInChild(rootDir, "atomic-run"),
@@ -114,7 +114,7 @@ test("prepareRunDirectory atomically grants one concurrent reservation", async (
 });
 
 test("run manager refuses run ids that resolve to the runs root", () => {
-  const rootDir = mkdtempSync(join(tmpdir(), "prime-runs-root-"));
+  const rootDir = mkdtempSync(join(tmpdir(), "helix-runs-root-"));
   const sentinel = join(rootDir, "sentinel.json");
   writeFileSync(sentinel, "{}", "utf8");
 
@@ -136,7 +136,7 @@ test("run manager refuses run ids that resolve to the runs root", () => {
 });
 
 test("run manager lists, statuses, and prunes structural task-loop records", async () => {
-  const recordsRoot = mkdtempSync(join(tmpdir(), "prime-runs-list-"));
+  const recordsRoot = mkdtempSync(join(tmpdir(), "helix-runs-list-"));
   const runDir = prepareRunDirectory(recordsRoot, "loop-manager");
   assert.equal(runDir.ok, true);
   const config = resolveRunConfig(readJson("dispatch/config/run-configs.json"), "mock-core-loop").config;
@@ -179,7 +179,7 @@ test("run manager lists, statuses, and prunes structural task-loop records", asy
 });
 
 test("flat smoke records are listed and statused as non-prunable", () => {
-  const recordsRoot = mkdtempSync(join(tmpdir(), "prime-runs-flat-"));
+  const recordsRoot = mkdtempSync(join(tmpdir(), "helix-runs-flat-"));
   writeFileSync(join(recordsRoot, "flat-smoke.debate.json"), JSON.stringify(debateSummary()), "utf8");
 
   const listed = listRuns(recordsRoot);
@@ -197,7 +197,7 @@ test("flat smoke records are listed and statused as non-prunable", () => {
 });
 
 test("run manager rejects malformed debate summaries and filename/run-id mismatches", () => {
-  const recordsRoot = mkdtempSync(join(tmpdir(), "prime-runs-invalid-debate-"));
+  const recordsRoot = mkdtempSync(join(tmpdir(), "helix-runs-invalid-debate-"));
   writeFileSync(join(recordsRoot, "malformed.debate.json"), JSON.stringify({
     ...debateSummary("malformed"),
     warning_codes: ["ordinary model prose"],
@@ -215,7 +215,7 @@ test("run manager rejects malformed debate summaries and filename/run-id mismatc
 });
 
 test("run manager does not misreport valid staged and research companions as corrupt records", () => {
-  const recordsRoot = mkdtempSync(join(tmpdir(), "prime-runs-companions-"));
+  const recordsRoot = mkdtempSync(join(tmpdir(), "helix-runs-companions-"));
   const runDir = prepareRunDirectory(recordsRoot, "staged-run");
   assert.equal(runDir.ok, true);
   writeFileSync(join(runDir.path, "staged-run.state.json"), JSON.stringify({ schema_version: 2 }), "utf8");
@@ -231,7 +231,7 @@ test("run manager does not misreport valid staged and research companions as cor
 });
 
 test("status matches only exact numeric iteration and staged-pass suffixes", () => {
-  const recordsRoot = mkdtempSync(join(tmpdir(), "prime-runs-status-suffix-"));
+  const recordsRoot = mkdtempSync(join(tmpdir(), "helix-runs-status-suffix-"));
   for (const id of ["alpha", "alpha-iter1", "alpha-p2", "alpha-iteration", "alpha-pwn"]) {
     writeFileSync(join(recordsRoot, `${id}.debate.json`), JSON.stringify(debateSummary(id)), "utf8");
   }
@@ -242,8 +242,8 @@ test("status matches only exact numeric iteration and staged-pass suffixes", () 
 });
 
 test("run manager redacts unsafe filenames and refuses symlinked record files", () => {
-  const recordsRoot = mkdtempSync(join(tmpdir(), "prime-runs-paths-"));
-  const outside = mkdtempSync(join(tmpdir(), "prime-runs-outside-"));
+  const recordsRoot = mkdtempSync(join(tmpdir(), "helix-runs-paths-"));
+  const outside = mkdtempSync(join(tmpdir(), "helix-runs-outside-"));
   writeFileSync(
     join(recordsRoot, "ordinary prose.debate.json"),
     JSON.stringify(debateSummary("safe-inside")),

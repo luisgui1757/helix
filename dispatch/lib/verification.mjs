@@ -1,4 +1,4 @@
-// Prime dispatch — verification stage (objective proof summary; never the gate).
+// Helix dispatch — verification stage (objective proof summary; never the gate).
 //
 // Source of truth: fusion-dispatch-research.md §"Roles" (`verifier`: run
 // objective/deterministic proof checks and summarize proof) and §"Failure

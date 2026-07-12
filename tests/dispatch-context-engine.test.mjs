@@ -55,7 +55,7 @@ test("the compiler fails closed on missing template/brief and unresolved placeho
   assert.equal(compileStepPrompt({ ...args, template_id: "nope" }).code, COMPILER_CODES.TEMPLATE_MISSING);
   assert.equal(compileStepPrompt({ ...args, role: "warlock" }).code, COMPILER_CODES.BRIEF_MISSING);
 
-  const dir = mkdtempSync(join(tmpdir(), "prime-tpl-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-tpl-"));
   try {
     writeFileSync(join(dir, "holey-v1.md"), "{{role_brief}} {{mystery_field}}", "utf8");
     const holey = compileStepPrompt({ ...args, template_id: "holey-v1", templates_dir: dir });
@@ -67,7 +67,7 @@ test("the compiler fails closed on missing template/brief and unresolved placeho
 });
 
 test("compiled prompts remain memory-only even when a caller supplies the removed debug option", () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-dbg-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-dbg-"));
   try {
     const compiled = compileStepPrompt({
       template_id: "step-prompt-v1", templates_dir: templatesDir, briefs_dir: briefsDir, role: "builder",
@@ -187,10 +187,10 @@ test("disagreement documents and resume seeds reject nested or inconsistent entr
 });
 
 function tempRepo() {
-  const cwd = mkdtempSync(join(tmpdir(), "prime-ctx-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-ctx-"));
   execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["config", "user.email", "prime@example.invalid"], { cwd });
-  execFileSync("git", ["config", "user.name", "Prime Ctx"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Ctx"], { cwd });
   writeFileSync(join(cwd, "proposal.txt"), "initial\n", "utf8");
   writeFileSync(join(cwd, "PLAN.md"), "approved structural plan\n", "utf8");
   execFileSync("git", ["add", "proposal.txt", "PLAN.md"], { cwd });
@@ -215,7 +215,7 @@ test("the runner threads fresh-context packets, emits prompt/pressure events, an
     const result = await runStagedTaskLoop({ ...baseConfig }, { chainRegistry, presets }, {
       cwd: repo, now: NOW, seed: 7, run_id: "ctx-e2e",
       adapter,
-      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "x\nPRIME_LOOP_PASS\n" }),
+      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "x\nHELIX_LOOP_PASS\n" }),
       worktree: makeGitWorktreeEffect(repo, { baseDir: join(repo, ".wt") }),
       state_dir: join(repo, ".state"),
       events: { onEvent: (e) => events.push(e) },
@@ -264,7 +264,7 @@ test("context-engine OFF degenerates to transcript handoffs with a recorded warn
     const result = await runStagedTaskLoop({ ...baseConfig }, { chainRegistry, presets }, {
       cwd: repo, now: NOW, seed: 7, run_id: "ctx-off", toggles,
       adapter,
-      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "x\nPRIME_LOOP_PASS\n" }),
+      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "x\nHELIX_LOOP_PASS\n" }),
       worktree: makeGitWorktreeEffect(repo, { baseDir: join(repo, ".wt") }),
     });
     assert.equal(result.converged, true, JSON.stringify(result.flow));
@@ -294,7 +294,7 @@ test("the disagreement log carries NON-EMPTY entries end to end and persists the
     const result = await runStagedTaskLoop({ ...baseConfig }, { chainRegistry, presets }, {
       cwd: repo, now: NOW, seed: 7, run_id: "disagree-e2e",
       adapter,
-      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "x\nPRIME_LOOP_PASS\n" }),
+      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "x\nHELIX_LOOP_PASS\n" }),
       worktree: makeGitWorktreeEffect(repo, { baseDir: join(repo, ".wt") }),
       state_dir: join(repo, ".state"),
       events: { onEvent: (e) => events.push(e) },

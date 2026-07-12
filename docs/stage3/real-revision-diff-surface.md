@@ -185,7 +185,7 @@ exactly the set of routes carrying an adversarial role: `redteam` / `judge` /
   `task.override.disable_adversarial` (already validated by the classifier and the
   request schema) — equivalent to `/adversarial off`, with **no new slash command**
   (the `/` command budget stays legible; the repo pins its extensions to
-  `prime-fence` + `prime-answer`, so no extension was added).
+  `helix-fence` + `helix-answer`, so no extension was added).
 - A user opt-out on a default-on route is recorded as the stable code
   **`adversarial-opt-out`** (plus `single-pass-route`); a naturally non-adversarial
   route records only `single-pass-route`.

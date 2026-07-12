@@ -1,4 +1,4 @@
-// M8 — the /prime surface: settings, profiles, setup casts, research
+// M8 — the /helix surface: settings, profiles, setup casts, research
 // preflight, run watch/resume, preset views, dashboard lines. All fake-Pi:
 // options-injected registries + temp roots; no Pi runtime, no live calls.
 
@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { executePrimeCommand, getPrimeArgumentCompletions } from "../extensions/lib/prime-command-core.mjs";
+import { executeHelixCommand, getHelixArgumentCompletions } from "../extensions/lib/helix-command-core.mjs";
 import { makeEventLog } from "../dispatch/lib/events.mjs";
 import { hashRef, stableStringify } from "../dispatch/lib/run-record.mjs";
 import { disagreementSnapshotPath, RUNNER_STATE_SCHEMA_VERSION } from "../dispatch/lib/runner.mjs";
@@ -30,7 +30,7 @@ const registries = {
 };
 
 function tempOptions() {
-  const root = mkdtempSync(join(tmpdir(), "prime-surface-"));
+  const root = mkdtempSync(join(tmpdir(), "helix-surface-"));
   return {
     root,
     options: {
@@ -112,20 +112,20 @@ function writeResumeBundle(options, runId, { completed = false, stopReason = nul
 test("settings view shows the six checkboxes and set round-trips a toggle", () => {
   const { root, options } = tempOptions();
   try {
-    const view = executePrimeCommand("settings", { mode: "tui" }, options);
+    const view = executeHelixCommand("settings", { mode: "tui" }, options);
     assert.equal(view.ok, true);
     assert.match(view.text, /\[x\] multi-model/);
     assert.equal(view.details.source, "defaults");
 
-    const off = executePrimeCommand("settings set autoresearch off", { mode: "tui", confirm: true }, options);
+    const off = executeHelixCommand("settings set autoresearch off", { mode: "tui", confirm: true }, options);
     assert.equal(off.ok, true);
     assert.equal(off.details.toggles.autoresearch, false);
 
-    const view2 = executePrimeCommand("settings", { mode: "tui" }, options);
+    const view2 = executeHelixCommand("settings", { mode: "tui" }, options);
     assert.equal(view2.details.source, "file");
     assert.match(view2.text, /\[ \] autoresearch/);
 
-    const bad = executePrimeCommand("settings set warp-drive on", { mode: "tui", confirm: true }, options);
+    const bad = executeHelixCommand("settings set warp-drive on", { mode: "tui", confirm: true }, options);
     assert.equal(bad.ok, false);
     assert.equal(bad.code, "unknown-toggle:warp-drive");
   } finally {
@@ -136,10 +136,10 @@ test("settings view shows the six checkboxes and set round-trips a toggle", () =
 test("profiles: create, setup a cast, show, switch, list — and typos refuse", () => {
   const { root, options } = tempOptions();
   try {
-    const created = executePrimeCommand("profiles create deep-work", { mode: "tui", confirm: true }, options);
+    const created = executeHelixCommand("profiles create deep-work", { mode: "tui", confirm: true }, options);
     assert.equal(created.ok, true, JSON.stringify(created.details));
 
-    const setup = executePrimeCommand(
+    const setup = executeHelixCommand(
       "setup deep-work plan=overlord implement=openai-codex/gpt-5x:high",
       { mode: "tui", confirm: true },
       { ...options, modelInventory: [{ provider: "openai-codex", model: "gpt-5x", reasoning: true }] },
@@ -150,17 +150,17 @@ test("profiles: create, setup a cast, show, switch, list — and typos refuse", 
       kind: "model", provider: "openai-codex", model: "gpt-5x", effort: "high",
     });
 
-    const show = executePrimeCommand("profiles show deep-work", { mode: "tui" }, options);
+    const show = executeHelixCommand("profiles show deep-work", { mode: "tui" }, options);
     assert.match(show.text, /plan -> composite:overlord/);
     assert.match(show.text, /implement -> model:openai-codex\/gpt-5x:high/);
 
-    const list = executePrimeCommand("profiles", { mode: "tui" }, options);
+    const list = executeHelixCommand("profiles", { mode: "tui" }, options);
     assert.match(list.text, /deep-work \(active\)/, "setup activates the profile");
 
-    const unknownPreset = executePrimeCommand("setup deep-work plan=warlord", { mode: "tui", confirm: true }, options);
+    const unknownPreset = executeHelixCommand("setup deep-work plan=warlord", { mode: "tui", confirm: true }, options);
     assert.equal(unknownPreset.code, "unknown-preset:warlord");
 
-    const unknownSwitch = executePrimeCommand("profiles switch nope", { mode: "tui", confirm: true }, options);
+    const unknownSwitch = executeHelixCommand("profiles switch nope", { mode: "tui", confirm: true }, options);
     assert.equal(unknownSwitch.code, "unknown-profile");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -170,9 +170,9 @@ test("profiles: create, setup a cast, show, switch, list — and typos refuse", 
 test("the ACTIVE profile's cast overlays run preflight (never chain/gate)", () => {
   const { root, options } = tempOptions();
   try {
-    executePrimeCommand("profiles create deep-work", { mode: "tui", confirm: true }, options);
-    executePrimeCommand("setup deep-work plan=daily", { mode: "tui", confirm: true }, options);
-    const preflight = executePrimeCommand("run mock-core-loop", { mode: "tui" }, options);
+    executeHelixCommand("profiles create deep-work", { mode: "tui", confirm: true }, options);
+    executeHelixCommand("setup deep-work plan=daily", { mode: "tui", confirm: true }, options);
+    const preflight = executeHelixCommand("run mock-core-loop", { mode: "tui" }, options);
     assert.equal(preflight.ok, true, JSON.stringify(preflight.details));
     assert.match(preflight.text, /Cast source: profile deep-work \(assignments\)/);
     assert.match(preflight.text, /plan=composite:daily/, "profile overrode the tracked overlord plan cast");
@@ -183,22 +183,22 @@ test("the ACTIVE profile's cast overlays run preflight (never chain/gate)", () =
   }
 });
 
-test("every /prime mutation requires attended TUI confirmation", () => {
+test("every /helix mutation requires attended TUI confirmation", () => {
   const { root, options } = tempOptions();
   try {
     const settingsPath = options.settingsPath;
-    const rpc = executePrimeCommand("settings set loops off", { mode: "rpc", confirm: true }, options);
-    assert.equal(rpc.code, "prime-mutation-requires-tui-confirm");
+    const rpc = executeHelixCommand("settings set loops off", { mode: "rpc", confirm: true }, options);
+    assert.equal(rpc.code, "helix-mutation-requires-tui-confirm");
     assert.equal(existsSync(settingsPath), false);
 
-    const cancelled = executePrimeCommand("profiles create guarded", { mode: "tui", confirm: false }, options);
-    assert.equal(cancelled.code, "prime-mutation-cancelled");
+    const cancelled = executeHelixCommand("profiles create guarded", { mode: "tui", confirm: false }, options);
+    assert.equal(cancelled.code, "helix-mutation-cancelled");
     assert.equal(existsSync(join(root, "dispatch", "local", "profiles", "guarded.json")), false);
 
-    const created = executePrimeCommand("profiles create guarded", { mode: "tui", confirm: true }, options);
+    const created = executeHelixCommand("profiles create guarded", { mode: "tui", confirm: true }, options);
     assert.equal(created.ok, true);
-    const duplicate = executePrimeCommand("profiles create guarded", { mode: "tui", confirm: true }, options);
-    assert.equal(duplicate.code, "prime-profile-exists");
+    const duplicate = executeHelixCommand("profiles create guarded", { mode: "tui", confirm: true }, options);
+    assert.equal(duplicate.code, "helix-profile-exists");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -211,8 +211,8 @@ test("setup stores inventory-validated real composite members but run preflight 
     modelInventory: [{ provider: "openai-codex", model: "gpt-5x", reasoning: true }],
   };
   try {
-    assert.equal(executePrimeCommand("profiles create live", { mode: "tui", confirm: true }, options).ok, true);
-    const setup = executePrimeCommand(
+    assert.equal(executeHelixCommand("profiles create live", { mode: "tui", confirm: true }, options).ok, true);
+    const setup = executeHelixCommand(
       "setup live daily.builder=openai-codex/gpt-5x:high daily.reviewer=openai-codex/gpt-5x:medium*2",
       { mode: "tui", confirm: true },
       withInventory,
@@ -222,14 +222,14 @@ test("setup stores inventory-validated real composite members but run preflight 
     assert.equal(profile.overrides.presets.daily.roles.builder[0].provider, "openai-codex");
     assert.equal(profile.overrides.presets.daily.roles.reviewer[0].instances, 2);
 
-    const models = executePrimeCommand("models", { mode: "tui" }, withInventory);
+    const models = executeHelixCommand("models", { mode: "tui" }, withInventory);
     assert.match(models.text, /openai-codex\/gpt-5x:high x1/);
-    const preflight = executePrimeCommand("run mock-core-loop", { mode: "tui" }, withInventory);
+    const preflight = executeHelixCommand("run mock-core-loop", { mode: "tui" }, withInventory);
     assert.equal(preflight.ok, false);
     assert.equal(preflight.code, "live-adapter-not-wired");
 
-    assert.equal(executePrimeCommand("profiles create absent", { mode: "tui", confirm: true }, options).ok, true);
-    const unavailable = executePrimeCommand(
+    assert.equal(executeHelixCommand("profiles create absent", { mode: "tui", confirm: true }, options).ok, true);
+    const unavailable = executeHelixCommand(
       "setup absent daily.builder=openai-codex/not-there:high",
       { mode: "tui", confirm: true },
       withInventory,
@@ -245,14 +245,14 @@ test("setup stores inventory-validated real composite members but run preflight 
 test("setup restores the prior profile when active-pointer persistence fails", () => {
   const { root, options } = tempOptions();
   try {
-    assert.equal(executePrimeCommand("profiles create victim", { mode: "tui", confirm: true }, options).ok, true);
-    assert.equal(executePrimeCommand("setup victim plan=overlord", { mode: "tui", confirm: true }, options).ok, true);
+    assert.equal(executeHelixCommand("profiles create victim", { mode: "tui", confirm: true }, options).ok, true);
+    assert.equal(executeHelixCommand("setup victim plan=overlord", { mode: "tui", confirm: true }, options).ok, true);
     const dir = join(root, "dispatch", "local", "profiles");
     mkdirSync(join(dir, "active.json.pending"));
 
-    const refused = executePrimeCommand("setup victim plan=daily", { mode: "tui", confirm: true }, options);
+    const refused = executeHelixCommand("setup victim plan=daily", { mode: "tui", confirm: true }, options);
     assert.equal(refused.ok, false);
-    assert.equal(refused.code, "prime-profile-write-failed");
+    assert.equal(refused.code, "helix-profile-write-failed");
     const profile = JSON.parse(readFileSync(join(dir, "victim.json"), "utf8"));
     assert.equal(profile.overrides.assignments.plan.preset, "overlord");
     assert.equal(JSON.parse(readFileSync(join(dir, "active.json"), "utf8")).profile_id, "victim");
@@ -268,13 +268,13 @@ test("malformed or dangling active profile pointers fail closed on rendered surf
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "active.json"), JSON.stringify({ profile_id: null }), "utf8");
     for (const args of ["", "run mock-core-loop", "profiles", "models"]) {
-      const out = executePrimeCommand(args, { mode: "print" }, options);
+      const out = executeHelixCommand(args, { mode: "print" }, options);
       assert.equal(out.ok, false, args);
-      assert.equal(out.code, "prime-active-profile-invalid", args);
+      assert.equal(out.code, "helix-active-profile-invalid", args);
     }
 
     writeFileSync(join(dir, "active.json"), JSON.stringify({ schema_version: 1, profile_id: "missing" }), "utf8");
-    const dangling = executePrimeCommand("run mock-core-loop", { mode: "print" }, options);
+    const dangling = executeHelixCommand("run mock-core-loop", { mode: "print" }, options);
     assert.equal(dangling.code, "unknown-profile");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -284,7 +284,7 @@ test("malformed or dangling active profile pointers fail closed on rendered surf
 test("setup with no arguments is the guided view: presets, stages, inventory, and transport truth", () => {
   const { root, options } = tempOptions();
   try {
-    const view = executePrimeCommand("setup", { mode: "tui" }, options);
+    const view = executeHelixCommand("setup", { mode: "tui" }, options);
     assert.equal(view.ok, true);
     assert.deepEqual(view.details.presets, ["daily", "overlord"]);
     assert.deepEqual(view.details.chains["full-cycle"], ["plan", "implement"]);
@@ -298,24 +298,24 @@ test("setup with no arguments is the guided view: presets, stages, inventory, an
 test("research preflight enforces the mandatory shape, attendance, and the toggle", () => {
   const { root, options } = tempOptions();
   try {
-    const ok = executePrimeCommand("research does caching help --metric latency-ms <= 100 --max 5 --plateau 2", { mode: "tui" }, options);
+    const ok = executeHelixCommand("research does caching help --metric latency-ms <= 100 --max 5 --plateau 2", { mode: "tui" }, options);
     assert.equal(ok.ok, true, JSON.stringify(ok));
-    assert.match(ok.details.cli_invocation, /prime-research\.mjs/);
+    assert.match(ok.details.cli_invocation, /helix-research\.mjs/);
     assert.match(ok.details.question_ref, /^sha256:/);
     assert.doesNotMatch(JSON.stringify(ok), /does caching help/);
     assert.match(ok.details.cli_invocation, /<private-question>/);
     assert.equal(ok.details.launches_loop, false);
 
-    const noMetric = executePrimeCommand("research why --max 3", { mode: "tui" }, options);
+    const noMetric = executeHelixCommand("research why --max 3", { mode: "tui" }, options);
     assert.equal(noMetric.code, "research-missing-metric");
-    const noStop = executePrimeCommand("research why --metric m >= 1", { mode: "tui" }, options);
+    const noStop = executeHelixCommand("research why --metric m >= 1", { mode: "tui" }, options);
     assert.equal(noStop.code, "research-missing-stop");
 
-    const unattended = executePrimeCommand("research why --metric m >= 1 --max 2", { mode: "rpc" }, options);
+    const unattended = executeHelixCommand("research why --metric m >= 1 --max 2", { mode: "rpc" }, options);
     assert.equal(unattended.code, "research-requires-attended");
 
-    executePrimeCommand("settings set autoresearch off", { mode: "tui", confirm: true }, options);
-    const disabled = executePrimeCommand("research why --metric m >= 1 --max 2", { mode: "tui" }, options);
+    executeHelixCommand("settings set autoresearch off", { mode: "tui", confirm: true }, options);
+    const disabled = executeHelixCommand("research why --metric m >= 1 --max 2", { mode: "tui" }, options);
     assert.equal(disabled.code, "toggle-disabled:autoresearch");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -343,7 +343,7 @@ test("runs watch renders the loop widget from a real event stream", () => {
     log.emit("verdict", { stage_id: "implement", verdict: "revise" });
     log.emit("blocked", { code: "stage-max-passes-exhausted:implement", next_action: "revise-cast-or-raise-stage-ceiling-then-resume" });
 
-    const watch = executePrimeCommand("runs watch watch-me", { mode: "print" }, options);
+    const watch = executeHelixCommand("runs watch watch-me", { mode: "print" }, options);
     assert.equal(watch.ok, true, JSON.stringify(watch.details));
     assert.match(watch.text, /implement pass 2\/5/);
     assert.match(watch.text, /cast composite:daily/);
@@ -353,7 +353,7 @@ test("runs watch renders the loop widget from a real event stream", () => {
     assert.match(watch.text, /Blocked: stage-max-passes-exhausted:implement/);
     assert.equal(watch.details.finished, false);
 
-    const missing = executePrimeCommand("runs watch nothing-here", { mode: "print" }, options);
+    const missing = executeHelixCommand("runs watch nothing-here", { mode: "print" }, options);
     assert.equal(missing.code, "run-not-found");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -370,7 +370,7 @@ test("runs watch/resume scan disk content read-time: a leak-shaped file fails cl
     const leak = "/Us" + "ers/someone/secret"; // split so the repo scanner doesn't self-match
     writeFileSync(join(evDir, "tainted.events.jsonl"),
       JSON.stringify({ run_id: "tainted", seq: 1, t_rel_ms: 0, kind: "run-end", stop_reason: leak }) + "\n", "utf8");
-    const watch = executePrimeCommand("runs watch tainted", { mode: "print" }, options);
+    const watch = executeHelixCommand("runs watch tainted", { mode: "print" }, options);
     assert.equal(watch.ok, false);
     assert.equal(watch.code, "run-record-invalid-or-unsafe");
     assert.ok(!JSON.stringify(watch).includes("secret"), "the leak never reaches rendered output");
@@ -379,7 +379,7 @@ test("runs watch/resume scan disk content read-time: a leak-shaped file fails cl
     mkdirSync(stDir, { recursive: true });
     writeFileSync(join(stDir, "tainted-state.state.json"),
       JSON.stringify({ schema_version: 1, run_id: "tainted-state", completed: false, machine: { note: leak } }), "utf8");
-    const resume = executePrimeCommand("runs resume tainted-state", { mode: "print" }, options);
+    const resume = executeHelixCommand("runs resume tainted-state", { mode: "print" }, options);
     assert.equal(resume.ok, false);
     assert.equal(resume.code, "run-record-invalid-or-unsafe");
 
@@ -387,8 +387,8 @@ test("runs watch/resume scan disk content read-time: a leak-shaped file fails cl
     const badDir = join(options.runsRoot, "malformed");
     mkdirSync(badDir, { recursive: true });
     writeFileSync(join(badDir, "malformed.events.jsonl"), "{not json\n", "utf8");
-    const bad = executePrimeCommand("runs watch malformed", { mode: "print" }, options);
-    assert.equal(bad.code, "prime-config-unreadable");
+    const bad = executeHelixCommand("runs watch malformed", { mode: "print" }, options);
+    assert.equal(bad.code, "helix-config-unreadable");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -398,7 +398,7 @@ test("resume CLI carries the run's config binding, not the default", () => {
   const { root, options } = tempOptions();
   try {
     writeResumeBundle(options, "bound-run");
-    const resume = executePrimeCommand("runs resume bound-run", { mode: "print" }, options);
+    const resume = executeHelixCommand("runs resume bound-run", { mode: "print" }, options);
     assert.equal(resume.ok, true);
     assert.match(resume.details.cli_invocation, /--resume bound-run --config mock-core-loop --repo '<original-repository>'/);
     assert.equal(resume.details.config_id, "mock-core-loop");
@@ -411,16 +411,16 @@ test("runs resume distinguishes resumable, completed, and missing runs", () => {
   const { root, options } = tempOptions();
   try {
     writeResumeBundle(options, "resumable");
-    const resumable = executePrimeCommand("runs resume resumable", { mode: "print" }, options);
+    const resumable = executeHelixCommand("runs resume resumable", { mode: "print" }, options);
     assert.equal(resumable.ok, true);
     assert.match(resumable.details.cli_invocation, /--resume resumable/);
 
     writeResumeBundle(options, "done-run", { completed: true });
-    const done = executePrimeCommand("runs resume done-run", { mode: "print" }, options);
+    const done = executeHelixCommand("runs resume done-run", { mode: "print" }, options);
     assert.equal(done.ok, true);
     assert.match(done.text, /already completed/);
 
-    const missing = executePrimeCommand("runs resume ghost", { mode: "print" }, options);
+    const missing = executeHelixCommand("runs resume ghost", { mode: "print" }, options);
     assert.equal(missing.code, "run-not-found");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -444,7 +444,7 @@ test("runs resume accepts the pre-event initializing checkpoint", () => {
     writeFileSync(join(runDir, "initializing-run.state.json"), stableStringify(initializing) + "\n", "utf8");
     rmSync(join(runDir, "initializing-run.events.jsonl"), { force: true });
     rmSync(disagreementSnapshotPath(runDir, "initializing-run", state.disagreement_ref), { force: true });
-    const resume = executePrimeCommand("runs resume initializing-run", { mode: "print" }, options);
+    const resume = executeHelixCommand("runs resume initializing-run", { mode: "print" }, options);
     assert.equal(resume.ok, true, JSON.stringify(resume));
     assert.match(resume.text, /resumable/);
   } finally {
@@ -466,7 +466,7 @@ test("runs resume refuses a structurally valid machine state impossible for its 
       stableStringify(impossible) + "\n",
       "utf8",
     );
-    const resume = executePrimeCommand("runs resume impossible-machine", { mode: "print" }, options);
+    const resume = executeHelixCommand("runs resume impossible-machine", { mode: "print" }, options);
     assert.equal(resume.ok, false);
     assert.equal(resume.code, "invalid-resume-state");
     assert.equal(resume.details.detail, "machine-config-binding");
@@ -482,7 +482,7 @@ test("runs resume refuses missing or malformed companion events/disagreements", 
     writeFileSync(join(options.runsRoot, "bad-events", "bad-events.events.jsonl"), JSON.stringify({
       run_id: "bad-events", seq: 1, t_rel_ms: 0, kind: "warning", code: { prose: "raw model response" },
     }) + "\n", "utf8");
-    assert.equal(executePrimeCommand("runs resume bad-events", { mode: "print" }, options).code, "resume-events-invalid");
+    assert.equal(executeHelixCommand("runs resume bad-events", { mode: "print" }, options).code, "resume-events-invalid");
 
     writeResumeBundle(options, "mismatched-pass");
     const mismatchedPath = join(options.runsRoot, "mismatched-pass", "mismatched-pass.events.jsonl");
@@ -494,7 +494,7 @@ test("runs resume refuses missing or malformed companion events/disagreements", 
       "utf8",
     );
     assert.equal(
-      executePrimeCommand("runs resume mismatched-pass", { mode: "print" }, options).code,
+      executeHelixCommand("runs resume mismatched-pass", { mode: "print" }, options).code,
       "resume-events-invalid",
     );
 
@@ -508,7 +508,7 @@ test("runs resume refuses missing or malformed companion events/disagreements", 
       schema_version: 1, run_id: "bad-disagreements", entries: [{ id: "raw prose", stage_id: "plan", status: "open" }],
     }), "utf8");
     assert.equal(
-      executePrimeCommand("runs resume bad-disagreements", { mode: "print" }, options).code,
+      executeHelixCommand("runs resume bad-disagreements", { mode: "print" }, options).code,
       "resume-disagreements-invalid",
     );
   } finally {
@@ -530,9 +530,9 @@ test("runs watch/resume refuse events after the single terminal run-end", () => 
       code: "after-terminal",
     });
     writeFileSync(path, events.map((event) => stableStringify(event)).join("\n") + "\n", "utf8");
-    assert.equal(executePrimeCommand("runs watch terminal-tail", { mode: "print" }, options).code,
+    assert.equal(executeHelixCommand("runs watch terminal-tail", { mode: "print" }, options).code,
       "run-record-invalid-or-unsafe");
-    assert.equal(executePrimeCommand("runs resume terminal-tail", { mode: "print" }, options).code,
+    assert.equal(executeHelixCommand("runs resume terminal-tail", { mode: "print" }, options).code,
       "resume-events-invalid");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -547,7 +547,7 @@ test("runs watch refuses claimed convergence without an objective-gate pass", ()
     const log = makeEventLog({ run_id: "false-convergence", dir: runDir });
     log.emit("run-start", { chain_id: "full-cycle", config_id: "mock-core-loop", max_iterations: 5 });
     log.emit("run-end", { converged: true, stop_reason: "converged", open_disagreements: 0 });
-    const watch = executePrimeCommand("runs watch false-convergence", { mode: "print" }, options);
+    const watch = executeHelixCommand("runs watch false-convergence", { mode: "print" }, options);
     assert.equal(watch.code, "run-record-invalid-or-unsafe");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -557,13 +557,13 @@ test("runs watch refuses claimed convergence without an objective-gate pass", ()
 test("models shows both presets with members; dashboard shows toggles and profile", () => {
   const { root, options } = tempOptions();
   try {
-    const models = executePrimeCommand("models", { mode: "print" }, options);
+    const models = executeHelixCommand("models", { mode: "print" }, options);
     assert.equal(models.ok, true);
     assert.match(models.text, /overlord \(degradation=fail-closed\)/);
     assert.doesNotMatch(models.text, /Overlord/);
     assert.match(models.text, /reviewer: mock\/mock-overlord-reviewer-a:high x1, mock\/mock-overlord-reviewer-b:high x1/);
 
-    const dash = executePrimeCommand("", { mode: "print" }, options);
+    const dash = executeHelixCommand("", { mode: "print" }, options);
     assert.equal(dash.ok, true);
     assert.match(dash.text, /Toggles: multi-model, loops, autoresearch, context-engine, worktree, visual-cues/);
     assert.match(dash.text, /Profile: \(none\)/);
@@ -573,15 +573,15 @@ test("models shows both presets with members; dashboard shows toggles and profil
 });
 
 test("new verbs appear in completions; rendered surfaces stay public-safe", () => {
-  const verbs = getPrimeArgumentCompletions("").map((c) => c.value);
+  const verbs = getHelixArgumentCompletions("").map((c) => c.value);
   assert.deepEqual(verbs, ["help", "run", "runs", "models", "chains", "settings", "profiles", "setup", "research"]);
-  const runsVerbs = getPrimeArgumentCompletions("runs ").map((c) => c.value.trim());
+  const runsVerbs = getHelixArgumentCompletions("runs ").map((c) => c.value.trim());
   assert.deepEqual(runsVerbs, ["runs list", "runs status", "runs watch", "runs resume", "runs prune"]);
 
   const { root, options } = tempOptions();
   try {
     for (const args of ["", "help", "models", "chains", "settings", "setup", "profiles"]) {
-      const out = executePrimeCommand(args, { mode: "print" }, options);
+      const out = executeHelixCommand(args, { mode: "print" }, options);
       const rendered = JSON.stringify(out);
       assert.ok(!/\/Users\/[a-z]/i.test(rendered), `${args || "dashboard"}: no home paths in rendered output`);
       assert.ok(!/sk-[a-z0-9-]{20,}/i.test(rendered), `${args || "dashboard"}: no key shapes`);

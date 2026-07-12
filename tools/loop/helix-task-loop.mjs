@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// prime-task-loop.mjs — staged task-loop entrypoint (M5).
+// helix-task-loop.mjs — staged task-loop entrypoint (M5).
 //
 // Runs a named run config through the STAGED runner: chain stages + casts +
 // per-run worktree + structural events + interrupt-safe resumable state.
@@ -8,7 +8,7 @@
 // build has no staged live transport: any real-provider cast refuses as
 // live-adapter-not-wired rather than executing the mock adapter under real ids.
 //
-//   node tools/loop/prime-task-loop.mjs [--config mock-core-loop] [--run-id ID]
+//   node tools/loop/helix-task-loop.mjs [--config mock-core-loop] [--run-id ID]
 //        [--repo PATH]      run against PATH (per-run worktree of that repo)
 //        [--resume ID]      resume an interrupted run from its state file
 //        [--summary]        summary verbosity (default: full event stream)
@@ -34,15 +34,15 @@ import {
   applyProfileToConfig,
   applyProfileToPresets,
   resolveActiveProfile,
-} from "../../extensions/lib/prime-local.mjs";
+} from "../../extensions/lib/helix-local.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const NOW = 1_751_731_200;
 
 function usage(exitCode = 0) {
   console.log(`Usage:
-  node tools/loop/prime-task-loop.mjs [--config mock-core-loop] [--run-id ID] [--repo PATH] [--resume ID] [--summary]
-  node tools/loop/prime-task-loop.mjs --list-configs
+  node tools/loop/helix-task-loop.mjs [--config mock-core-loop] [--run-id ID] [--repo PATH] [--resume ID] [--summary]
+  node tools/loop/helix-task-loop.mjs --list-configs
 
 Default: staged runner over a synthetic temp repo with the mock adapter (no-live).
 --repo runs against a real repository via a per-run git worktree.`);
@@ -54,10 +54,10 @@ function readJson(rel) {
 }
 
 function tempRepo() {
-  const cwd = mkdtempSync(join(tmpdir(), "prime-task-loop-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-task-loop-"));
   execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["config", "user.email", "prime@example.invalid"], { cwd });
-  execFileSync("git", ["config", "user.name", "Prime Loop"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Loop"], { cwd });
   writeFileSync(join(cwd, "proposal.txt"), "initial proposal\n", "utf8");
   execFileSync("git", ["add", "proposal.txt"], { cwd });
   execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
@@ -149,7 +149,7 @@ if (!resolvedConfig.ok) {
 
 // Apply the ACTIVE profile's saved cast (assignments/member lineups only —
 // never chain/gate)
-// so the CLI runs exactly what `/prime run` preflight showed and confirmed.
+// so the CLI runs exactly what `/helix run` preflight showed and confirmed.
 let effectiveConfig = resolvedConfig.config;
 let activeProfile = { ok: true, profile: null };
 if (!resumeId) {

@@ -10,8 +10,8 @@ and own provisioning + prune-on-exit yourself (that lifecycle is where managers 
 ```sh
 # from the primary checkout, on an up-to-date main
 git fetch origin
-git worktree add ../prime-<short-task> -b <branch-name> origin/main
-cd ../prime-<short-task>
+git worktree add ../helix-<short-task> -b <branch-name> origin/main
+cd ../helix-<short-task>
 ```
 
 - [ ] Branch name is clear (e.g. `m0a/<slug>`).
@@ -34,8 +34,8 @@ cd ../prime-<short-task>
 
 ```sh
 # after the PR is opened/merged from the branch
-cd ../prime                      # back to the primary checkout
-git worktree remove ../prime-<short-task>
+cd ../helix                      # back to the primary checkout
+git worktree remove ../helix-<short-task>
 git worktree prune
 git worktree list                # verify it is gone
 ```

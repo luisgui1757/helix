@@ -11,7 +11,7 @@
 
 
 Stage 3L-M/N turns the Stage 3B-J primitives into a bounded, reviewable daily-use
-loop entrypoint without a hosted adapter. Stage 3O/P adds `/prime` as the
+loop entrypoint without a hosted adapter. Stage 3O/P adds `/helix` as the
 Pi-native UX layer over these config/loop surfaces while keeping execution
 preflight-only.
 
@@ -27,10 +27,10 @@ Source of truth: ROADMAP Phase 3 / Theme J and
 | `dispatch/lib/chains.mjs` / `dispatch/config/chains.json` | Named chain defaults: `implement-review-fix`, `scout-flow`, and `ship-pre-pr`. Unknown or malformed chains fail closed; chains are config, not commands. |
 | `dispatch/lib/run-configs.mjs` / `dispatch/config/run-configs.json` | Named run configs with profile, chain, role matrix, hard caps, write allowlist, objective gate, refs, and `live.enabled:false` validation. |
 | `dispatch/lib/task-loop.mjs` | Composes run config -> chain -> route -> role matrix -> `runDebate` with real git diff stability, real revision-effect write guards, deterministic objective gate, and no-live mock adapters by default. |
-| `tools/loop/prime-task-loop.mjs` | CLI smoke/runbook entrypoint. Defaults to a cleaned synthetic temp git repo and structural records under `dispatch/runs/<run-id>/`. |
-| `dispatch/lib/run-manager.mjs` / `tools/runs/prime-runs.mjs` | Structural run directory hygiene plus `list`, `status`, explicit `prune` over gitignored JSON records only, and non-prunable labels for flat smoke records. |
-| `extensions/prime-command.ts` / `extensions/lib/prime-command-core.mjs` | One `/prime` slash command for resolved dashboard, `/prime help`, run preflight, view-only model/chain/profile browsers, structural run list/status, and TUI-confirmed prune. |
-| `tools/worktree/prime-worktree.sh` | Worktree manager hardening: remove refuses the current worktree and dirty worktrees; merge refuses a dirty source worktree. |
+| `tools/loop/helix-task-loop.mjs` | CLI smoke/runbook entrypoint. Defaults to a cleaned synthetic temp git repo and structural records under `dispatch/runs/<run-id>/`. |
+| `dispatch/lib/run-manager.mjs` / `tools/runs/helix-runs.mjs` | Structural run directory hygiene plus `list`, `status`, explicit `prune` over gitignored JSON records only, and non-prunable labels for flat smoke records. |
+| `extensions/helix-command.ts` / `extensions/lib/helix-command-core.mjs` | One `/helix` slash command for resolved dashboard, `/helix help`, run preflight, view-only model/chain/profile browsers, structural run list/status, and TUI-confirmed prune. |
+| `tools/worktree/helix-worktree.sh` | Worktree manager hardening: remove refuses the current worktree and dirty worktrees; merge refuses a dirty source worktree. |
 | `tools/smoke/openrouter-free-multimodel-revision-smoke.mjs` | Live no-spend proof path for at least two distinct OpenRouter `:free` revision models after current metadata, preflight, and Pi inventory pass. |
 
 ## Loop contract
@@ -65,10 +65,10 @@ The task-loop entrypoint is deliberately fail-closed:
   `assertProfileUsable` validates their shape. Their `id` selects the same
   profile policy posture as a built-in profile. Broader semantic policy fields
   are reserved for a future external profile loader, not inferred here.
-- `/prime help` is view-only, public-safe, works before local registries are
+- `/helix help` is view-only, public-safe, works before local registries are
   loaded, and reports the supported verbs, no-live/live/paid boundaries, and
   stable refusal-code guidance.
-- `/prime run [config-id]` is a UX preflight over the same config, chain, route,
+- `/helix run [config-id]` is a UX preflight over the same config, chain, route,
   profile, and role-matrix checks. It prints the exact existing CLI invocation
   but never launches the loop and never offers a live/no-live toggle; `live.enabled:false`
   remains schema-enforced.
@@ -78,18 +78,18 @@ Stable failure codes include `invalid-role-matrix`, `matrix-missing-role:<role>`
 `matrix-provider-policy-refusal:<code>`, `invalid-chain-registry`,
 `unknown-chain`, `invalid-run-config-registry`, `unknown-run-config`,
 `chain-not-loop-runnable:<id>`, `unsafe-gate-path`, `unsafe-run-id`,
-`prime-config-unreadable`, and `run-directory-exists`.
+`helix-config-unreadable`, and `run-directory-exists`.
 
-`/prime runs prune <run-id>` is the only Stage 3O/P mutation. It requires
+`/helix runs prune <run-id>` is the only Stage 3O/P mutation. It requires
 `ctx.mode === "tui"` plus explicit confirmation; `rpc`, `json`, and `print`
-return `prime-prune-requires-tui-confirm`, and false/absent confirmation returns
-`prime-prune-cancelled` without pruning. Run ids that resolve to the runs root
+return `helix-prune-requires-tui-confirm`, and false/absent confirmation returns
+`helix-prune-cancelled` without pruning. Run ids that resolve to the runs root
 itself, such as `.`, fail closed before any replace/prune path can remove
 `dispatch/runs/`; safe dotted names such as `run.1` remain valid.
-Malformed local registry/config JSON makes `/prime` execution fail closed as
-`prime-config-unreadable` before any mutation path runs; the detail is limited to
+Malformed local registry/config JSON makes `/helix` execution fail closed as
+`helix-config-unreadable` before any mutation path runs; the detail is limited to
 a safe basename, not a raw parser message or full filesystem path. Other
-user-facing `/prime` refusals include a stable code, human-readable reason, and
+user-facing `/helix` refusals include a stable code, human-readable reason, and
 next safe action.
 
 Flat root-level smoke records remain visible to `list`/`status` but are labelled
@@ -99,11 +99,11 @@ records and still rejects traversal/root delete attempts.
 ## Running the no-live loop
 
 ```bash
-node tools/loop/prime-task-loop.mjs --list-configs
-node tools/loop/prime-task-loop.mjs --run-id loop-cli-smoke
-node tools/runs/prime-runs.mjs status loop-cli-smoke
-node tools/runs/prime-runs.mjs list
-node tools/runs/prime-runs.mjs prune loop-cli-smoke
+node tools/loop/helix-task-loop.mjs --list-configs
+node tools/loop/helix-task-loop.mjs --run-id loop-cli-smoke
+node tools/runs/helix-runs.mjs status loop-cli-smoke
+node tools/runs/helix-runs.mjs list
+node tools/runs/helix-runs.mjs prune loop-cli-smoke
 ```
 
 The default run config, `mock-core-loop`, uses a synthetic temp repo unless
@@ -149,8 +149,8 @@ available candidates, not guaranteed pass models.
 
 ```bash
 npm test
-node tools/loop/prime-task-loop.mjs --run-id loop-cli-smoke
-node tools/runs/prime-runs.mjs status loop-cli-smoke
+node tools/loop/helix-task-loop.mjs --run-id loop-cli-smoke
+node tools/runs/helix-runs.mjs status loop-cli-smoke
 bash tools/worktree/selftest.sh
 ```
 

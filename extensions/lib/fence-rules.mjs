@@ -1,4 +1,4 @@
-// Prime yolo-fence — pure classification rules (zero dependencies, unit-testable).
+// Helix yolo-fence — pure classification rules (zero dependencies, unit-testable).
 //
 // The fence is a DEFENSE-IN-DEPTH SPEED BUMP, not containment. A regex denylist
 // on command strings is evadable (heredocs, aliases, `$(...)`, base64, scripts,

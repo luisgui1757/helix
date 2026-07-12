@@ -1,4 +1,4 @@
-# Prime lockdown smoke harness
+# Helix lockdown smoke harness
 
 Public-safe **Level-2 lockdown** proof for M0a. Boundary decision and rationale:
 [`docs/m0a/lockdown-boundary.md`](../../docs/m0a/lockdown-boundary.md). Evidence:

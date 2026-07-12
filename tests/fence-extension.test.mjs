@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import primeFence from "../extensions/prime-fence.ts";
+import helixFence from "../extensions/helix-fence.ts";
 
 // Minimal fake ExtensionAPI + ctx to drive the real handlers deterministically
 // (no model call, no TUI). Mirrors the Pi 0.80.3 shapes we verified.
@@ -9,7 +9,7 @@ import primeFence from "../extensions/prime-fence.ts";
 // RPC mode (docs/extensions.md:914, docs/rpc.md:1068), so only "tui" may prompt.
 function loadFence() {
   const handlers = {};
-  primeFence({ on: (event, handler) => { handlers[event] = handler; } });
+  helixFence({ on: (event, handler) => { handlers[event] = handler; } });
   return handlers;
 }
 

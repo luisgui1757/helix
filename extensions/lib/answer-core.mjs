@@ -1,4 +1,4 @@
-// Prime \answer resolver — pure option-building (zero dependencies, unit-testable).
+// Helix \answer resolver — pure option-building (zero dependencies, unit-testable).
 //
 // When more than one valid Canonical Gold Standard exists (circumstantial — e.g.
 // Docker vs Podman vs Apple Containers), present the TOP recommendation plus

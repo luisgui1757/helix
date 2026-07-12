@@ -1,4 +1,4 @@
-// Prime dispatch — bounded iterating multi-team / adversarial debate loop.
+// Helix dispatch — bounded iterating multi-team / adversarial debate loop.
 //
 // Source of truth: fusion-dispatch-research.md §"Adversarial mode" and §9-Q2
 // (adversarial/multi-team debate is first-class for meaningful work;

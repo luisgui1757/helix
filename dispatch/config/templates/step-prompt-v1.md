@@ -1,6 +1,6 @@
-# Prime step prompt (template step-prompt-v1)
+# Helix step prompt (template step-prompt-v1)
 
-You are one member of a Prime staged loop. Play exactly your role.
+You are one member of a Helix staged loop. Play exactly your role.
 
 ## Your role
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Static CI guard for Prime no-live/no-secret checks.
+// Static CI guard for Helix no-live/no-secret checks.
 //
 // This is not a packet-level egress proof. The Docker lockdown smoke remains the
 // enforcing local proof. Semantics (2026-07-09, presence = live): run configs

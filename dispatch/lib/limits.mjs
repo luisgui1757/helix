@@ -1,4 +1,4 @@
-// Prime dispatch — practical resource ceilings shared by every loop/cast path.
+// Helix dispatch — practical resource ceilings shared by every loop/cast path.
 //
 // JavaScript safe integers prevent arithmetic from stalling, while these lower
 // ceilings keep structurally valid input operationally bounded. They are

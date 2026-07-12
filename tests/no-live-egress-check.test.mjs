@@ -15,7 +15,7 @@ function fixtureRoot({
   dispatchLibFiles = {},
   dispatchFiles = {},
 } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "prime-egress-check-"));
+  const root = mkdtempSync(join(tmpdir(), "helix-egress-check-"));
   mkdirSync(join(root, ".github/workflows"), { recursive: true });
   mkdirSync(join(root, "dispatch/config"), { recursive: true });
   mkdirSync(join(root, "dispatch/config/matrices"), { recursive: true });
@@ -151,7 +151,7 @@ test("no-live egress check rejects workflow provider env and live smoke scripts"
 });
 
 test("no-live egress check rejects every workflow secret reference", () => {
-  const secretReference = "$" + "{{ secrets.PRIME_PROVIDER_TOKEN }}";
+  const secretReference = "$" + "{{ secrets.HELIX_PROVIDER_TOKEN }}";
   withFixture({
     workflow: `name: CI\njobs:\n  test:\n    steps:\n      - run: echo ${secretReference}\n`,
   }, (result) => {

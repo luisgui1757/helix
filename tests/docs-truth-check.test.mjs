@@ -15,17 +15,17 @@ function write(root, rel, text) {
 }
 
 test("docs truth check locks package surface and test count to docs", () => {
-  const root = mkdtempSync(join(tmpdir(), "prime-docs-truth-"));
+  const root = mkdtempSync(join(tmpdir(), "helix-docs-truth-"));
   const historicalStage = "docs/stage3/example-stage.md";
   write(root, "package.json", JSON.stringify({
     pi: {
-      skills: ["./skills/prime-ui"],
+      skills: ["./skills/helix-ui"],
       themes: ["./themes"],
-      extensions: ["./extensions/prime-command.ts"],
+      extensions: ["./extensions/helix-command.ts"],
     },
   }));
   write(root, "themes/a.json", "{}");
-  write(root, "extensions/prime-command.ts", "pi.registerCommand(\"prime\", {});");
+  write(root, "extensions/helix-command.ts", "pi.registerCommand(\"helix\", {});");
   write(root, "tests/a.test.mjs", "test(\"one\", () => {});\ntest(\"two\", () => {});\n");
   write(root, "ROADMAP.md", [
     "Stage 3P whole-repo gap closure",
@@ -40,8 +40,8 @@ test("docs truth check locks package surface and test count to docs", () => {
     "live-adapter-not-wired",
     "",
   ].join("\n"));
-  write(root, "docs/resources/README.md", "/prime help\n");
-  write(root, "docs/manual.md", "/prime help\n");
+  write(root, "docs/resources/README.md", "/helix help\n");
+  write(root, "docs/manual.md", "/helix help\n");
   write(root, "docs/stage3/design-contracts.md", [
     "Fail closed on structure, YOLO on behavior",
     "Named Stage 3B-N implementation pages are dated historical records",
@@ -51,11 +51,11 @@ test("docs truth check locks package surface and test count to docs", () => {
 
   const facts = collectDocsTruthFacts(root);
   write(root, "README.md", [
-    "<!-- PRIME-DOCS-TRUTH:BEGIN -->",
+    "<!-- HELIX-DOCS-TRUTH:BEGIN -->",
     "```json",
     JSON.stringify(facts, null, 2),
     "```",
-    "<!-- PRIME-DOCS-TRUTH:END -->",
+    "<!-- HELIX-DOCS-TRUTH:END -->",
     "",
   ].join("\n"));
   assert.deepEqual(checkDocsTruth(root), { ok: true, errors: [], facts });
@@ -97,14 +97,14 @@ test("docs truth check locks package surface and test count to docs", () => {
   ].join("\n"));
 
   write(root, "README.md", [
-    "<!-- PRIME-DOCS-TRUTH:BEGIN -->",
+    "<!-- HELIX-DOCS-TRUTH:BEGIN -->",
     "```json",
     JSON.stringify({ ...facts, node_test_declarations: 1 }, null, 2),
     "```",
-    "<!-- PRIME-DOCS-TRUTH:END -->",
+    "<!-- HELIX-DOCS-TRUTH:END -->",
     "",
   ].join("\n"));
   const drifted = checkDocsTruth(root);
   assert.equal(drifted.ok, false);
-  assert.match(drifted.errors.join("\n"), /PRIME-DOCS-TRUTH drifted/);
+  assert.match(drifted.errors.join("\n"), /HELIX-DOCS-TRUTH drifted/);
 });

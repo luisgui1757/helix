@@ -1,4 +1,4 @@
-// Prime dispatch — named run config registry (Stage 3M; slimmed 2026-07-09).
+// Helix dispatch — named run config registry (Stage 3M; slimmed 2026-07-09).
 //
 // Run configs are the daily-use entrypoint defaults: a named chain, a role
 // matrix, the one iteration rail, a deterministic objective gate, and optional

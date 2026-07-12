@@ -30,10 +30,10 @@ const chainRegistry = JSON.parse(readFileSync(new URL("../dispatch/config/chains
 const baseConfig = JSON.parse(readFileSync(new URL("../dispatch/config/run-configs.json", import.meta.url), "utf8")).configs[0];
 
 function tempRepo() {
-  const cwd = mkdtempSync(join(tmpdir(), "prime-runner-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-runner-"));
   execFileSync("git", ["init", "-q"], { cwd });
-  execFileSync("git", ["config", "user.email", "prime@example.invalid"], { cwd });
-  execFileSync("git", ["config", "user.name", "Prime Runner"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Runner"], { cwd });
   writeFileSync(join(cwd, "proposal.txt"), "initial proposal without the marker\n", "utf8");
   writeFileSync(join(cwd, "PLAN.md"), "Real plan fixture for the staged plan contract.\n", "utf8");
   execFileSync("git", ["add", "proposal.txt", "PLAN.md"], { cwd });
@@ -108,7 +108,7 @@ test("full-cycle converges end to end: plan → implement → gate fail → revi
     assert.deepEqual(result.cast.map((c) => c.executor_ref), ["composite:overlord", "composite:daily"]);
     assert.equal(result.calls.revisions, 1, "the builder revised once, on implement pass 2");
     assert.equal(result.calls.judges > 0, true, "overlord's multi-reviewer plan stage wired its judge");
-    assert.match(result.worktree_branch, /^prime\/run-[0-9a-f]{24}$/);
+    assert.match(result.worktree_branch, /^helix\/run-[0-9a-f]{24}$/);
     assert.equal(
       execFileSync("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
         cwd: result.worktree_path,
@@ -125,8 +125,8 @@ test("full-cycle converges end to end: plan → implement → gate fail → revi
     assert.deepEqual(gates, ["fail", "pass"], "conclusion gate failed once, then passed after revision");
 
     // The worktree got the revision; the base repo did not.
-    assert.match(readFileSync(join(result.worktree_path, "proposal.txt"), "utf8"), /PRIME_LOOP_PASS/);
-    assert.doesNotMatch(readFileSync(join(repo, "proposal.txt"), "utf8"), /PRIME_LOOP_PASS/);
+    assert.match(readFileSync(join(result.worktree_path, "proposal.txt"), "utf8"), /HELIX_LOOP_PASS/);
+    assert.doesNotMatch(readFileSync(join(repo, "proposal.txt"), "utf8"), /HELIX_LOOP_PASS/);
 
     // Events JSONL is append-only, parseable, sequenced.
     const lines = readFileSync(result.events_path, "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -189,7 +189,7 @@ test("scripted plan rejection loops the plan stage before advancing", async () =
       ...deps,
       run_id: "runner-plan-loop",
       adapter: adapter.dispatchAdapter,
-      revisionAdapter: adapter.revisionAdapter({ "proposal.txt": "Prime staged proposal\nPRIME_LOOP_PASS\n" }),
+      revisionAdapter: adapter.revisionAdapter({ "proposal.txt": "Helix staged proposal\nHELIX_LOOP_PASS\n" }),
     });
     assert.equal(result.converged, true, JSON.stringify(result.flow));
     const passes = events.filter((e) => e.kind === "pass-start").map((e) => `${e.stage_id}#${e.pass}`);
@@ -225,7 +225,7 @@ test("interrupted runs resume from the persisted machine state; completed runs a
     assert.equal(interrupted.state.pending_event.kind, "stage-end");
     assert.equal(JSON.stringify(interrupted.state).includes("planner-ok"), false,
       "raw adapter output must not enter the public checkpoint");
-    assert.equal(existsSync(join(repo, ".git", "prime-private")), false,
+    assert.equal(existsSync(join(repo, ".git", "helix-private")), false,
       "raw handoffs must not be persisted under git metadata");
     // Model a kill after the state commit but before stage-end append by
     // truncating the simulated renderer-failure tail back to event_count.
@@ -422,7 +422,7 @@ test("worktree toggle OFF runs in the caller's tree (warned); ON without an effe
     });
     assert.equal(inTree.worktree_path, repo, "worktree off = the caller's working tree");
     assert.ok(inTree.warnings.includes("worktree-off-working-tree"));
-    assert.match(readFileSync(join(repo, "proposal.txt"), "utf8"), /PRIME_LOOP_PASS/, "mutations land in the real tree — the owner's choice");
+    assert.match(readFileSync(join(repo, "proposal.txt"), "utf8"), /HELIX_LOOP_PASS/, "mutations land in the real tree — the owner's choice");
 
     const duplicate = await runStagedTaskLoop({ ...baseConfig }, { chainRegistry, presets }, {
       ...deps, run_id: "runner-worktree-off", toggles,
@@ -474,9 +474,9 @@ test("worktree effect: fresh runs refuse a colliding run id; only resume reuses"
 
 test("private checkpoints refuse a symlinked storage parent without writing outside Git", () => {
   const repo = tempRepo();
-  const outside = mkdtempSync(join(tmpdir(), "prime-checkpoint-outside-"));
+  const outside = mkdtempSync(join(tmpdir(), "helix-checkpoint-outside-"));
   try {
-    const root = join(repo, ".git", "prime-checkpoints");
+    const root = join(repo, ".git", "helix-checkpoints");
     mkdirSync(root, { recursive: true });
     symlinkSync(outside, join(root, "checkpoint-symlink"));
     const effect = makePrivateCheckpointEffect(repo);
@@ -532,8 +532,8 @@ test("initializing resume refuses a dirty colliding worktree without its private
     });
     assert.equal(interrupted.code, "checkpoint-persistence-failed");
     const state = JSON.parse(readFileSync(join(stateDir, `${runId}.state.json`), "utf8"));
-    const branch = `prime/run-${hashRef(runId).slice("sha256:".length, "sha256:".length + 24)}`;
-    execFileSync("git", ["config", "--unset", `branch.${branch}.primeOwner`], { cwd: repo });
+    const branch = `helix/run-${hashRef(runId).slice("sha256:".length, "sha256:".length + 24)}`;
+    execFileSync("git", ["config", "--unset", `branch.${branch}.helixOwner`], { cwd: repo });
     const path = join(repo, ".wt", runId);
     execFileSync("git", ["worktree", "add", "-b", branch, path, "HEAD"], { cwd: repo });
     writeFileSync(join(path, "proposal.txt"), "dirty colliding baseline\n", "utf8");
@@ -722,7 +722,7 @@ test("only one concurrent resume acquires the repository-private run lease", asy
       now: NOW,
       run_id: "resume-lease",
       adapter,
-      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "green\nPRIME_LOOP_PASS\n" }),
+      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "green\nHELIX_LOOP_PASS\n" }),
       worktree: makeGitWorktreeEffect(repo, { baseDir: join(repo, ".wt") }),
       state_dir: interrupted.stateDir,
       events: { dir: interrupted.eventsDir },
@@ -765,7 +765,7 @@ test("only one concurrent fresh run can own a repository run id", async () => {
       now: NOW,
       run_id: "fresh-lease",
       adapter,
-      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "green\nPRIME_LOOP_PASS\n" }),
+      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "green\nHELIX_LOOP_PASS\n" }),
       worktree: makeGitWorktreeEffect(repo, { baseDir: join(repo, ".wt") }),
       state_dir: join(repo, ".state"),
       events: { dir: join(repo, ".events") },
@@ -951,7 +951,7 @@ test("fresh execution persists a zero-pass checkpoint before the first adapter c
       now: NOW,
       run_id: "initial-checkpoint",
       adapter,
-      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "x\nPRIME_LOOP_PASS\n" }),
+      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "x\nHELIX_LOOP_PASS\n" }),
       worktree: makeGitWorktreeEffect(repo, { baseDir: join(repo, ".wt") }),
       state_dir: stateDir,
       events: { dir: join(repo, ".events") },
@@ -1077,7 +1077,7 @@ test("a non-mock cast fails closed even when a mock adapter is injected", async 
       ...deps,
       run_id: "liveish-run",
       adapter: mock.dispatchAdapter,
-      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "PRIME_LOOP_PASS\n" }),
+      revisionAdapter: mock.revisionAdapter({ "proposal.txt": "HELIX_LOOP_PASS\n" }),
     });
     assert.equal(result.ok, false);
     assert.equal(result.code, RUNNER_CODES.LIVE_ADAPTER_NOT_WIRED);
@@ -1101,7 +1101,7 @@ test("interrupt persists POST-transition state; resume does not replay the compl
     const done = await runStagedTaskLoop({ ...baseConfig }, registries, {
       ...deps, run_id: "posttrans",
       adapter: adapter.dispatchAdapter,
-      revisionAdapter: adapter.revisionAdapter({ "proposal.txt": "x\nPRIME_LOOP_PASS\n" }),
+      revisionAdapter: adapter.revisionAdapter({ "proposal.txt": "x\nHELIX_LOOP_PASS\n" }),
     });
     assert.equal(done.converged, true, JSON.stringify(done.flow));
     // The persisted post-transition state after plan#1 must point at implement
@@ -1386,7 +1386,7 @@ test("a stale pre-existing declared artifact cannot satisfy stage production", a
 test("a resume at total_passes == max_iterations is a valid state, not invalid-resume-state", async () => {
   const repo = tempRepo();
   try {
-    writeFileSync(join(repo, "proposal.txt"), "already green\nPRIME_LOOP_PASS\n", "utf8");
+    writeFileSync(join(repo, "proposal.txt"), "already green\nHELIX_LOOP_PASS\n", "utf8");
     execFileSync("git", ["add", "proposal.txt"], { cwd: repo });
     execFileSync("git", ["commit", "-q", "-m", "green gate"], { cwd: repo });
     const config = { ...baseConfig, max_iterations: 2 };

@@ -1,4 +1,4 @@
-# ROADMAP — `prime`: Pi CLI Extensions
+# ROADMAP — `helix`: Pi CLI Extensions
 
 > **This is a LIVE document.** It is the single source of truth for what this
 > repo is, what's done, and what's next. Anyone (any human or any LLM) must be
@@ -8,17 +8,17 @@
 > discovered work, and add a timestamped line to §13 Changelog. Never let the
 > roadmap fall behind the code.
 
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
 > **Current-contract precedence (2026-07-10):**
 > [`docs/stage3/design-contracts.md`](docs/stage3/design-contracts.md) and the
-> Prime v1/M10/M11 entries at the end of this file are the current product
+> Helix v1/M10/M11 entries at the end of this file are the current product
 > contract. Earlier phase/theme/changelog text is retained as dated decision
 > history, not as a live requirement when it conflicts with that contract. The
 > current harness rails are exactly `max_iterations` and `max_concurrency`;
-> token counts are telemetry, backend billing owns spend, and `prime-fence` is
-> untouched/deferred. The public candidate is `prime-reloaded`, built from a
-> sanitized single root; the original `prime` network remains private forever.
+> token counts are telemetry, backend billing owns spend, and `helix-fence` is
+> untouched/deferred. The public candidate is `helix`, built from a
+> sanitized single root; the legacy repository network remains private forever.
 > The Phase 0-3P rows and named Stage 3B-N pages below preserve dated build
 > history. They are not current operational instructions when they mention the
 > removed cost/no-spend policy, token budgets, write allowlists, live enablement,
@@ -28,7 +28,7 @@ Last updated: 2026-07-11
 
 ## 1. Mission
 
-`prime` develops, tests, and ships **extensions, skills, agents, and config for
+`helix` develops, tests, and ships **extensions, skills, agents, and config for
 the Pi CLI** (`@earendil-works/pi-coding-agent`, the `pi` command). The goal is
 **not** a framework: it is a *thin, CGS-first layer* that turns Pi's already
 strong natives (≈30 providers, ~30 lifecycle hooks, native auto-compaction,
@@ -144,14 +144,14 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked/needs-dec
 | Requirements | Brainstorm → CGS assessment (§7) | `[x]` done — verdicts in §7 |
 | — | Ratify open decisions (§9) | `[x]` Q1/Q2/Q4/Q7/Q8 ratified; Q3/Q5 defaults; Q6 = Phase-0 task. Q4 now requires a Phase-0 wrapper/policy spike before treating `claude` CLI dispatch as a cost path. |
 | — | MVP selection (§8 MVP tier) | `[x]` done — core must-haves remain; **Neovim/Pi integration moved to Phase 4 deferred** (2026-07-03) because editor use and Pi runtime do not need to be coupled. "Minimal" = command surface, not scope. Build order M0→M3. |
-| Current v1 | Publication hardening | `[~]` in progress — structural validation/persistence, ordered resume lifecycle, owned worktrees, objective gates, `max_iterations`/`max_concurrency`, and one `/prime` command ship. Backend billing owns spend; no cost/no-spend policy, token-budget rail, write allowlist, live flag, or task-loop live transport ships. Every non-mock cast refuses as `live-adapter-not-wired`. Historical stage records are bannered and the executable checks plus `docs/stage3/design-contracts.md` define current behavior. |
+| Current v1 | Publication hardening | `[~]` in progress — structural validation/persistence, ordered resume lifecycle, owned worktrees, objective gates, `max_iterations`/`max_concurrency`, and one `/helix` command ship. Backend billing owns spend; no cost/no-spend policy, token-budget rail, write allowlist, live flag, or task-loop live transport ships. Every non-mock cast refuses as `live-adapter-not-wired`. Historical stage records are bannered and the executable checks plus `docs/stage3/design-contracts.md` define current behavior. |
 | Historical chronology | Phase 0-3P rows below | Dated implementation history retained for auditability; superseded cost/live commands and intermediate test counts are not current instructions or release claims. |
-| 0 | Foundations: **security lockdown**, providers, entry point, principle loading | `[~]` in progress — **M0a evidence + security/provider baseline landed** (`tools/m0a/`, `docs/m0a/`); **trusted-project telemetry-off baseline shipped** (`.pi/settings.json`) and **Level-1 telemetry + offline-startup smoke passed** (`reviews/m0a/`). **Finalize slice (2026-07-03):** interactive `/` baseline **captured** + native tool/function-calling **verified** + compaction probe **resolved by code** (no drift, no `APPEND_SYSTEM.md`) — evidence `reviews/m0a/pi-internals-2026-07-03.md`; Claude-auth spike **partially run** (feasibility + economics settled, live-billing deferred). **Resource slice (2026-07-04):** Prime package surface shipped (`package.json`) with exactly one Prime-owned skill (`prime-ui`), Prime-prefixed Rose Pine themes, and the initial two pinned extensions; Stage 3O later adds the third pinned control extension (`prime-command`) while preserving one consolidated slash command. Rose Pine audit recorded; Fusion dispatch research gate added. **Lockdown + smoke slice (2026-07-04):** canonical boundary **chosen** (Plain Docker `--network none`, `docs/m0a/lockdown-boundary.md`) and a **Level-2 lockdown smoke PASSED 5/5** (`tools/lockdown/`, evidence `reviews/m0a/level2-lockdown-smoke-2026-07-04.md` — deny-by-default egress + offline startup + active session reaching only a local mock, no secrets/spend); the **first thin vertical smoke** path shipped (`docs/m0a/vertical-smoke/` + `tools/smoke/status.sh`); **OpenRouter `:free` real-provider smoke passed** (`tools/smoke/openrouter-free-smoke.sh`, evidence `reviews/m0a/openrouter-free-smoke-2026-07-04.md`). **Still open:** Claude-auth live-billing probe |
-| 1 | Safety posture: the yolo-fence + scoped worktree manager | `[~]` in progress — **Stage 1+2 (2026-07-04): yolo-fence extension + worktree-manager basics shipped & tested** (`extensions/prime-fence.ts`, `tools/worktree/`); `remote-pi` eval still open |
-| 2 | Verification core + planning hygiene | `[~]` in progress — **Stage 1+2 (2026-07-04): objective-gate loop + `\answer` resolver + PR-gate basics + plan/implement separation shipped & tested** (`tools/loop/`, `extensions/prime-answer.ts`, `tools/ship/`, `docs/stage1-2/`); statusbar, live-shell, plan-mode extend, Superpowers/annotate still open |
-| 3 | Orchestration substrate (adversarial default-on for meaningful work; parallel/teams opt-in) | `[~]` in progress — **Stage 3A Fusion-style dispatch build spec drafted and review fixes applied** (`docs/architecture/fusion-dispatch-research.md`); **Stage 3B (2026-07-05): dispatch-policy-core substrate shipped & tested** (`dispatch/`, `tests/dispatch-*.test.mjs`, `docs/stage3/`) — runtime role-envelope validation + role/stage matrix, no-spend cost policy (mock + metadata-verified OpenRouter `:free` only), routes/profiles with N3 panel precedence + N4 finite price-TTL staleness, deterministic classifier + mandatory floors + non-TTY fail-closed escalation, judge-bias blinding, and a public-safe run-record writer; **Stage 3C (2026-07-05): thin one-cycle dispatch orchestrator shipped & tested** (`dispatch/lib/orchestrate.mjs`, `tools/smoke/dispatch-smoke.mjs`, `docs/stage3/dispatch-orchestrator.md`) — dependency-injected adapters/clock/seed/gate, pre-launch no-spend/eligibility gates with the metadata price-TTL clamped to profile policy, boundary envelope validation before the blinded advisory judge, objective gates from exit status/deterministic checkers only, structural public-safe run records, recursion depth exactly one; **Stage 3D (2026-07-06): synthesis stage + first preflight-gated no-spend OpenRouter `:free` adapter smoke shipped & tested** (`dispatch/lib/synthesis.mjs`, `tools/smoke/openrouter-free-dispatch-smoke.sh`, `docs/stage3/synthesis-nospend-adapter.md`) — the synthesizer runs after the panel + advisory judge and before the objective gate on `synthesizer` routes, consumes candidate/judge output as an identity/cost-stripped role-output projection (provider-bound, not a public-safe record), and mechanically preserves unresolved contradictions (fail-closed on drop); every dispatch (candidate/judge/synthesizer) projects cost pre-launch on **all** profiles — metered specs without fresh sourced price fail closed before any adapter call, and a `github-copilot` spec needs a fresh, matching profile pin (`evaluateCopilotPin`) whose freshness is bounded by the profile `copilot_pin_ttl_seconds` ceiling (an overlong pin TTL cannot extend it) or stops; the live `:free` smoke is preflight-gated and was **skipped (fail-closed) on the intentionally stale committed metadata — no live call made**; **Stage 3E (2026-07-07): verification stage shipped & tested** (`dispatch/lib/verification.mjs`, `docs/stage3/verification-stage.md`) — the `verifier` role runs after the objective/advisory gate result is captured (on `pr-preflight`), receives a structural public-safe proof summary (`projectForVerification`), and summarizes proof but **never** determines the gate result (a positive verifier can't rescue a failed gate; a negative verifier can't block a passed gate); its narrative is never persisted; **Stage 3F (2026-07-07): thin parallel / multi-team dispatch shipped & tested** (`dispatch/lib/parallel.mjs`, `docs/stage3/parallel-dispatch.md`) — opt-in `deps.parallel = {max_concurrency, token_budget}` gives bounded-parallel candidate launch (built on the Pi `subagent` concurrency-limiter pattern, no subprocesses); an invalid cap or unbounded budget fails closed, output stays candidate-index deterministic (same-config parallel runs byte-identical; `cap_status.token_cap` records the effective enforced budget), all existing gates preserved, a failed candidate is isolated and still counts against `min_successes`; plus a cross-family **advisory** (`cross-family-not-satisfied`, warn-only) on `requires_cross_family` routes; sequential is the default (existing callers unchanged); 205 tests pass; **Stage 3G (2026-07-07): iterating multi-team / adversarial debate loop shipped & tested** (`dispatch/lib/debate.mjs`, `docs/stage3/iterating-debate.md`) — a bounded iterating loop that **composes** `runDispatch` (one iteration = the full panel→judge→synthesis→gate→verifier cycle) and repeats only for adversarial routes until convergence, where **convergence is exactly diff-stability (an injected deterministic checker) + objective-gate-pass** so model/judge/verifier/synthesis approval is never final authority; mandatory `max_iterations` + an aggregate `token_budget` rail fail closed **before** iterating (and the aggregate budget wins over convergence); a hard fail-closed iteration is never retried; structural-only public-safe iteration summaries carry no model narrative and are deterministic under mock adapters; 233 tests pass; **Stage 3H (2026-07-07): real revision / diff surface shipped & tested** (`dispatch/lib/git-diff-surface.mjs`, `dispatch/lib/adversarial-policy.mjs`, revision boundary in `dispatch/lib/debate.mjs`, `docs/stage3/real-revision-diff-surface.md`) — a **real working-tree diff-stability** surface (`computeDiffFingerprint`/`makeGitDiffStability`: a structural `sha256` fingerprint of the git diff via deterministic plumbing — hashes/counts/refs only, never raw diff text; fails closed on non-git repo, missing baseline, ambiguous index, git failure, unsafe path, or non-determinism), an **optional injected `revise` boundary** that produces the next proposal in the worktree between non-converged iterations (the only thing allowed to mutate it; state threads as refs/hashes; a failed revision stops fail-closed and preserves prior iteration evidence; absent ⇒ Stage 3G behavior byte-for-byte), and a **default-on adversarial policy** (`resolveAdversarialPolicy`: meaningful work is default-on; `/adversarial off` rides `task.override.disable_adversarial` with no new slash command and records `adversarial-opt-out`; heavier 3+ model runs stay opt-in). The debate core stays pure (git/worktree effects are injected) and the objective gate is still final authority. 267 tests pass; **Stage 3I (2026-07-07): real model-backed revision effect shipped & tested** (`dispatch/lib/revision-effect.mjs`, shared `dispatch/lib/provider-policy.mjs`, `tests/dispatch-revision-effect.test.mjs`, `tools/smoke/revision-effect-smoke.mjs`, `docs/stage3/model-backed-revision.md`) — `makeModelRevision` builds the injected `revise` boundary effect (debate core unchanged): it validates config/caps, **projects provider/cost policy through the shared gate before any model call** (an ineligible/unknown/stale provider or price, or a missing Copilot pin, refuses before the adapter — call count 0), validates the model's structured edits, applies them to the worktree all-or-nothing under the Stage 3H write rules (allowlist-only; credential-shaped paths refused even if allowlisted; unsafe traversal/absolute/symlink/non-file/outside-tree paths fail closed; earlier writes roll back on disk write failure), and returns only a structural `sha256` `revision_ref` + stable code (no thrown/model free text in detail, warnings, summaries, or records); a real temp-repo debate converges only on diff-stability + objective-gate-pass. 282 tests pass; **Stage 3J (2026-07-07): live OpenRouter `:free` builder adapter shipped & proof-run** (`dispatch/lib/openrouter-revision-adapter.mjs`, `tools/smoke/openrouter-free-revision-smoke.mjs`, `tests/dispatch-openrouter-revision-adapter.test.mjs`, `docs/stage3/live-builder-adapter.md`) — the adapter refuses non-`:free` models and unsafe/sensitive fixture paths before Pi, bounds the full outbound prompt with `max_input_bytes` before runner invocation, disables tools/session/context/resources, parses structured edits into `makeModelRevision`, and throws stable codes only; the live smoke fetched public OpenRouter metadata for `openai/gpt-oss-20b:free` (prompt/completion `0`), passed `nospend-preflight.mjs` (`ok-free-verified`), verified Pi inventory, and converged a real temp-repo debate in 3 iterations with 2 live builder revision calls. 288 tests pass; **Stage 3K (2026-07-07): lean agent-team defaults shipped & tested** (`dispatch/lib/agent-team.mjs`, `dispatch/config/agent-team-defaults.json`, `docs/stage3/agent-team-defaults.md`, `docs/stage3/agents/`) — additive Builder + independent-provider Reviewer defaults, stable canonical agent IDs (`Scout`/`Planner`/`Builder`/`Reviewer`/`Documenter`/`RedTeam`) bridged to existing dispatch roles, and cosmetic aliases kept display-only so routing/log projections stay canonical. 296 tests pass; **Stage 3L/M/N (2026-07-07): role matrix, chains, bounded task-loop, run manager, worktree hardening, and two-model `:free` proof shipped & tested** (`dispatch/lib/role-matrix.mjs`, `dispatch/lib/chains.mjs`, `dispatch/lib/run-configs.mjs`, `dispatch/lib/task-loop.mjs`, `dispatch/lib/run-manager.mjs`, `tools/loop/prime-task-loop.mjs`, `tools/runs/prime-runs.mjs`, `tools/smoke/openrouter-free-multimodel-revision-smoke.mjs`, `docs/stage3/role-matrix-task-loop.md`) — per-role model/effort/instance matrices expand deterministically and project provider/cost policy before launch; named chains include `implement-review-fix`, `scout-flow`, and `ship-pre-pr`; `mock-core-loop` is no-live with finite caps, objective gate, write allowlist, and structural records; run status/list/prune read only structural JSON; worktree remove/merge refuses dirty/current unsafe states; task-loop objective gates now refuse symlink/non-file/sensitive/out-of-tree final paths before reading; non-builder chains return `chain-not-loop-runnable:<id>`; the CLI cleans default synthetic temp repos and reports replaced structural run directories; live no-spend proof passed for `openai/gpt-oss-20b:free` and `cohere/north-mini-code:free`; **Stage 3O PR1 (2026-07-08)** adds one `/prime` command for dashboard, no-live run preflight, view-only model/chain/profile browsers, structural run list/status, and TUI-confirmed prune, without launching loops or toggling live mode. 340 node tests pass after Stage 3O PR1 final review fixes. **Paid/metered runs, real subprocess fan-out, live pipeline UI, autonomous/unattended mode, remote control, hosted adapter, and broad config editors remain out of scope/deferred.** |
-| 3P | Whole-repo gap closure (Codex/Fable accepted review gaps) | `[x]` DONE 2026-07-09 — **Stage 3P whole-repo gap closure**: mechanical safety hardening, CI/pr-gate public-safety parity, docs-truth locks, `/prime help`, direct manual coverage, runtime RPC timeout hardening, run-record prune/list clarity, and design contracts for autoresearch/cost modes/composites/config overlays/loop cues/live enablement/context engineering. The closure intentionally does not implement autoresearch behavior, live enablement, composite selection, config editing, remote/web/package adoption, or paid/live calls. `npm test` passes 362 node tests plus the worktree self-test (12) and objective-gate-loop self-test (8); 358 top-level node test declarations are locked by `npm run check:docs-truth`. |
-| 3V | Prime v1 single-PR runner + independent hardening | `[x]` DONE 2026-07-10 on `prime-v1` — M1–M9 implementation plus M10 same-family review and independent cross-family/final repair passes. Safe/practical rails, unconditional no-live cast refusal, closed public records/renderers, atomic run reservation, exact resume event/state binding, post-gate idempotent outward handoff context, required artifacts/step effects, real profile member overlays, attended mutation confirmation, four-reason research, and effective CI no-live checks are implementation- and regression-backed. Live loop transport and the concrete ship-pre-pr effect remain explicit deferred boundaries, never optimistic fallbacks. |
+| 0 | Foundations: **security lockdown**, providers, entry point, principle loading | `[~]` in progress — **M0a evidence + security/provider baseline landed** (`tools/m0a/`, `docs/m0a/`); **trusted-project telemetry-off baseline shipped** (`.pi/settings.json`) and **Level-1 telemetry + offline-startup smoke passed** (`reviews/m0a/`). **Finalize slice (2026-07-03):** interactive `/` baseline **captured** + native tool/function-calling **verified** + compaction probe **resolved by code** (no drift, no `APPEND_SYSTEM.md`) — evidence `reviews/m0a/pi-internals-2026-07-03.md`; Claude-auth spike **partially run** (feasibility + economics settled, live-billing deferred). **Resource slice (2026-07-04):** Helix package surface shipped (`package.json`) with exactly one Helix-owned skill (`helix-ui`), Helix-prefixed Rose Pine themes, and the initial two pinned extensions; Stage 3O later adds the third pinned control extension (`helix-command`) while preserving one consolidated slash command. Rose Pine audit recorded; Fusion dispatch research gate added. **Lockdown + smoke slice (2026-07-04):** canonical boundary **chosen** (Plain Docker `--network none`, `docs/m0a/lockdown-boundary.md`) and a **Level-2 lockdown smoke PASSED 5/5** (`tools/lockdown/`, evidence `reviews/m0a/level2-lockdown-smoke-2026-07-04.md` — deny-by-default egress + offline startup + active session reaching only a local mock, no secrets/spend); the **first thin vertical smoke** path shipped (`docs/m0a/vertical-smoke/` + `tools/smoke/status.sh`); **OpenRouter `:free` real-provider smoke passed** (`tools/smoke/openrouter-free-smoke.sh`, evidence `reviews/m0a/openrouter-free-smoke-2026-07-04.md`). **Still open:** Claude-auth live-billing probe |
+| 1 | Safety posture: the yolo-fence + scoped worktree manager | `[~]` in progress — **Stage 1+2 (2026-07-04): yolo-fence extension + worktree-manager basics shipped & tested** (`extensions/helix-fence.ts`, `tools/worktree/`); `remote-pi` eval still open |
+| 2 | Verification core + planning hygiene | `[~]` in progress — **Stage 1+2 (2026-07-04): objective-gate loop + `\answer` resolver + PR-gate basics + plan/implement separation shipped & tested** (`tools/loop/`, `extensions/helix-answer.ts`, `tools/ship/`, `docs/stage1-2/`); statusbar, live-shell, plan-mode extend, Superpowers/annotate still open |
+| 3 | Orchestration substrate (adversarial default-on for meaningful work; parallel/teams opt-in) | `[~]` in progress — **Stage 3A Fusion-style dispatch build spec drafted and review fixes applied** (`docs/architecture/fusion-dispatch-research.md`); **Stage 3B (2026-07-05): dispatch-policy-core substrate shipped & tested** (`dispatch/`, `tests/dispatch-*.test.mjs`, `docs/stage3/`) — runtime role-envelope validation + role/stage matrix, no-spend cost policy (mock + metadata-verified OpenRouter `:free` only), routes/profiles with N3 panel precedence + N4 finite price-TTL staleness, deterministic classifier + mandatory floors + non-TTY fail-closed escalation, judge-bias blinding, and a public-safe run-record writer; **Stage 3C (2026-07-05): thin one-cycle dispatch orchestrator shipped & tested** (`dispatch/lib/orchestrate.mjs`, `tools/smoke/dispatch-smoke.mjs`, `docs/stage3/dispatch-orchestrator.md`) — dependency-injected adapters/clock/seed/gate, pre-launch no-spend/eligibility gates with the metadata price-TTL clamped to profile policy, boundary envelope validation before the blinded advisory judge, objective gates from exit status/deterministic checkers only, structural public-safe run records, recursion depth exactly one; **Stage 3D (2026-07-06): synthesis stage + first preflight-gated no-spend OpenRouter `:free` adapter smoke shipped & tested** (`dispatch/lib/synthesis.mjs`, `tools/smoke/openrouter-free-dispatch-smoke.sh`, `docs/stage3/synthesis-nospend-adapter.md`) — the synthesizer runs after the panel + advisory judge and before the objective gate on `synthesizer` routes, consumes candidate/judge output as an identity/cost-stripped role-output projection (provider-bound, not a public-safe record), and mechanically preserves unresolved contradictions (fail-closed on drop); every dispatch (candidate/judge/synthesizer) projects cost pre-launch on **all** profiles — metered specs without fresh sourced price fail closed before any adapter call, and a `github-copilot` spec needs a fresh, matching profile pin (`evaluateCopilotPin`) whose freshness is bounded by the profile `copilot_pin_ttl_seconds` ceiling (an overlong pin TTL cannot extend it) or stops; the live `:free` smoke is preflight-gated and was **skipped (fail-closed) on the intentionally stale committed metadata — no live call made**; **Stage 3E (2026-07-07): verification stage shipped & tested** (`dispatch/lib/verification.mjs`, `docs/stage3/verification-stage.md`) — the `verifier` role runs after the objective/advisory gate result is captured (on `pr-preflight`), receives a structural public-safe proof summary (`projectForVerification`), and summarizes proof but **never** determines the gate result (a positive verifier can't rescue a failed gate; a negative verifier can't block a passed gate); its narrative is never persisted; **Stage 3F (2026-07-07): thin parallel / multi-team dispatch shipped & tested** (`dispatch/lib/parallel.mjs`, `docs/stage3/parallel-dispatch.md`) — opt-in `deps.parallel = {max_concurrency, token_budget}` gives bounded-parallel candidate launch (built on the Pi `subagent` concurrency-limiter pattern, no subprocesses); an invalid cap or unbounded budget fails closed, output stays candidate-index deterministic (same-config parallel runs byte-identical; `cap_status.token_cap` records the effective enforced budget), all existing gates preserved, a failed candidate is isolated and still counts against `min_successes`; plus a cross-family **advisory** (`cross-family-not-satisfied`, warn-only) on `requires_cross_family` routes; sequential is the default (existing callers unchanged); 205 tests pass; **Stage 3G (2026-07-07): iterating multi-team / adversarial debate loop shipped & tested** (`dispatch/lib/debate.mjs`, `docs/stage3/iterating-debate.md`) — a bounded iterating loop that **composes** `runDispatch` (one iteration = the full panel→judge→synthesis→gate→verifier cycle) and repeats only for adversarial routes until convergence, where **convergence is exactly diff-stability (an injected deterministic checker) + objective-gate-pass** so model/judge/verifier/synthesis approval is never final authority; mandatory `max_iterations` + an aggregate `token_budget` rail fail closed **before** iterating (and the aggregate budget wins over convergence); a hard fail-closed iteration is never retried; structural-only public-safe iteration summaries carry no model narrative and are deterministic under mock adapters; 233 tests pass; **Stage 3H (2026-07-07): real revision / diff surface shipped & tested** (`dispatch/lib/git-diff-surface.mjs`, `dispatch/lib/adversarial-policy.mjs`, revision boundary in `dispatch/lib/debate.mjs`, `docs/stage3/real-revision-diff-surface.md`) — a **real working-tree diff-stability** surface (`computeDiffFingerprint`/`makeGitDiffStability`: a structural `sha256` fingerprint of the git diff via deterministic plumbing — hashes/counts/refs only, never raw diff text; fails closed on non-git repo, missing baseline, ambiguous index, git failure, unsafe path, or non-determinism), an **optional injected `revise` boundary** that produces the next proposal in the worktree between non-converged iterations (the only thing allowed to mutate it; state threads as refs/hashes; a failed revision stops fail-closed and preserves prior iteration evidence; absent ⇒ Stage 3G behavior byte-for-byte), and a **default-on adversarial policy** (`resolveAdversarialPolicy`: meaningful work is default-on; `/adversarial off` rides `task.override.disable_adversarial` with no new slash command and records `adversarial-opt-out`; heavier 3+ model runs stay opt-in). The debate core stays pure (git/worktree effects are injected) and the objective gate is still final authority. 267 tests pass; **Stage 3I (2026-07-07): real model-backed revision effect shipped & tested** (`dispatch/lib/revision-effect.mjs`, shared `dispatch/lib/provider-policy.mjs`, `tests/dispatch-revision-effect.test.mjs`, `tools/smoke/revision-effect-smoke.mjs`, `docs/stage3/model-backed-revision.md`) — `makeModelRevision` builds the injected `revise` boundary effect (debate core unchanged): it validates config/caps, **projects provider/cost policy through the shared gate before any model call** (an ineligible/unknown/stale provider or price, or a missing Copilot pin, refuses before the adapter — call count 0), validates the model's structured edits, applies them to the worktree all-or-nothing under the Stage 3H write rules (allowlist-only; credential-shaped paths refused even if allowlisted; unsafe traversal/absolute/symlink/non-file/outside-tree paths fail closed; earlier writes roll back on disk write failure), and returns only a structural `sha256` `revision_ref` + stable code (no thrown/model free text in detail, warnings, summaries, or records); a real temp-repo debate converges only on diff-stability + objective-gate-pass. 282 tests pass; **Stage 3J (2026-07-07): live OpenRouter `:free` builder adapter shipped & proof-run** (`dispatch/lib/openrouter-revision-adapter.mjs`, `tools/smoke/openrouter-free-revision-smoke.mjs`, `tests/dispatch-openrouter-revision-adapter.test.mjs`, `docs/stage3/live-builder-adapter.md`) — the adapter refuses non-`:free` models and unsafe/sensitive fixture paths before Pi, bounds the full outbound prompt with `max_input_bytes` before runner invocation, disables tools/session/context/resources, parses structured edits into `makeModelRevision`, and throws stable codes only; the live smoke fetched public OpenRouter metadata for `openai/gpt-oss-20b:free` (prompt/completion `0`), passed `nospend-preflight.mjs` (`ok-free-verified`), verified Pi inventory, and converged a real temp-repo debate in 3 iterations with 2 live builder revision calls. 288 tests pass; **Stage 3K (2026-07-07): lean agent-team defaults shipped & tested** (`dispatch/lib/agent-team.mjs`, `dispatch/config/agent-team-defaults.json`, `docs/stage3/agent-team-defaults.md`, `docs/stage3/agents/`) — additive Builder + independent-provider Reviewer defaults, stable canonical agent IDs (`Scout`/`Planner`/`Builder`/`Reviewer`/`Documenter`/`RedTeam`) bridged to existing dispatch roles, and cosmetic aliases kept display-only so routing/log projections stay canonical. 296 tests pass; **Stage 3L/M/N (2026-07-07): role matrix, chains, bounded task-loop, run manager, worktree hardening, and two-model `:free` proof shipped & tested** (`dispatch/lib/role-matrix.mjs`, `dispatch/lib/chains.mjs`, `dispatch/lib/run-configs.mjs`, `dispatch/lib/task-loop.mjs`, `dispatch/lib/run-manager.mjs`, `tools/loop/helix-task-loop.mjs`, `tools/runs/helix-runs.mjs`, `tools/smoke/openrouter-free-multimodel-revision-smoke.mjs`, `docs/stage3/role-matrix-task-loop.md`) — per-role model/effort/instance matrices expand deterministically and project provider/cost policy before launch; named chains include `implement-review-fix`, `scout-flow`, and `ship-pre-pr`; `mock-core-loop` is no-live with finite caps, objective gate, write allowlist, and structural records; run status/list/prune read only structural JSON; worktree remove/merge refuses dirty/current unsafe states; task-loop objective gates now refuse symlink/non-file/sensitive/out-of-tree final paths before reading; non-builder chains return `chain-not-loop-runnable:<id>`; the CLI cleans default synthetic temp repos and reports replaced structural run directories; live no-spend proof passed for `openai/gpt-oss-20b:free` and `cohere/north-mini-code:free`; **Stage 3O PR1 (2026-07-08)** adds one `/helix` command for dashboard, no-live run preflight, view-only model/chain/profile browsers, structural run list/status, and TUI-confirmed prune, without launching loops or toggling live mode. 340 node tests pass after Stage 3O PR1 final review fixes. **Paid/metered runs, real subprocess fan-out, live pipeline UI, autonomous/unattended mode, remote control, hosted adapter, and broad config editors remain out of scope/deferred.** |
+| 3P | Whole-repo gap closure (Codex/Fable accepted review gaps) | `[x]` DONE 2026-07-09 — **Stage 3P whole-repo gap closure**: mechanical safety hardening, CI/pr-gate public-safety parity, docs-truth locks, `/helix help`, direct manual coverage, runtime RPC timeout hardening, run-record prune/list clarity, and design contracts for autoresearch/cost modes/composites/config overlays/loop cues/live enablement/context engineering. The closure intentionally does not implement autoresearch behavior, live enablement, composite selection, config editing, remote/web/package adoption, or paid/live calls. `npm test` passes 362 node tests plus the worktree self-test (12) and objective-gate-loop self-test (8); 358 top-level node test declarations are locked by `npm run check:docs-truth`. |
+| 3V | Helix v1 single-PR runner + independent hardening | `[x]` DONE 2026-07-10 on `helix-v1` — M1–M9 implementation plus M10 same-family review and independent cross-family/final repair passes. Safe/practical rails, unconditional no-live cast refusal, closed public records/renderers, atomic run reservation, exact resume event/state binding, post-gate idempotent outward handoff context, required artifacts/step effects, real profile member overlays, attended mutation confirmation, four-reason research, and effective CI no-live checks are implementation- and regression-backed. Live loop transport and the concrete ship-pre-pr effect remain explicit deferred boundaries, never optimistic fallbacks. |
 | 4 | Deferred / experimental (gated on real signals) | `[ ]` todo |
 
 **Immediate next action:** rerun PR #1's exact-head CI and independent review,
@@ -162,8 +162,8 @@ reopen removed cost control, a live flag, or in-loop fences.
 **Landed:** a repeatable evidence script (`tools/m0a/collect-evidence.sh`,
 offline by default) and public-safe baseline docs (`docs/m0a/`); a **trusted-project
 telemetry-off baseline** shipped as committed `.pi/settings.json`
-(`enableInstallTelemetry:false`, `enableAnalytics:false`, Prime resource paths, and
-`theme:prime-rose-pine`; applies once the project is trusted/`--approve`, with
+(`enableInstallTelemetry:false`, `enableAnalytics:false`, Helix resource paths, and
+`theme:helix-rose-pine`; applies once the project is trusted/`--approve`, with
 env `PI_OFFLINE=1`/`PI_TELEMETRY=0` as the trust-independent controls); and the
 **Level-1 telemetry + offline-startup smoke passed** (evidence
 `reviews/m0a/level1-no-egress-2026-07-03.md` — env switches set, no Google credentials,
@@ -174,8 +174,8 @@ tool/function-calling (verified), and the §9-Q6 **compaction** probe (resolved 
 no drift, no `APPEND_SYSTEM.md`), and partially ran the Claude-auth spike (feasibility +
 economics settled; live-billing deferred) — evidence
 `reviews/m0a/pi-internals-2026-07-03.md`. **Resource slice (2026-07-04) added** the
-`prime-pi` package manifest, one consolidated `prime-ui` skill, vendored
-Prime-prefixed Rose Pine themes, a resource invariant check, the Rose Pine package
+`helix-pi` package manifest, one consolidated `helix-ui` skill, vendored
+Helix-prefixed Rose Pine themes, a resource invariant check, the Rose Pine package
 audit, and the Fusion-style dispatch research gate. **Lockdown + smoke slice
 (2026-07-04) chose** the canonical boundary (Plain Docker `--network none`,
 `docs/m0a/lockdown-boundary.md`), **passed a Level-2 lockdown smoke 5/5** (harness
@@ -326,7 +326,7 @@ encoded so two runs on the same data pick the same package:
 ### Command-surface budget (principle 6 — keep `/` legible)
 
 Map every feature to the LEAST-cluttering surface. Target a **small, clearly-named
-prime-added slash-command set**; everything else is behavior/hook/shortcut/tool/status-bar.
+helix-added slash-command set**; everything else is behavior/hook/shortcut/tool/status-bar.
 The audit counts extension commands, prompt-template commands, skill commands, and
 package-provided shortcuts/tools that effectively create user-facing surface, while
 separately noting Pi's built-in `/` menu. When adopting a package, **disable its commands
@@ -334,12 +334,12 @@ we don't use** via `pi config` / package resource filtering and set the
 `enableSkillCommands` posture deliberately. Audit `/` each phase; if it's growing
 cryptic, consolidate.
 
-**Current Prime-owned package surface (updated 2026-07-08):** exactly one skill
-command, `/skill:prime-ui`, from `skills/prime-ui/SKILL.md`, plus exactly one
-Prime extension slash command, `/prime`, from `extensions/prime-command.ts`.
-Prime ships no prompt templates. Pi may still discover user-global skills from
+**Current Helix-owned package surface (updated 2026-07-08):** exactly one skill
+command, `/skill:helix-ui`, from `skills/helix-ui/SKILL.md`, plus exactly one
+Helix extension slash command, `/helix`, from `extensions/helix-command.ts`.
+Helix ships no prompt templates. Pi may still discover user-global skills from
 `~/.pi/agent/skills` or `~/.agents/skills`; a project package cannot suppress
-those global resources. Prime's invariant is that the **Prime package
+those global resources. Helix's invariant is that the **Helix package
 contributes one skill command plus one consolidated control command**.
 
 | Surface (preferred order) | Features that live here |
@@ -348,7 +348,7 @@ contributes one skill command plus one consolidated control command**.
 | **Lifecycle hooks** (no UI) | yolo-fence (`tool_call`), principle injection, doc-drift nudge |
 | **Tools** (model-callable, not in `/`) | pi-web-access, `\answer` resolver, pi-messenger (`agent_send`/`agent_request`) |
 | **Keyboard shortcuts / status-bar toggles** | live-shell verbose toggle, status-bar widgets, **live pipeline view** (renderer/widget), Neovim Ctrl+G, model/thinking cycle |
-| **Slash commands** (keep this list SHORT) | target set ≈ `/plan`, `/worktree`, `/adversarial [off]`, `/statusbar`, `/remote-pi`, `/annotate`, `/ship` (pre-PR gate chain) (+ `/answer` only if a manual entry is wanted) plus the single Prime-owned skill command `/skill:prime-ui`. Everything else stays off `/`. **Watch the budget — this is now ~8-9; consolidate if it creeps.** |
+| **Slash commands** (keep this list SHORT) | target set ≈ `/plan`, `/worktree`, `/adversarial [off]`, `/statusbar`, `/remote-pi`, `/annotate`, `/ship` (pre-PR gate chain) (+ `/answer` only if a manual entry is wanted) plus the single Helix-owned skill command `/skill:helix-ui`. Everything else stays off `/`. **Watch the budget — this is now ~8-9; consolidate if it creeps.** |
 
 ---
 
@@ -387,7 +387,7 @@ Verdict legend: **CORE** = adopt as core · **OPT** = adopt optional/opt-in ·
 | Never ship a change undocumented in plan.md | partial | **DEFER** | Redundant with the contract's "trace to a source of truth", and as worded *narrows* it harmfully (forces plan.md even when a test/spec is the better SoT). |
 | HTML output with navigable index | partial | **DEFER** | "Replacing markdown" = anti-pattern (**SKIP**). "Parallel generated HTML site" (MkDocs/Docusaurus from md) is fine later; `--export` already gives per-session HTML. |
 | HTML theming — pluggable kit (Rose Pine default) | partial | **DEFER (rides on the row above)** | If/when HTML output lands: ship **one** good default (Rose Pine variant) + a single `htmlTheme` config path to point at a custom CSS/Bootstrap kit. **Resist building a theming *engine*** — one default + one override path is the whole feature. Dead until HTML output is decided. |
-| Pi TUI theming — Rose Pine default | built-in | **CORE (M0a resource package)** | Pi has native themes, but only detects terminal light/dark mode; it does **not** import the terminal palette. Prime now vendors audited Rose Pine theme JSON as `prime-rose-pine`, `prime-rose-pine-moon`, and `prime-rose-pine-dawn`, selects `prime-rose-pine` in `.pi/settings.json`, and preserves the upstream MIT license. |
+| Pi TUI theming — Rose Pine default | built-in | **CORE (M0a resource package)** | Pi has native themes, but only detects terminal light/dark mode; it does **not** import the terminal palette. Helix now vendors audited Rose Pine theme JSON as `helix-rose-pine`, `helix-rose-pine-moon`, and `helix-rose-pine-dawn`, selects `helix-rose-pine` in `.pi/settings.json`, and preserves the upstream MIT license. |
 
 ### Theme D — Process discipline & frameworks
 | Idea | Native? | Verdict | One-liner |
@@ -415,7 +415,7 @@ Verdict legend: **CORE** = adopt as core · **OPT** = adopt optional/opt-in ·
 | Idea | Native? | Verdict | One-liner |
 | --- | --- | --- | --- |
 | Ponytail (token-saver) | partial | **SKIP** | Its content ("write minimal code, prefer stdlib") is already in the contract — a few SYSTEM.md lines, not a plugin. |
-| Headroom (input compression) | partial | **DEFER** | Only behind a falsifiable, workload-specific token+quality measurement showing prime's loops are input-bound. |
+| Headroom (input compression) | partial | **DEFER** | Only behind a falsifiable, workload-specific token+quality measurement showing helix's loops are input-bound. |
 | Auto-compact after 50% context | built-in | **SKIP** | Pi auto-compacts natively. "50%" is a cargo-culted Claude-Code UI convention, not a context-economy model. Tune `reserveTokens`/`keepRecentTokens` if needed. |
 | Clear context between plan & implement | partial | **CORE** | Practice is gold-standard: persist distilled plan to `PLAN.md`, then `/new`. Compose natives; no bespoke handoff automation. |
 
@@ -536,11 +536,11 @@ Milestones are **build order only** (not a scope cut — everything is committed
   approved/self-hosted endpoints (Azure Foundry / internal gateway / local), never
   the public default `google` provider; secrets local-only; egress is tested inside
   a named OS/network/container boundary. See §2 Security callout.
-- **Prime package resource surface is intentionally narrow** — exactly one Prime-owned
-  skill command (`/skill:prime-ui`), one consolidated control command (`/prime`),
-  the Prime Rose Pine themes, and three pinned extension entrypoints
-  (`prime-fence`, `prime-answer`, `prime-command`). User-global Pi skills remain
-  a separate Pi discovery surface; Prime does not claim a project package can hide
+- **Helix package resource surface is intentionally narrow** — exactly one Helix-owned
+  skill command (`/skill:helix-ui`), one consolidated control command (`/helix`),
+  the Helix Rose Pine themes, and three pinned extension entrypoints
+  (`helix-fence`, `helix-answer`, `helix-command`). User-global Pi skills remain
+  a separate Pi discovery surface; Helix does not claim a project package can hide
   resources it does not own.
 - **Tool / function calling is native** — confirm in Phase 0; nothing to build (§7-Theme I).
 - **Web access via `pi-web-access`** (lead candidate pending audit) — its outbound
@@ -622,7 +622,7 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
   cycles** (not a tiny patch budget), stopping **early** when the acceptance gates are met
   **or** a real security/architecture blocker is hit. This is an *execution* cap on the
   Claude loop — it does **not** loosen the §7-Theme B/§9-Q2 **runtime** adversarial caps
-  (5 iterations, $100 / 10M-token backstop), which still bound spend inside prime's own loops.
+  (5 iterations, $100 / 10M-token backstop), which still bound spend inside helix's own loops.
 - **Explicit acceptance gates.** Every stage names its gates up front (focused checks pass,
   no secrets/transcripts committed, docs updated in the same change, honest done/deferred
   status). "Verified," not "looks done," per the Operating Contract.
@@ -659,7 +659,7 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
       now **resolved by code** too (context files live in the system prompt, untouched by
       compaction — see the startup-header item below), so §9-Q6 is fully closed.
 - [x] **Command-surface inventory** — DONE 2026-07-03. `docs/m0a/command-surface-inventory.md`:
-      **prime-added surface = 0** (no extensions/skills/templates yet); Pi's `pi`
+      **helix-added surface = 0** (no extensions/skills/templates yet); Pi's `pi`
       subcommands recorded (`install`/`remove`/`update`/`list`/`config`); `pi config` is
       the command-trim lever. **Interactive `/` baseline CAPTURED from source** —
       `dist/core/slash-commands.js` `BUILTIN_SLASH_COMMANDS` = **22** built-ins, and
@@ -667,16 +667,16 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
       `settings-manager.js:739`), so skills would add `/skill:<name>` to the budget.
       Evidence `reviews/m0a/pi-internals-2026-07-03.md`. (`/plan` is NOT a built-in — it
       comes from the plan-mode example extension.)
-- [x] **Ship the initial Prime resource package surface** — DONE 2026-07-04.
-      `package.json` declares the `prime-pi` package with exactly one Prime-owned skill
-      (`./skills/prime-ui`), the local theme directory (`./themes`), and pinned
-      extensions. Current Stage 3O manifest pins `./extensions/prime-fence.ts`,
-      `./extensions/prime-answer.ts`, and `./extensions/prime-command.ts`.
-      `prime-ui` is the
+- [x] **Ship the initial Helix resource package surface** — DONE 2026-07-04.
+      `package.json` declares the `helix-pi` package with exactly one Helix-owned skill
+      (`./skills/helix-ui`), the local theme directory (`./themes`), and pinned
+      extensions. Current Stage 3O manifest pins `./extensions/helix-fence.ts`,
+      `./extensions/helix-answer.ts`, and `./extensions/helix-command.ts`.
+      `helix-ui` is the
       renamed, consolidated replacement for the local `beast-ui` skill fanout: it folds
       the UI shaping/audit/layout/typography/copy/color/motion/polish/optimization
-      workflow into one `SKILL.md`, so Prime contributes only `/skill:prime-ui`.
-      Project `.pi/settings.json` points only at `../skills/prime-ui`, `../themes`, and
+      workflow into one `SKILL.md`, so Helix contributes only `/skill:helix-ui`.
+      Project `.pi/settings.json` points only at `../skills/helix-ui`, `../themes`, and
       the two extension files. `npm run check:resources` enforces the manifest,
       settings, skill count, theme surface, extension surface, and public-safety
       invariants. Boundary recorded in
@@ -684,12 +684,12 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
       `~/.pi/agent/skills` / `~/.agents/skills`; hiding those requires a future
       source-verified policy extension or upstream Pi capability, not a package claim.
       Post-merge hardening note: Pi 0.80.3 headless RPC command inventory did not expose
-      `skill:prime-ui` from the package, so Prime does not claim headless `-p` model
+      `skill:helix-ui` from the package, so Helix does not claim headless `-p` model
       visibility for the skill yet.
-- [x] **Ship Rose Pine for Pi TUI theming** — DONE 2026-07-04. Prime vendors audited
-      `pi-themes-rose-pine@0.1.0` theme JSONs with Prime-prefixed names
-      (`prime-rose-pine`, `prime-rose-pine-moon`, `prime-rose-pine-dawn`), preserves the
-      upstream MIT license, and selects `prime-rose-pine` in `.pi/settings.json`.
+- [x] **Ship Rose Pine for Pi TUI theming** — DONE 2026-07-04. Helix vendors audited
+      `pi-themes-rose-pine@0.1.0` theme JSONs with Helix-prefixed names
+      (`helix-rose-pine`, `helix-rose-pine-moon`, `helix-rose-pine-dawn`), preserves the
+      upstream MIT license, and selects `helix-rose-pine` in `.pi/settings.json`.
       Audit: `reviews/package-audits/2026-07-04-pi-themes-rose-pine.md`. This is Pi TUI
       theming; deferred HTML theming remains separate.
 - [~] **🔒 Security foundations FIRST (§2, design-target model):** two tiers.
@@ -817,7 +817,7 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
 
 ### Phase 1 — Safety posture (the fence is the keystone)
 - [x] Build the **yolo-fence** extension on `tool_call` + `ctx.ui.confirm` — DONE
-      (Stage 1+2, 2026-07-04): `extensions/prime-fence.ts` fences the agent's
+      (Stage 1+2, 2026-07-04): `extensions/helix-fence.ts` fences the agent's
       `bash`/`write`/`edit` tool calls + user `!` (`user_bash`) against a tunable denylist
       (`extensions/lib/fence-rules.mjs`); **fails CLOSED unless `ctx.mode === "tui"`** — it
       blocks in `rpc`/`json`/`print`. (Gating on `ctx.mode`, not `ctx.hasUI`, is required:
@@ -831,7 +831,7 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
       `docs/stage1-2/yolo-fence.md` (evasion list, false-positive note, and the next-step
       Seatbelt/Landlock/Gondolin path in front of which the fence sits).
 - [x] **Worktree manager** (§9-Q1, scoped default) — DONE (basics, minimal local build):
-      `tools/worktree/prime-worktree.sh` create / list / enter / merge / remove / prune on
+      `tools/worktree/helix-worktree.sh` create / list / enter / merge / remove / prune on
       canonical `git worktree`. **Safe provisioning:** copies NOTHING by default (no `.env`,
       auth, sessions, or `node_modules`); `enter` prints the path (a script can't `cd` the
       parent shell); remove refuses the current worktree and dirty worktrees; merge refuses
@@ -863,7 +863,7 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
       automation) — DONE: documented flow in `docs/stage1-2/plan-implement-separation.md`;
       native `/new` + a `PLAN.md` file already cover it, so nothing speculative is built.
 - [x] Build the **`\answer` interactive multi-CGS resolver** (§7-Theme I) — DONE:
-      `extensions/prime-answer.ts` registers a model-callable `answer` tool
+      `extensions/helix-answer.ts` registers a model-callable `answer` tool
       (TypeBox-compatible JSON Schema params, not a `/` command) presenting a TOP
       recommendation + ranked alternatives via
       `ctx.ui.select`; returns the choice. **Deterministic non-interactive path** auto-selects
@@ -1092,10 +1092,10 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
       named chain registry (`dispatch/lib/chains.mjs`, `dispatch/config/chains.json`),
       named run configs (`dispatch/lib/run-configs.mjs`,
       `dispatch/config/run-configs.json`), bounded loop entrypoint
-      (`dispatch/lib/task-loop.mjs`, `tools/loop/prime-task-loop.mjs`), structural run
+      (`dispatch/lib/task-loop.mjs`, `tools/loop/helix-task-loop.mjs`), structural run
       hygiene/status/prune tooling (`dispatch/lib/run-manager.mjs`,
-      `tools/runs/prime-runs.mjs`), worktree remove/merge hardening
-      (`tools/worktree/prime-worktree.sh`), and a two-model live no-spend proof
+      `tools/runs/helix-runs.mjs`), worktree remove/merge hardening
+      (`tools/worktree/helix-worktree.sh`), and a two-model live no-spend proof
       (`tools/smoke/openrouter-free-multimodel-revision-smoke.mjs`). The matrix accepts
       `role -> [{ provider, model, effort, instances, price? }]`, expands in route-role /
       entry / instance order, requires finite loop caps, bounds instances by route/profile
@@ -1118,33 +1118,33 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
       revision calls, zero price, no private input). 322 node tests pass after post-merge hardening; worktree
       self-test now has 12 assertions. Paid/metered calls, hosted Fusion, broad UI,
       remote control, and autonomous/unattended mode remain out of scope.
-- [x] **Stage 3O PR1 — Pi-native `/prime` control surface (2026-07-08):**
-      shipped one extension slash command, `/prime`, with argument-completed verbs
-      over the existing Stage 3 machinery (`extensions/prime-command.ts`,
-      `extensions/lib/prime-command-core.mjs`, `tests/prime-command-core.test.mjs`,
-      `tests/prime-command-extension.test.mjs`). PR1 renders the dashboard, no-live
+- [x] **Stage 3O PR1 — Pi-native `/helix` control surface (2026-07-08):**
+      shipped one extension slash command, `/helix`, with argument-completed verbs
+      over the existing Stage 3 machinery (`extensions/helix-command.ts`,
+      `extensions/lib/helix-command-core.mjs`, `tests/helix-command-core.test.mjs`,
+      `tests/helix-command-extension.test.mjs`). PR1 renders the dashboard, no-live
       run preflight, view-only role-matrix/chain/profile browsers, structural run
-      list/status, and guarded prune. `/prime run [config-id]` resolves the run
+      list/status, and guarded prune. `/helix run [config-id]` resolves the run
       config, profile/caps, chain, route, role matrix, objective gate, write
       allowlist, provider/cost policy warnings/refusals, and prints the exact
-      existing `node tools/loop/prime-task-loop.mjs --config ... --run-id ...`
-      invocation without launching it. `/prime runs prune <run-id>` is the only
+      existing `node tools/loop/helix-task-loop.mjs --config ... --run-id ...`
+      invocation without launching it. `/helix runs prune <run-id>` is the only
       mutation and requires `ctx.mode === "tui"` plus explicit confirmation; `rpc`,
-      `json`, and `print` fail closed as `prime-prune-requires-tui-confirm`, and
+      `json`, and `print` fail closed as `helix-prune-requires-tui-confirm`, and
       absent/false confirmation cancels. The command-surface split was deliberately
-      collapsed into one command; do not add `/prime-run`, `/prime-runs`,
-      `/prime-models`, `/prime-chains`, `/prime-profiles`, `/prime-worktrees`, or
-      `/prime-resources` as top-level commands. Post-review hardening rejects
+      collapsed into one command; do not add `/helix-run`, `/helix-runs`,
+      `/helix-models`, `/helix-chains`, `/helix-profiles`, `/helix-worktrees`, or
+      `/helix-resources` as top-level commands. Post-review hardening rejects
       root-resolving run ids before replace/prune, keeps completions fail-closed,
       derives chain loop status from task routes, shares task-loop preflight
       policy, fixes the Pi message display contract, and makes malformed local
-      registry/config JSON fail closed as `prime-config-unreadable`. 340 node tests pass
+      registry/config JSON fail closed as `helix-config-unreadable`. 340 node tests pass
       after this slice. **Stage 3P whole-repo gap closure (2026-07-09)** hardens
       accepted Codex/Fable review gaps without speculative product implementation:
       own-property schema validation, nonnegative USD usage fields, git diff env
       scrubbing and expanded sensitive-path denials, stable diff/adapter failure
       codes, broader public-safety home-path scans, CI/pr-gate public-safety parity,
-      docs-truth locks, `/prime help`, refusal guidance, runtime RPC 60s default,
+      docs-truth locks, `/helix help`, refusal guidance, runtime RPC 60s default,
       non-prunable flat run-record labels, a direct user manual, and design
       contracts for autoresearch/cost modes/composites/config overlays/loop cues/
       live enablement/context engineering. `npm test` passes 362 node tests plus
@@ -1183,7 +1183,7 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
       audit artifact added 2026-07-08; source/no-exfiltration audit remains required, and
       firstmate/autonomous orchestration is out of scope.
 - [x] Wire dispatch + adversarial as **callable local loop defaults** — not standalone
-      pillars. `prime-task-loop.mjs` composes the existing dispatch/debate/revision
+      pillars. `helix-task-loop.mjs` composes the existing dispatch/debate/revision
       surfaces through named run configs; no new `/` command was added.
 - **Verify:** adversarial run on a known-flawed change converges to a gate-passing
   fix or stops at max-iter with the disagreement surfaced; same-family combo warns.
@@ -1253,8 +1253,8 @@ micro-prompt was the main overhead. The strategy, applied to every stage below:
   every package, approved/self-hosted model endpoints only, and a CI egress test inside
   a named OS/network/container boundary. **A leak is worse than a missing feature.**
 - **Public-repo publishing hygiene** — GitHub visibility is repo-wide, not branch-scoped.
-  The original `prime` repository and its persistent PR refs remain a private
-  archive. Public release uses only `prime-reloaded`: a fresh single-root history
+  the legacy repository and its persistent PR refs remain a private
+  archive. Public release uses only `helix`: a fresh single-root history
   containing the sanitized tracked snapshot, a verified noreply identity, no
   inherited branches/tags/PR refs, and an independent audit of repository
   metadata before visibility changes.
@@ -1369,6 +1369,11 @@ Earlier entries preserve decision history, including superseded interim decision
 The current sections above are authoritative when they conflict with older changelog
 snapshots.
 
+- **2026-07-12** — **Canonical Helix identity shipped.** Renamed the complete
+  repository surface to Helix: package metadata, `/helix` command and stable
+  codes, resources, extensions, skills, themes, CLIs, environment variables,
+  worktree branches, tests, documentation, and tracked paths. The repository
+  now exposes one identity with no compatibility aliases.
 - **2026-07-11** — **Final publication-documentation audit remediation.** Marked
   every retained Stage 3B-N implementation page as a superseded historical
   record, added an authoritative current-v1 status row, refreshed the HTML
@@ -1401,8 +1406,8 @@ snapshots.
   (`dispatch/lib/role-matrix.mjs`, `dispatch/config/role-matrix-defaults.json`,
   `dispatch/lib/chains.mjs`, `dispatch/config/chains.json`,
   `dispatch/lib/run-configs.mjs`, `dispatch/config/run-configs.json`,
-  `dispatch/lib/task-loop.mjs`, `tools/loop/prime-task-loop.mjs`,
-  `dispatch/lib/run-manager.mjs`, `tools/runs/prime-runs.mjs`,
+  `dispatch/lib/task-loop.mjs`, `tools/loop/helix-task-loop.mjs`,
+  `dispatch/lib/run-manager.mjs`, `tools/runs/helix-runs.mjs`,
   `tools/smoke/openrouter-free-multimodel-revision-smoke.mjs`,
   `tests/dispatch-role-matrix.test.mjs`,
   `tests/dispatch-chains-run-configs.test.mjs`,
@@ -1434,7 +1439,7 @@ snapshots.
   failures surface stable safe details; public-safety scans cover macOS/Linux/
   Windows home-path forms; CI and `tools/ship/pr-gate.sh` share the public-safety
   diff scanner; docs truth locks cover test declarations, package resources,
-  command count, and roadmap status; `/prime help` and refusal guidance are
+  command count, and roadmap status; `/helix help` and refusal guidance are
   view-only/public-safe; runtime RPC defaults to 60s after a 20s candidate
   timed out in no-live verification; flat smoke records are
   labelled non-prunable; `docs/manual.md` is the direct user manual; and
@@ -1446,23 +1451,23 @@ snapshots.
   approving PR review and the `test` required check. No live provider call, paid/metered call, package
   adoption, remote approval, web access, composite selector, config editor, or
   autoresearch behavior was added.
-- **2026-07-08** — **Stage 3O PR1: one `/prime` control surface implemented.**
-  On branch `stage3o-prime-command` (`extensions/prime-command.ts`,
-  `extensions/lib/prime-command-core.mjs`, `tests/prime-command-core.test.mjs`,
-  `tests/prime-command-extension.test.mjs`, package/settings/resource pins, README,
+- **2026-07-08** — **Stage 3O PR1: one `/helix` control surface implemented.**
+  On branch `stage3o-helix-command` (`extensions/helix-command.ts`,
+  `extensions/lib/helix-command-core.mjs`, `tests/helix-command-core.test.mjs`,
+  `tests/helix-command-extension.test.mjs`, package/settings/resource pins, README,
   resources docs, command-surface inventory, Stage 3 loop docs, roadmap/summary,
   and ledger). This is the first Pi-native UX layer over the existing Stage 3
-  machinery: `/prime` shows resolved dashboard state; `/prime run [config-id]`
+  machinery: `/helix` shows resolved dashboard state; `/helix run [config-id]`
   performs no-live preflight and prints the existing task-loop CLI invocation
-  without launching it; `/prime runs list|status|prune` uses structural
+  without launching it; `/helix runs list|status|prune` uses structural
   run-manager data only, with prune gated on TUI mode and explicit confirmation;
-  `/prime models`, `/prime chains`, and `/prime profiles` are view-only. The
+  `/helix models`, `/helix chains`, and `/helix profiles` are view-only. The
   accepted command-surface direction is one slash command with argument verbs,
   not the rejected eight-command split. Post-review hardening rejects
   root-resolving run ids, keeps completions fail-closed, derives chain loop
   status from task routes, shares task-loop preflight policy, and fixes the Pi
   message display contract. Final Info-level hardening makes malformed local
-  registry/config JSON fail closed as `prime-config-unreadable`. 340 node tests pass for the node suite;
+  registry/config JSON fail closed as `helix-config-unreadable`. 340 node tests pass for the node suite;
   no live provider calls were added or required.
 - **2026-07-07** — **Stage 3K: lean agent-team defaults implemented.** On branch
   `stage3/lean-agent-team-defaults`
@@ -1572,7 +1577,7 @@ snapshots.
   reconciliation, PR preflight — exactly the routes carrying an adversarial role)
   **default-on**; the `/adversarial off` opt-out rides the existing
   `task.override.disable_adversarial` channel (no new slash command; the repo's
-  extensions stay pinned to `prime-fence`/`prime-answer`) and is recorded as the
+  extensions stay pinned to `helix-fence`/`helix-answer`) and is recorded as the
   stable `adversarial-opt-out` code; the policy never widens a panel, so heavier 3+
   model / every-task runs stay explicit opt-in. Convergence is still exactly
   diff-stability + objective-gate-pass, both deterministic checkers — making the diff
@@ -1637,7 +1642,7 @@ snapshots.
   `tools/smoke/dispatch-smoke.mjs`, `docs/stage3/parallel-dispatch.md`). Built
   thinly on the Pi `examples/extensions/subagent` concurrency-limiter pattern
   (confirmed installed; `mapWithConcurrencyLimit`, input-order results, MAX 8 /
-  concurrency 4) — Prime reproduces only the pure limiter, no subprocesses. Opt-in
+  concurrency 4) — Helix reproduces only the pure limiter, no subprocesses. Opt-in
   `deps.parallel = {max_concurrency, token_budget}` gives bounded-parallel candidate
   launch; sequential is the default and existing callers are byte-for-byte
   unchanged. An invalid concurrency cap (`invalid-concurrency-cap`) or an unbounded
@@ -1772,26 +1777,26 @@ snapshots.
   confirm/fail-closed decision on `!ctx.hasUI`, but `ctx.hasUI` is **`true` in RPC mode**
   (docs/extensions.md:914, docs/rpc.md:1068) — so a destructive op could proceed under
   `--mode rpc`, violating the "fail closed in `-p`/json/rpc" requirement. Fixed
-  `extensions/prime-fence.ts` to prompt **only** when `ctx.mode === "tui"` and block in
+  `extensions/helix-fence.ts` to prompt **only** when `ctx.mode === "tui"` and block in
   `rpc`/`json`/`print` (both `tool_call` and `user_bash`). Added regression tests
   (`tests/fence-extension.test.mjs` now 10, incl. an explicit `rpc`+`hasUI:true` case) and
   corrected the claim in `docs/stage1-2/yolo-fence.md`, `docs/stage1-2/README.md`, and this
   roadmap. (Root `README.md` was already accurate — "fails closed in `-p`/json/rpc" — so it
   was not changed.)
-- **2026-07-04** — **Stage 1+2 substrate: safety posture + verification core (first Prime
+- **2026-07-04** — **Stage 1+2 substrate: safety posture + verification core (first Helix
   code).** Shipped, all source-verified against Pi 0.80.3 and tested with no paid model
-  calls: **yolo-fence** (`extensions/prime-fence.ts` + `extensions/lib/fence-rules.mjs`) —
+  calls: **yolo-fence** (`extensions/helix-fence.ts` + `extensions/lib/fence-rules.mjs`) —
   fences agent `bash`/`write`/`edit` tool calls + user `!` (`user_bash`) on a tunable
   denylist, **fails closed** in non-TTY; **worktree-manager basics**
-  (`tools/worktree/prime-worktree.sh`) create/list/enter/merge/remove/prune on `git
+  (`tools/worktree/helix-worktree.sh`) create/list/enter/merge/remove/prune on `git
   worktree`, **no secret copy**; **objective-gate loop** (`tools/loop/objective-gate-loop.sh`)
   gate-primary, **fails loud on a missing gate**, review advisory; **`\answer` resolver**
-  (`extensions/prime-answer.ts` + `answer-core.mjs`) model-callable tool, top rec + ranked
+  (`extensions/helix-answer.ts` + `answer-core.mjs`) model-callable tool, top rec + ranked
   alternatives via `ctx.ui.select`, deterministic non-interactive path; **PR-gate basics**
   (`tools/ship/pr-gate.sh`) conservative fail-closed chain, one command, no `/` clutter;
   **plan/implement separation** documented over native `/new` + `PLAN.md` (nothing built).
   Wired `extensions` into `package.json` (`pi.extensions`, `pi-extension` keyword, `test`
-  script) and `.pi/settings.json`; extended `tools/check-prime-resources.mjs` to enforce
+  script) and `.pi/settings.json`; extended `tools/check-helix-resources.mjs` to enforce
   the extension surface. Tests: `npm test` = 20 node unit tests + worktree self-test (9) +
   loop self-test (8); both extensions load in real Pi 0.80.3. Docs: `docs/stage1-2/*`,
   ROADMAP §3/§10 (Phase-1/2 checkboxes), `ROADMAP_SUMMARY.html`, `README.md`. **Deferred
@@ -1806,7 +1811,7 @@ snapshots.
   `container-active-probe.sh`) and **ran it: 5/5 PASS** (evidence
   `reviews/m0a/level2-lockdown-smoke-2026-07-04.md`) — the container has no non-loopback
   interface, `pi.dev` + a provider host are unreachable, a representative Pi startup loads
-  the committed `.pi/settings.json` + `prime-ui` + Rose Pine themes + pinned extensions
+  the committed `.pi/settings.json` + `helix-ui` + Rose Pine themes + pinned extensions
   offline (exit 0), and a full `pi -p` session routes only to a local mock approved endpoint. No secrets, no spend,
   no host firewall changes; `auth.json` never read. Shipped the **first thin vertical smoke**
   path (`docs/m0a/vertical-smoke/`: plan/answer capture, second-provider review handoff, raw
@@ -1824,19 +1829,19 @@ snapshots.
   `reviews/m0a/openrouter-free-smoke-2026-07-04.md`. This closes the real-provider
   live-call proof without claiming privileged packet-level endpoint exclusivity. Still open
   in Phase 0: Claude-auth live-billing probe; `/share` denial is a future lockdown follow-up.
-- **2026-07-04** — **Prime resource package + Rose Pine + Fusion research gate.**
-  Added `package.json` for the private `prime-pi` Pi package, exposing exactly one
-  Prime-owned skill (`skills/prime-ui`), the local `themes/` directory, and the two
+- **2026-07-04** — **Helix resource package + Rose Pine + Fusion research gate.**
+  Added `package.json` for the private `helix-pi` Pi package, exposing exactly one
+  Helix-owned skill (`skills/helix-ui`), the local `themes/` directory, and the two
   pinned extension entrypoints. Renamed the
-  former `beast-ui` concept to **Prime UI** (`/skill:prime-ui`) and consolidated the
+  former `beast-ui` concept to **Helix UI** (`/skill:helix-ui`) and consolidated the
   UI shaping/audit/layout/typography/copy/color/motion/polish/optimization guidance into
-  one `SKILL.md`, keeping the Prime package slash surface to one skill command. Vendored
+  one `SKILL.md`, keeping the Helix package slash surface to one skill command. Vendored
   audited Rose Pine theme JSON from `pi-themes-rose-pine@0.1.0` as
-  `prime-rose-pine`, `prime-rose-pine-moon`, and `prime-rose-pine-dawn`, preserved the
-  upstream MIT license, selected `prime-rose-pine` in `.pi/settings.json`, and
+  `helix-rose-pine`, `helix-rose-pine-moon`, and `helix-rose-pine-dawn`, preserved the
+  upstream MIT license, selected `helix-rose-pine` in `.pi/settings.json`, and
   recorded the package audit in
   `reviews/package-audits/2026-07-04-pi-themes-rose-pine.md`. Added
-  `tools/check-prime-resources.mjs` / `npm run check:resources` to enforce the resource
+  `tools/check-helix-resources.mjs` / `npm run check:resources` to enforce the resource
   invariants. Added `docs/architecture/fusion-dispatch-research.md` as the Phase-3
   research gate for DIY Fusion-style panel/judge/synthesis dispatch: no implementation
   until provider/cost policy, role schema, fixtures, judge-bias mitigations, failure
@@ -1865,7 +1870,7 @@ snapshots.
 - **2026-07-03** — **M0a finalize slice + larger-stage strategy.** Closed three Phase-0
   items against installed Pi `0.80.3` source/docs (evidence
   `reviews/m0a/pi-internals-2026-07-03.md`): the **interactive `/` baseline** (22
-  `BUILTIN_SLASH_COMMANDS`; `enableSkillCommands` default `true`; prime-added = 0), **native
+  `BUILTIN_SLASH_COMMANDS`; `enableSkillCommands` default `true`; helix-added = 0), **native
   tool/function calling** (7 built-in tools, `registerTool`/TypeBox, parallel-exec
   default-on, `--tools`/`-xt`/`-nbt`/`-nt` gating — nothing to build), and the §9-Q6
   **compaction** probe — **resolved by code**: context files are appended into the system
@@ -2079,9 +2084,9 @@ snapshots.
   through §5 providers table, Theme A, §8, §9-Q4, Phase 0. **The user was right; my earlier
   "native OAuth is CGS" call was wrong on the economics.**
 
-## Prime v1 single-PR build (2026-07-09)
+## Helix v1 single-PR build (2026-07-09)
 
-One PR on branch `prime-v1`, built to the amended
+One PR on branch `helix-v1`, built to the amended
 `docs/stage3/design-contracts.md` (owner product interview, 2026-07-09).
 Milestones M1–M9, all shipped; adversarial review (M10) follows the PR.
 
@@ -2092,7 +2097,7 @@ Milestones M1–M9, all shipped; adversarial review (M10) follows the PR.
 - `[x]` **M5** — the staged runner: worktree-per-run, append-only structural event stream, per-stage dispatch panels with strictest-wins verdicts, interrupt-safe resumable state, `--repo` for real repositories.
 - `[x]` **M6** — context engine: tracked role briefs, prompt compiler (template id + hashes, never compiled text), fresh-context handoff packets, append-only disagreement log, pressure telemetry.
 - `[x]` **M7** — autoresearch machinery: mandatory metric+stop shape, four stop reasons (`target-met`, `max-iterations`, `diminishing-returns`, `dead-end` as a valuable result), attended-only.
-- `[x]` **M8** — the `/prime` surface: settings, profiles, setup, research preflight, runs watch/resume — all verbs under the single `/prime` command.
+- `[x]` **M8** — the `/helix` surface: settings, profiles, setup, research preflight, runs watch/resume — all verbs under the single `/helix` command.
 - `[x]` **M9** — verification: toggle combination matrix (all-on, all-off, six singletons, three owner scenarios) plus all five chains end-to-end, all green.
 
 Deferred (design-gated, not scheduled): web access for loops behind the
@@ -2101,7 +2106,7 @@ credentials, PR-line review) plus a no-live fixture proof; remote control;
 hosted adapter; package adoptions (pin + audit bar); scheduled runs; unattended
 research; routing self-optimization; Pi `/model` integration (the interactive
 session driver stays Pi's own); migration tooling (only when a second schema
-version exists); auto-compaction (only on pressure evidence); and prime-fence
+version exists); auto-compaction (only on pressure evidence); and helix-fence
 decisions (the extension is untouched, deferred future work).
 
 ### M10 independent cross-family closure (2026-07-10)
@@ -2117,11 +2122,11 @@ decisions (the extension is untouched, deferred future work).
 - `[x]` Per-pass recovery uses private Git-common-dir snapshots (never Git
   objects/public records), deterministic run branches, lease/CAS ownership,
   full checkout fingerprints, and exact chain-aware machine validation.
-- `[x]` Records/events/disagreements/research/run-manager and `/prime` disk
+- `[x]` Records/events/disagreements/research/run-manager and `/helix` disk
   readers use closed structural validation; duplicate IDs reserve atomically and
   never clean existing evidence.
 - `[x]` Profiles carry inventory-validated per-role composite members; every
-  `/prime` mutation is attended-confirmed; real staged casts truthfully refuse
+  `/helix` mutation is attended-confirmed; real staged casts truthfully refuse
   until the deferred transport exists.
 - `[x]` Research keeps exactly four stop reasons; CI resolves the effective
   staged mock cast, rejects workflow secret references, and removal-lints all
@@ -2138,7 +2143,7 @@ decisions (the extension is untouched, deferred future work).
 
 - `[x]` Toxic persisted/rendered structures now use field-specific model,
   provider, code, and ref grammars plus defense-in-depth URI/path refusal.
-- `[x]` Runner and `/prime` share one ordered chain lifecycle reducer; impossible
+- `[x]` Runner and `/helix` share one ordered chain lifecycle reducer; impossible
   stage order and terminal state/gate/`run-end` disagreement refuse.
 - `[x]` Worktree collisions preflight before state creation; initialization reuse
   requires the exact private owner claim and clean baseline. State schema v3
@@ -2149,9 +2154,9 @@ decisions (the extension is untouched, deferred future work).
   safe append semantics.
 - `[x]` `visual-cues:false` renders every event unless `--summary` is explicit;
   settings version mismatch now refuses identically at save and load.
-- `[x]` The release tree is staged for `prime-reloaded` as a fresh single-root
+- `[x]` The release tree is staged for `helix` as a fresh single-root
   history with noreply attribution. The original repository remains a private
-  archive and `prime-reloaded` remains private pending the final independent
+  archive and `helix` remains private pending the final independent
   audit and confirmation that the two historical Claude Code web sessions are
   Private or deleted. The maintainer selected the MIT License on 2026-07-11;
   the root license and package metadata now record that choice.

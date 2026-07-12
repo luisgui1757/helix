@@ -22,7 +22,7 @@ receives real credentials; the mock uses a runtime-generated **dummy** key.
 tools/lockdown/no-egress-smoke.sh --active
 ```
 
-Builds `prime-lockdown-smoke:0.80.3` (build-time network installs pinned Pi 0.80.3,
+Builds `helix-lockdown-smoke:0.80.3` (build-time network installs pinned Pi 0.80.3,
 `--ignore-scripts`), then runs each check with `docker run --network none` and the repo
 bind-mounted read-only at `/workspace`, offline env set (`PI_OFFLINE=1`,
 `PI_TELEMETRY=0`, `PI_SKIP_VERSION_CHECK=1`).
@@ -34,13 +34,13 @@ bind-mounted read-only at `/workspace`, offline env set (`PI_OFFLINE=1`,
 | 1 | Deny-by-default → `https://pi.dev/api/latest-version` | **PASS** | `blocked:EAI_AGAIN` (no route/DNS in `--network none`) |
 | 1 | Deny-by-default → `https://api.openai.com/v1/models` | **PASS** | `blocked:EAI_AGAIN` |
 | 2 | Startup `pi --version` | **PASS** | exit 0, reports `0.80.3` |
-| 2 | Startup `pi --approve --no-session --list-models` (loads committed `.pi/settings.json` + `prime-ui` skill + Rose Pine themes) | **PASS** | exit 0 |
+| 2 | Startup `pi --approve --no-session --list-models` (loads committed `.pi/settings.json` + `helix-ui` skill + Rose Pine themes) | **PASS** | exit 0 |
 | 3 | Active session `pi -p` routed at the local mock | **PASS** | `PI_RC=0`; canned reply returned; mock saw only the two requests below |
 
 ### Boundary is structurally deny-by-default
 
 ```
-$ docker run --rm --network none prime-lockdown-smoke:0.80.3 \
+$ docker run --rm --network none helix-lockdown-smoke:0.80.3 \
     node -e "...print os.networkInterfaces()..."
 interfaces: lo
 non-loopback: NONE
@@ -55,13 +55,13 @@ check and telemetry ping to `pi.dev` therefore cannot occur even if a switch wer
 ```
 PI_RC=0
 MOCK-LOG (method/path only):
-  LISTEN 127.0.0.1:8080 model=prime-mock/echo-1
+  LISTEN 127.0.0.1:8080 model=helix-mock/echo-1
   REQ 1 GET /v1/models
   REQ 2 POST /v1/chat/completions
 RESULT=PASS pi session reached only the 127.0.0.1 mock and returned the canned reply
 ```
 
-The full session (`pi --provider prime-mock --model prime-mock/echo-1 --approve
+The full session (`pi --provider helix-mock --model helix-mock/echo-1 --approve
 --no-session --no-tools -p "ping"`) contacted **only** `127.0.0.1:8080` (the approved
 local mock) — two requests, no external destination — and Pi returned the mock's canned
 assistant message. Loopback survives `--network none`; nothing else is reachable.

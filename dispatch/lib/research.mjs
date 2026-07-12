@@ -1,4 +1,4 @@
-// Prime dispatch — autoresearch machinery (M7, owner interview 2026-07-09).
+// Helix dispatch — autoresearch machinery (M7, owner interview 2026-07-09).
 //
 // Research is an EXPLICIT verb, never auto-triggered. What is mandatory is the
 // SHAPE: a run refuses to start without a declared metric {name, comparator,

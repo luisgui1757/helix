@@ -1,4 +1,4 @@
-// Prime dispatch — judge-bias mitigations (blinding projection + judge selection).
+// Helix dispatch — judge-bias mitigations (blinding projection + judge selection).
 //
 // Source of truth: fusion-dispatch-research.md §"Judge-Bias Mitigations". The
 // judge sees a PROJECTION of each candidate: identifying fields (provider, model,

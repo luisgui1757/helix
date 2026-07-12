@@ -1,6 +1,6 @@
-// Prime /prime command core - Stage 3O PR1.
+// Helix /helix command core - Stage 3O PR1.
 //
-// This module is Pi-runtime-free: it renders resolved Prime control-surface
+// This module is Pi-runtime-free: it renders resolved Helix control-surface
 // views and delegates policy to the existing Stage 3 validators/resolvers. The
 // Mutating verbs (settings set, profile create/switch, setup, and structural
 // prune) are gated by ctx.mode + explicit confirmation before any writer runs.
@@ -40,7 +40,7 @@ function scanOrRefuse(parsed, title) {
   return { value: parsed };
 }
 import {
-  PRIME_TOGGLES,
+  HELIX_TOGGLES,
   DEFAULT_SETTINGS_REL_PATH,
   loadSettings,
   saveSettings,
@@ -58,34 +58,34 @@ import {
   switchProfile,
   applyProfileToConfig,
   applyProfileToPresets,
-} from "./prime-local.mjs";
+} from "./helix-local.mjs";
 
 const DEFAULT_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-export const PRIME_USAGE = `Usage:
-  /prime
-  /prime help
-  /prime run [config-id]
-  /prime runs list | status <run-id> | watch <run-id> | resume <run-id> | prune <run-id>
-  /prime models
-  /prime chains
-  /prime settings [set <toggle> on|off]
-  /prime profiles [show <id> | switch <id> | create <id>]
-  /prime setup [<existing-profile-id> <stage>=<preset | provider/model[:effort]> ...]
+export const HELIX_USAGE = `Usage:
+  /helix
+  /helix help
+  /helix run [config-id]
+  /helix runs list | status <run-id> | watch <run-id> | resume <run-id> | prune <run-id>
+  /helix models
+  /helix chains
+  /helix settings [set <toggle> on|off]
+  /helix profiles [show <id> | switch <id> | create <id>]
+  /helix setup [<existing-profile-id> <stage>=<preset | provider/model[:effort]> ...]
                [<preset>.<role>=<provider/model[:effort][*instances]>[, ...] ...]
-  /prime research <question> --metric <name> <cmp> <target> --max <n> [--plateau <n>]
+  /helix research <question> --metric <name> <cmp> <target> --max <n> [--plateau <n>]
 
 The slash command is preflight/view/state only: loops execute through the printed
 CLI commands. The shipped runner executes mock casts only; a cast naming any real
 provider refuses as live-adapter-not-wired until the approval-gated transport lands.`;
 
 const TOP_LEVEL_COMPLETIONS = Object.freeze([
-  { value: "help", label: "help", description: "Show the public-safe Prime cheat sheet" },
+  { value: "help", label: "help", description: "Show the public-safe Helix cheat sheet" },
   { value: "run", label: "run", description: "Preflight a run config; do not launch" },
   { value: "runs", label: "runs", description: "List, inspect, or prune structural run records" },
   { value: "models", label: "models", description: "View composite presets and the default role matrix" },
   { value: "chains", label: "chains", description: "View the staged chain catalog" },
-  { value: "settings", label: "settings", description: "View or toggle the six Prime feature switches" },
+  { value: "settings", label: "settings", description: "View or toggle the six Helix feature switches" },
   { value: "profiles", label: "profiles", description: "List, inspect, switch, or create saved casts" },
   { value: "setup", label: "setup", description: "Assemble a profile's per-stage cast" },
   { value: "research", label: "research", description: "Validate a research spec (metric + stop) and print its CLI" },
@@ -102,51 +102,51 @@ const RUNS_COMPLETIONS = Object.freeze([
 const SAFE_BASENAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 const REFUSAL_GUIDANCE = Object.freeze({
-  "prime-config-unreadable": {
-    reason: "Prime could not read a committed local registry/config file.",
+  "helix-config-unreadable": {
+    reason: "Helix could not read a committed local registry/config file.",
     next: "Run npm run check:resources and restore or fix the named JSON file.",
   },
   "unknown-run-config": {
-    reason: "The requested run config is not in the Prime run registry.",
-    next: "Use /prime run with no argument to see the default config, or inspect /prime chains.",
+    reason: "The requested run config is not in the Helix run registry.",
+    next: "Use /helix run with no argument to see the default config, or inspect /helix chains.",
   },
   "missing-run-id": {
     reason: "This verb needs a structural run id.",
-    next: "Run /prime runs list and copy a listed run id.",
+    next: "Run /helix runs list and copy a listed run id.",
   },
   "unsafe-run-id": {
     reason: "The run id is not a safe structural record token.",
-    next: "Use an exact run id from /prime runs list; path traversal and root-resolving ids are refused.",
+    next: "Use an exact run id from /helix runs list; path traversal and root-resolving ids are refused.",
   },
   "run-not-found": {
     reason: "No structural run record matched that run id.",
-    next: "Run /prime runs list and choose an existing run id.",
+    next: "Run /helix runs list and choose an existing run id.",
   },
-  "prime-settings-unreadable": {
+  "helix-settings-unreadable": {
     reason: "The user-local settings file exists but cannot be read or parsed.",
     next: "Fix or delete dispatch/local/settings.json (absent = all toggles on).",
   },
   "research-requires-attended": {
     reason: "Research is attended-only by owner decision.",
-    next: "Run /prime research from an interactive TUI session and stay at the terminal.",
+    next: "Run /helix research from an interactive TUI session and stay at the terminal.",
   },
   "toggle-disabled:autoresearch": {
     reason: "The autoresearch toggle is off - invoking the verb is an explicit conflict.",
-    next: "Run /prime settings set autoresearch on, then retry.",
+    next: "Run /helix settings set autoresearch on, then retry.",
   },
   "toggle-disabled:multi-model": {
     reason: "A composite cast needs the multi-model toggle.",
-    next: "Run /prime settings set multi-model on, or assign a plain provider/model instead.",
+    next: "Run /helix settings set multi-model on, or assign a plain provider/model instead.",
   },
-  "prime-prune-requires-tui-confirm": {
+  "helix-prune-requires-tui-confirm": {
     reason: "Prune requires an attended TUI confirmation.",
     next: "Open Pi in TUI mode and retry, or leave the record in place.",
   },
-  "prime-mutation-requires-tui-confirm": {
-    reason: "Every /prime mutation requires an attended TUI confirmation.",
+  "helix-mutation-requires-tui-confirm": {
+    reason: "Every /helix mutation requires an attended TUI confirmation.",
     next: "Open Pi in TUI mode, retry the mutation, and confirm the prompt.",
   },
-  "prime-mutation-cancelled": {
+  "helix-mutation-cancelled": {
     reason: "The attended mutation was not confirmed.",
     next: "Retry and confirm only if the displayed mutation is intended.",
   },
@@ -154,20 +154,20 @@ const REFUSAL_GUIDANCE = Object.freeze({
     reason: "This cast names a real provider, but the staged runner has no approved live transport in this build.",
     next: "Use the tracked mock cast for no-live proof, or wait for the separately approved live-adapter track.",
   },
-  "prime-model-inventory-unavailable": {
-    reason: "Pi's available-model inventory was unavailable, so Prime cannot validate a real member.",
+  "helix-model-inventory-unavailable": {
+    reason: "Pi's available-model inventory was unavailable, so Helix cannot validate a real member.",
     next: "Retry from an attended Pi TUI after provider login, or use a mock member.",
   },
   "preset-member-unavailable": {
     reason: "A requested provider/model is not in Pi's currently available inventory.",
-    next: "Log in to that provider or choose an exact model shown by /prime setup.",
+    next: "Log in to that provider or choose an exact model shown by /helix setup.",
   },
 });
 
-class PrimeConfigLoadError extends Error {
+class HelixConfigLoadError extends Error {
   constructor(rel) {
-    super("prime-config-unreadable");
-    this.code = "prime-config-unreadable";
+    super("helix-config-unreadable");
+    this.code = "helix-config-unreadable";
     const name = basename(rel);
     this.detail = SAFE_BASENAME_PATTERN.test(name) ? name : null;
   }
@@ -177,7 +177,7 @@ function readJson(root, rel) {
   try {
     return JSON.parse(readFileSync(join(root, rel), "utf8"));
   } catch {
-    throw new PrimeConfigLoadError(rel);
+    throw new HelixConfigLoadError(rel);
   }
 }
 
@@ -229,15 +229,15 @@ function result({ ok = true, status = "ok", code = null, title, lines, details =
     return {
       ok: false,
       status: "fail-closed",
-      code: "prime-render-public-safety-refusal",
-      title: "Prime command refused",
-      text: "Prime refusal: prime-render-public-safety-refusal\nReason: rendered output did not pass the public-safety boundary.\nNext safe action: inspect the structural source file without rendering it through /prime.",
-      details: { code: "prime-render-public-safety-refusal", mutating: false },
+      code: "helix-render-public-safety-refusal",
+      title: "Helix command refused",
+      text: "Helix refusal: helix-render-public-safety-refusal\nReason: rendered output did not pass the public-safety boundary.\nNext safe action: inspect the structural source file without rendering it through /helix.",
+      details: { code: "helix-render-public-safety-refusal", mutating: false },
     };
   }
 }
 
-function publicCode(value, fallback = "prime-input-invalid") {
+function publicCode(value, fallback = "helix-input-invalid") {
   if (!isPublicCode(value)) return fallback;
   try {
     assertPublicSafe({ value });
@@ -260,12 +260,12 @@ function publicDetail(value) {
   return hashRef(typeof value === "string" ? value : JSON.stringify(value));
 }
 
-function fail(code, detail, title = "Prime command refused") {
+function fail(code, detail, title = "Helix command refused") {
   const renderedCode = publicCode(code);
   const renderedDetail = publicDetail(detail);
   const guidance = REFUSAL_GUIDANCE[renderedCode] ?? {
-    reason: "Prime refused before doing unsafe or unsupported work.",
-    next: "Run /prime help, then retry with a supported no-live/view-only verb.",
+    reason: "Helix refused before doing unsafe or unsupported work.",
+    next: "Run /helix help, then retry with a supported no-live/view-only verb.",
   };
   return result({
     ok: false,
@@ -273,22 +273,22 @@ function fail(code, detail, title = "Prime command refused") {
     code: renderedCode,
     title,
     lines: [
-      `Prime refusal: ${renderedCode}`,
+      `Helix refusal: ${renderedCode}`,
       `Reason: ${guidance.reason}`,
       `Next safe action: ${guidance.next}`,
       renderedDetail ? `Detail: ${renderedDetail}` : "Detail: none",
       "",
-      PRIME_USAGE,
+      HELIX_USAGE,
     ],
     details: { code: renderedCode, detail: renderedDetail, reason: guidance.reason, next_safe_action: guidance.next },
   });
 }
 
 function configLoadFail(error) {
-  if (error?.code === "prime-config-unreadable") {
-    return fail("prime-config-unreadable", error.detail, "Prime config unreadable");
+  if (error?.code === "helix-config-unreadable") {
+    return fail("helix-config-unreadable", error.detail, "Helix config unreadable");
   }
-  return fail("prime-config-unreadable", null, "Prime config unreadable");
+  return fail("helix-config-unreadable", null, "Helix config unreadable");
 }
 
 function usage(verb = null) {
@@ -296,12 +296,12 @@ function usage(verb = null) {
   return result({
     ok: false,
     status: "usage",
-    code: "prime-usage",
-    title: "Prime usage",
+    code: "helix-usage",
+    title: "Helix usage",
     lines: [
-      renderedVerb ? `Unknown or incomplete /prime verb: ${renderedVerb}` : "Prime command usage",
+      renderedVerb ? `Unknown or incomplete /helix verb: ${renderedVerb}` : "Helix command usage",
       "",
-      PRIME_USAGE,
+      HELIX_USAGE,
     ],
     details: { verb: renderedVerb },
   });
@@ -309,20 +309,20 @@ function usage(verb = null) {
 
 function renderHelp() {
   return result({
-    title: "Prime help",
+    title: "Helix help",
     lines: [
-      "Prime help",
+      "Helix help",
       "Mode: view-only",
       "Install/load: open this repository as a trusted Pi project; package resources are pinned in package.json and .pi/settings.json.",
-      "Verify loaded: run /prime. Runtime RPC inventory can be checked with node tools/smoke/pi-e2e-load.mjs --runtime-rpc.",
-      "First no-live preflight: /prime run mock-core-loop.",
-      "Run loop manually: use the CLI printed by /prime run; PR1 does not launch loops from the slash command.",
-      "Runs: /prime runs list, /prime runs status <run-id>, /prime runs prune <run-id>.",
+      "Verify loaded: run /helix. Runtime RPC inventory can be checked with node tools/smoke/pi-e2e-load.mjs --runtime-rpc.",
+      "First no-live preflight: /helix run mock-core-loop.",
+      "Run loop manually: use the CLI printed by /helix run; PR1 does not launch loops from the slash command.",
+      "Runs: /helix runs list, /helix runs status <run-id>, /helix runs prune <run-id>.",
       "Mutations: settings set, profiles create/switch, setup, and prune are TUI-only and require explicit confirmation.",
-      "Views: /prime models (presets), /prime chains (staged catalog), /prime settings, /prime profiles.",
-      "Casts: /prime setup saves stage assignments and complete per-role composite member lineups from Pi's available-model inventory.",
-      "Loops: /prime run preflights; the printed CLI executes; /prime runs watch renders the loop widget from its event stream; /prime runs resume prints the resume CLI.",
-      "Research: /prime research validates the mandatory metric+stop shape (attended, TUI only) and prints the research CLI.",
+      "Views: /helix models (presets), /helix chains (staged catalog), /helix settings, /helix profiles.",
+      "Casts: /helix setup saves stage assignments and complete per-role composite member lineups from Pi's available-model inventory.",
+      "Loops: /helix run preflights; the printed CLI executes; /helix runs watch renders the loop widget from its event stream; /helix runs resume prints the resume CLI.",
+      "Research: /helix research validates the mandatory metric+stop shape (attended, TUI only) and prints the research CLI.",
       "Live: presence declares live intent, but this build refuses real-provider casts as live-adapter-not-wired. The default mock config is no-live.",
       "Refusals: every refusal shows a stable code, reason, and next safe action.",
       "Manual: docs/manual.md.",
@@ -414,9 +414,9 @@ function resourceStatus(pkg, settings) {
     extensions: pkgExtensions.length,
     package_extensions: pkgExtensions.map(safeName),
     settings_extensions: settingsExtensions.map(safeName),
-    prime_command_pinned:
-      pkgExtensions.includes("./extensions/prime-command.ts") &&
-      settingsExtensions.includes("../extensions/prime-command.ts"),
+    helix_command_pinned:
+      pkgExtensions.includes("./extensions/helix-command.ts") &&
+      settingsExtensions.includes("../extensions/helix-command.ts"),
   };
 }
 
@@ -450,7 +450,7 @@ function manualRunId(configId) {
 }
 
 function cliInvocation(configId) {
-  return `node tools/loop/prime-task-loop.mjs --config ${configId} --run-id ${manualRunId(configId)}`;
+  return `node tools/loop/helix-task-loop.mjs --config ${configId} --run-id ${manualRunId(configId)}`;
 }
 
 /** Providers named by a resolved staged cast (the SIGNAL the runner acts on) —
@@ -556,12 +556,12 @@ function buildPreflight(configId, deps) {
 
 function renderPreflight(preflight, requestedId) {
   if (!preflight.ok) {
-    return fail(preflight.code, preflight.detail, "Prime run preflight refused");
+    return fail(preflight.code, preflight.detail, "Helix run preflight refused");
   }
   const { config, chain, cast, warnings, cli } = preflight;
   const stageCast = cast.map((c) => `${c.stage_id}=${c.executor_ref}`).join(" ");
   return result({
-    title: "Prime run preflight",
+    title: "Helix run preflight",
     lines: [
       `Config: ${config.id}`,
       `Chain: ${chain.id} (${chain.task_class}, ${chain.stages.length} stage(s))`,
@@ -612,20 +612,20 @@ function resolveDefaultConfigId(deps) {
 
 function renderDashboard(deps) {
   const selected = resolveDefaultConfigId(deps);
-  if (!selected.ok) return fail(selected.code, selected.detail, "Prime dashboard refused");
+  if (!selected.ok) return fail(selected.code, selected.detail, "Helix dashboard refused");
   const defaultConfig = deps.runRegistry?.configs?.find((config) => config?.id === selected.config_id);
-  if (!defaultConfig) return fail("unknown-run-config", "profile-default-config", "Prime dashboard refused");
+  if (!defaultConfig) return fail("unknown-run-config", "profile-default-config", "Helix dashboard refused");
   const preflight = buildPreflight(defaultConfig.id, deps);
   const runs = listRuns(deps.runsRoot);
   const lastRun = runs.length > 0 ? runs[runs.length - 1] : null;
   const userSettings = loadUserSettings(deps);
   const active = selected.active;
   const lines = [
-    "Prime control surface",
+    "Helix control surface",
     `Active/default config: ${defaultConfig.id}`,
     `Description ref: ${hashRef(defaultConfig.description)}`,
     userSettings.ok
-      ? `Toggles: ${PRIME_TOGGLES.filter((t) => userSettings.settings.toggles[t]).join(", ") || "(all off)"}${PRIME_TOGGLES.some((t) => !userSettings.settings.toggles[t]) ? ` | off: ${PRIME_TOGGLES.filter((t) => !userSettings.settings.toggles[t]).join(", ")}` : ""}`
+      ? `Toggles: ${HELIX_TOGGLES.filter((t) => userSettings.settings.toggles[t]).join(", ") || "(all off)"}${HELIX_TOGGLES.some((t) => !userSettings.settings.toggles[t]) ? ` | off: ${HELIX_TOGGLES.filter((t) => !userSettings.settings.toggles[t]).join(", ")}` : ""}`
       : `Toggles: unreadable (${userSettings.code})`,
     `Profile: ${active.profile_id ?? "(none)"}`,
   ];
@@ -648,7 +648,7 @@ function renderDashboard(deps) {
   );
 
   return result({
-    title: "Prime dashboard",
+    title: "Helix dashboard",
     lines,
     details: {
       default_config_id: defaultConfig.id,
@@ -675,13 +675,13 @@ function renderDashboard(deps) {
 function renderModels(deps) {
   const matrix = deps.roleMatrix;
   const matrixShape = validateRoleMatrixConfig(matrix);
-  if (!matrixShape.valid) return fail("invalid-role-matrix", "role-matrix-defaults", "Prime models refused");
+  if (!matrixShape.valid) return fail("invalid-role-matrix", "role-matrix-defaults", "Helix models refused");
   const presetsResult = loadPresets(deps);
-  if (!presetsResult.ok) return fail(presetsResult.code, presetsResult.detail, "Prime models refused");
+  if (!presetsResult.ok) return fail(presetsResult.code, presetsResult.detail, "Helix models refused");
   const active = resolveActiveProfile(deps.root);
-  if (!active.ok) return fail(active.code, active.detail, "Prime models refused");
+  if (!active.ok) return fail(active.code, active.detail, "Helix models refused");
   const profiled = applyProfileToPresets(presetsResult.presets, active.profile);
-  if (!profiled.ok) return fail(profiled.code, profiled.detail, "Prime models refused");
+  if (!profiled.ok) return fail(profiled.code, profiled.detail, "Helix models refused");
   const inventory = publicModelInventory(deps);
   const structuralPresets = [...profiled.presets.values()].map(structuralPreset);
   const presetLines = structuralPresets.flatMap((preset) => [
@@ -690,7 +690,7 @@ function renderModels(deps) {
       `  ${role}: ${members.map((m) => `${m.provider}/${m.model}:${m.effort} x${m.instances}`).join(", ")}`),
   ]);
   return result({
-    title: "Prime models",
+    title: "Helix models",
     lines: [
       "Mode: view-only",
       `Composite presets (${active.profile ? `effective profile ${active.profile_id}` : "tracked mock skeletons"}):`,
@@ -716,10 +716,10 @@ function renderModels(deps) {
 
 function renderChains(deps) {
   const shape = validateChainRegistry(deps.chainRegistry);
-  if (!shape.valid) return fail("invalid-chain-registry", "chains.json", "Prime chains refused");
+  if (!shape.valid) return fail("invalid-chain-registry", "chains.json", "Helix chains refused");
   const chains = deps.chainRegistry.chains.map(summarizeChain);
   return result({
-    title: "Prime chains",
+    title: "Helix chains",
     lines: [
       "Mode: view-only",
       ...chains.map((chain) =>
@@ -734,40 +734,40 @@ function renderChains(deps) {
 
 function renderSettings(deps, tokens) {
   const loaded = loadUserSettings(deps);
-  if (!loaded.ok) return fail(loaded.code, loaded.detail, "Prime settings refused");
+  if (!loaded.ok) return fail(loaded.code, loaded.detail, "Helix settings refused");
   if (tokens[1] === "set") {
     const toggle = tokens[2];
     const value = tokens[3];
-    if (!PRIME_TOGGLES.includes(toggle)) return fail(`unknown-toggle:${String(toggle)}`, null, "Prime settings refused");
+    if (!HELIX_TOGGLES.includes(toggle)) return fail(`unknown-toggle:${String(toggle)}`, null, "Helix settings refused");
     if (value !== "on" && value !== "off") return usage(tokens.join(" "));
     const next = {
       schema_version: loaded.settings.schema_version,
       toggles: { ...loaded.settings.toggles, [toggle]: value === "on" },
     };
     const saved = saveSettings(next, deps.settingsPath);
-    if (!saved.ok) return fail(saved.code, saved.detail, "Prime settings refused");
+    if (!saved.ok) return fail(saved.code, saved.detail, "Helix settings refused");
     return result({
-      title: "Prime settings updated",
+      title: "Helix settings updated",
       lines: [`${toggle} -> ${value}`, "", ...renderToggleLines(next)],
       details: { toggles: toggleVector(next), changed: toggle, mutating: true },
       mutating: true,
     });
   }
   return result({
-    title: "Prime settings",
+    title: "Helix settings",
     lines: [
       `Source: ${loaded.source === "file" ? "user-local settings" : "defaults (no settings file)"}`,
       "OFF never errors - features degenerate; only explicit conflicts refuse.",
       ...renderToggleLines(loaded.settings),
       "",
-      "Change: /prime settings set <toggle> on|off",
+      "Change: /helix settings set <toggle> on|off",
     ],
     details: { toggles: toggleVector(loaded.settings), source: loaded.source },
   });
 }
 
 function renderToggleLines(settings) {
-  return PRIME_TOGGLES.map((toggle) => `[${settings.toggles[toggle] ? "x" : " "}] ${toggle}`);
+  return HELIX_TOGGLES.map((toggle) => `[${settings.toggles[toggle] ? "x" : " "}] ${toggle}`);
 }
 
 function renderProfiles(deps, tokens) {
@@ -775,9 +775,9 @@ function renderProfiles(deps, tokens) {
   const id = tokens[2];
   if (sub === "switch") {
     const switched = switchProfile(deps.root, id);
-    if (!switched.ok) return fail(switched.code, switched.detail, "Prime profile switch refused");
+    if (!switched.ok) return fail(switched.code, switched.detail, "Helix profile switch refused");
     return result({
-      title: "Prime profile switched",
+      title: "Helix profile switched",
       lines: [`Active profile: ${id}`],
       details: { active_profile: id, mutating: true },
       mutating: true,
@@ -786,20 +786,20 @@ function renderProfiles(deps, tokens) {
   if (sub === "create") {
     if (typeof id !== "string" || id.length === 0) return usage(tokens.join(" "));
     const created = saveProfile(deps.root, { schema_version: 1, profile_id: id, overrides: {} });
-    if (!created.ok) return fail(created.code, created.detail, "Prime profile create refused");
+    if (!created.ok) return fail(created.code, created.detail, "Helix profile create refused");
     return result({
-      title: "Prime profile created",
-      lines: [`Created empty profile '${id}'. Assemble its cast with /prime setup ${id} ...`],
+      title: "Helix profile created",
+      lines: [`Created empty profile '${id}'. Assemble its cast with /helix setup ${id} ...`],
       details: { profile_id: id, mutating: true },
       mutating: true,
     });
   }
   if (sub === "show") {
     const loaded = loadProfile(deps.root, id);
-    if (!loaded.ok) return fail(loaded.code, loaded.detail, "Prime profile show refused");
+    if (!loaded.ok) return fail(loaded.code, loaded.detail, "Helix profile show refused");
     const overrides = loaded.profile.overrides;
     return result({
-      title: "Prime profile",
+      title: "Helix profile",
       lines: [
         `Profile: ${loaded.profile.profile_id}`,
         `Default run config: ${overrides.default_run_config ?? "(tracked default)"}`,
@@ -812,14 +812,14 @@ function renderProfiles(deps, tokens) {
     });
   }
   const listed = listProfiles(deps.root);
-  if (!listed.ok) return fail(listed.code, listed.detail, "Prime profiles refused");
+  if (!listed.ok) return fail(listed.code, listed.detail, "Helix profiles refused");
   const active = resolveActiveProfile(deps.root);
-  if (!active.ok) return fail(active.code, active.detail, "Prime profiles refused");
+  if (!active.ok) return fail(active.code, active.detail, "Helix profiles refused");
   return result({
-    title: "Prime profiles",
+    title: "Helix profiles",
     lines: [
       `Active: ${active.profile_id ?? "(none - tracked defaults)"}`,
-      listed.profiles.length ? "Profiles:" : "Profiles: none (create one with /prime profiles create <id>)",
+      listed.profiles.length ? "Profiles:" : "Profiles: none (create one with /helix profiles create <id>)",
       ...listed.profiles.map((profile) =>
         `  ${profile.profile_id}${profile.profile_id === active.profile_id ? " (active)" : ""}: ${Object.keys(profile.overrides.assignments ?? {}).length} assignment(s)`),
     ],
@@ -882,25 +882,25 @@ function parseMemberToken(token) {
 function assertSetupMemberAvailable(member, deps) {
   if (member.provider === "mock") return { ok: true };
   const availability = inventoryAvailability(deps);
-  if (!availability) return { ok: false, code: "prime-model-inventory-unavailable", detail: member.provider };
+  if (!availability) return { ok: false, code: "helix-model-inventory-unavailable", detail: member.provider };
   if (!availability(member)) return { ok: false, code: "preset-member-unavailable", detail: `${member.provider}/${member.model}` };
   return { ok: true };
 }
 
 function renderSetup(deps, tokens) {
   const chainShape = validateChainRegistry(deps.chainRegistry);
-  if (!chainShape.valid) return fail("invalid-chain-registry", "chains.json", "Prime setup refused");
+  if (!chainShape.valid) return fail("invalid-chain-registry", "chains.json", "Helix setup refused");
   const presetsResult = loadPresets(deps);
-  if (!presetsResult.ok) return fail(presetsResult.code, presetsResult.detail, "Prime setup refused");
+  if (!presetsResult.ok) return fail(presetsResult.code, presetsResult.detail, "Helix setup refused");
   const presets = presetsResult.presets;
 
   if (tokens.length === 1) {
     const chains = deps.chainRegistry.chains;
     const inventory = publicModelInventory(deps);
     return result({
-      title: "Prime setup",
+      title: "Helix setup",
       lines: [
-        "Create a profile first, then assemble its cast: /prime profiles create <id>; /prime setup <id> <stage>=<executor> ...",
+        "Create a profile first, then assemble its cast: /helix profiles create <id>; /helix setup <id> <stage>=<executor> ...",
         "Replace composite members: <preset>.<role>=<provider/model[:effort][*instances]>[, ...].",
         "",
         "Presets:",
@@ -926,9 +926,9 @@ function renderSetup(deps, tokens) {
   const pairs = tokens.slice(2);
   if (pairs.length === 0) return usage(tokens.join(" "));
   const active = resolveActiveProfile(deps.root);
-  if (!active.ok) return fail(active.code, active.detail, "Prime setup refused");
+  if (!active.ok) return fail(active.code, active.detail, "Helix setup refused");
   const existing = loadProfile(deps.root, profileId);
-  if (!existing.ok) return fail(existing.code, existing.detail, "Prime setup refused");
+  if (!existing.ok) return fail(existing.code, existing.detail, "Helix setup refused");
   const base = existing.profile;
   const assignments = {};
   const knownStages = new Set((deps.chainRegistry?.chains ?? []).flatMap((chain) => (chain.stages ?? []).map((stage) => stage.id)));
@@ -938,7 +938,7 @@ function renderSetup(deps, tokens) {
   ]));
   for (const pair of pairs) {
     const eq = pair.indexOf("=");
-    if (eq < 1) return fail("invalid-assignment", pair.includes("/") ? null : pair, "Prime setup refused");
+    if (eq < 1) return fail("invalid-assignment", pair.includes("/") ? null : pair, "Helix setup refused");
     const target = pair.slice(0, eq);
     const value = pair.slice(eq + 1);
     const dot = target.indexOf(".");
@@ -946,13 +946,13 @@ function renderSetup(deps, tokens) {
       const presetId = target.slice(0, dot);
       const role = target.slice(dot + 1);
       const tracked = presets.get(presetId);
-      if (!tracked) return fail(`unknown-preset:${presetId}`, role, "Prime setup refused");
-      if (!Object.prototype.hasOwnProperty.call(tracked.roles, role)) return fail("invalid-assignment", role, "Prime setup refused");
+      if (!tracked) return fail(`unknown-preset:${presetId}`, role, "Helix setup refused");
+      if (!Object.prototype.hasOwnProperty.call(tracked.roles, role)) return fail("invalid-assignment", role, "Helix setup refused");
       const members = value.split(",").map(parseMemberToken);
-      if (members.length === 0 || members.some((member) => member === null)) return fail("invalid-assignment", role, "Prime setup refused");
+      if (members.length === 0 || members.some((member) => member === null)) return fail("invalid-assignment", role, "Helix setup refused");
       for (const member of members) {
         const available = assertSetupMemberAvailable(member, deps);
-        if (!available.ok) return fail(available.code, available.detail, "Prime setup refused");
+        if (!available.ok) return fail(available.code, available.detail, "Helix setup refused");
       }
       const roles = presetOverlays[presetId]?.roles
         ?? Object.fromEntries(Object.entries(tracked.roles).map(([baseRole, baseMembers]) => [baseRole, baseMembers.map((member) => ({ ...member }))]));
@@ -961,15 +961,15 @@ function renderSetup(deps, tokens) {
       continue;
     }
     const stage = target;
-    if (!knownStages.has(stage)) return fail("assignment-unknown-stage", stage, "Prime setup refused");
+    if (!knownStages.has(stage)) return fail("assignment-unknown-stage", stage, "Helix setup refused");
     const parsed = parseAssignmentToken(value, presets);
-    if (!parsed) return fail("invalid-assignment", stage, "Prime setup refused");
+    if (!parsed) return fail("invalid-assignment", stage, "Helix setup refused");
     if (parsed.kind === "composite" && !presets.has(parsed.preset)) {
-      return fail(`unknown-preset:${parsed.preset}`, stage, "Prime setup refused");
+      return fail(`unknown-preset:${parsed.preset}`, stage, "Helix setup refused");
     }
     if (parsed.kind === "model") {
       const available = assertSetupMemberAvailable(parsed, deps);
-      if (!available.ok) return fail(available.code, available.detail, "Prime setup refused");
+      if (!available.ok) return fail(available.code, available.detail, "Helix setup refused");
     }
     assignments[stage] = parsed;
   }
@@ -982,15 +982,15 @@ function renderSetup(deps, tokens) {
     },
   };
   const activated = saveAndActivateProfile(deps.root, profile);
-  if (!activated.ok) return fail(activated.code, activated.detail, "Prime setup refused");
+  if (!activated.ok) return fail(activated.code, activated.detail, "Helix setup refused");
   return result({
-    title: "Prime setup saved",
+    title: "Helix setup saved",
     lines: [
       `Profile '${profileId}' saved and activated.`,
       ...Object.entries(assignments).map(([stage, a]) => `  ${stage} -> ${assignmentLabel(a)}`),
       ...Object.entries(presetOverlays).map(([presetId, overlay]) => `  ${presetId}: ${Object.keys(overlay.roles).length} role lineup(s)`),
       "",
-      "Preflight it: /prime run",
+      "Preflight it: /helix run",
     ],
     details: { profile_id: profileId, assignments, preset_overlays: Object.keys(presetOverlays), mutating: true },
     mutating: true,
@@ -999,11 +999,11 @@ function renderSetup(deps, tokens) {
 
 function renderResearch(deps, tokens, ctx) {
   const loaded = loadUserSettings(deps);
-  if (!loaded.ok) return fail(loaded.code, loaded.detail, "Prime research refused");
+  if (!loaded.ok) return fail(loaded.code, loaded.detail, "Helix research refused");
   const gate = requireToggle(loaded.settings, "autoresearch");
-  if (!gate.ok) return fail(gate.code, null, "Prime research refused");
+  if (!gate.ok) return fail(gate.code, null, "Helix research refused");
   if (ctx.mode !== "tui") {
-    return fail("research-requires-attended", `mode-${ctx.mode ?? "unknown"}`, "Prime research refused");
+    return fail("research-requires-attended", `mode-${ctx.mode ?? "unknown"}`, "Helix research refused");
   }
 
   const words = [];
@@ -1012,17 +1012,17 @@ function renderResearch(deps, tokens, ctx) {
     const token = tokens[i];
     if (token === "--metric") {
       const parsed = parseStrictNumberToken(tokens[i + 3]);
-      if (!parsed.ok) return fail("research-invalid-spec", "metric-target", "Prime research refused");
+      if (!parsed.ok) return fail("research-invalid-spec", "metric-target", "Helix research refused");
       flags.metric = { name: tokens[i + 1], comparator: tokens[i + 2], target: parsed.value };
       i += 3;
     } else if (token === "--max") {
       const parsed = parseStrictNumberToken(tokens[i + 1]);
-      if (!parsed.ok) return fail("research-invalid-spec", "max-iterations", "Prime research refused");
+      if (!parsed.ok) return fail("research-invalid-spec", "max-iterations", "Helix research refused");
       flags.max = parsed.value;
       i += 1;
     } else if (token === "--plateau") {
       const parsed = parseStrictNumberToken(tokens[i + 1]);
-      if (!parsed.ok) return fail("research-invalid-spec", "diminishing-returns", "Prime research refused");
+      if (!parsed.ok) return fail("research-invalid-spec", "diminishing-returns", "Helix research refused");
       flags.plateau = parsed.value;
       i += 1;
     } else {
@@ -1040,16 +1040,16 @@ function renderResearch(deps, tokens, ctx) {
       ? { stop: { max_iterations: flags.max, ...(Number.isFinite(flags.plateau) ? { diminishing_returns_after: flags.plateau } : {}) } }
       : {}),
   };
-  if (!spec.metric) return fail("research-missing-metric", null, "Prime research refused");
-  if (!spec.stop) return fail("research-missing-stop", null, "Prime research refused");
+  if (!spec.metric) return fail("research-missing-metric", null, "Helix research refused");
+  if (!spec.stop) return fail("research-missing-stop", null, "Helix research refused");
   const shape = validate(RESEARCH_SPEC_SCHEMA, spec, "$");
   if (!shape.valid) {
-    return fail("research-invalid-spec", shape.errors.map((e) => e.path).join(","), "Prime research refused");
+    return fail("research-invalid-spec", shape.errors.map((e) => e.path).join(","), "Helix research refused");
   }
   const questionRef = hashRef(question);
-  const cli = `node tools/research/prime-research.mjs --question '<private-question>' --metric ${spec.metric.name} ${JSON.stringify(spec.metric.comparator)} ${spec.metric.target} --max ${spec.stop.max_iterations}${spec.stop.diminishing_returns_after ? ` --plateau ${spec.stop.diminishing_returns_after}` : ""} --measure-cmd '<your measurement command>'`;
+  const cli = `node tools/research/helix-research.mjs --question '<private-question>' --metric ${spec.metric.name} ${JSON.stringify(spec.metric.comparator)} ${spec.metric.target} --max ${spec.stop.max_iterations}${spec.stop.diminishing_returns_after ? ` --plateau ${spec.stop.diminishing_returns_after}` : ""} --measure-cmd '<your measurement command>'`;
   return result({
-    title: "Prime research preflight",
+    title: "Helix research preflight",
     lines: [
       `Question ref: ${questionRef}`,
       `Metric: ${spec.metric.name} ${spec.metric.comparator} ${spec.metric.target}`,
@@ -1063,21 +1063,21 @@ function renderResearch(deps, tokens, ctx) {
 }
 
 function renderRunsWatch(runId, deps) {
-  if (!runId) return fail("missing-run-id", null, "Prime run watch refused");
+  if (!runId) return fail("missing-run-id", null, "Helix run watch refused");
   const valid = validateRunId(runId);
-  if (!valid.ok) return fail(valid.code, valid.detail, "Prime run watch refused");
+  if (!valid.ok) return fail(valid.code, valid.detail, "Helix run watch refused");
   const eventsPath = join(deps.runsRoot, runId, `${runId}.events.jsonl`);
-  if (!existsSync(eventsPath)) return fail("run-not-found", "run-events-not-found", "Prime run watch refused");
+  if (!existsSync(eventsPath)) return fail("run-not-found", "run-events-not-found", "Helix run watch refused");
   let events;
   try {
     events = readFileSync(eventsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   } catch {
-    return fail("prime-config-unreadable", "events-jsonl", "Prime run watch refused");
+    return fail("helix-config-unreadable", "events-jsonl", "Helix run watch refused");
   }
-  const scanned = scanOrRefuse(events, "Prime run watch refused");
+  const scanned = scanOrRefuse(events, "Helix run watch refused");
   if (scanned.leak) return scanned.leak;
   if (!validateEventHistory(events, { run_id: runId }).valid) {
-    return fail("run-record-invalid-or-unsafe", "event-stream-structure", "Prime run watch refused");
+    return fail("run-record-invalid-or-unsafe", "event-stream-structure", "Helix run watch refused");
   }
   const runStart = events[0];
   const resolvedConfig = resolveRunConfig(deps.runRegistry, runStart?.config_id);
@@ -1091,7 +1091,7 @@ function renderRunsWatch(runId, deps) {
     }).valid);
   if (!resolvedConfig.ok || !resolvedChain.ok || resolvedConfig.config.chain !== runStart.chain_id
     || !lifecycleValid) {
-    return fail("run-record-invalid-or-unsafe", "event-lifecycle", "Prime run watch refused");
+    return fail("run-record-invalid-or-unsafe", "event-lifecycle", "Helix run watch refused");
   }
   const last = (kind) => [...events].reverse().find((event) => event.kind === kind);
   const runEnd = last("run-end");
@@ -1112,7 +1112,7 @@ function renderRunsWatch(runId, deps) {
     ...(runEnd && runEnd.open_disagreements != null ? [`Open disagreements: ${runEnd.open_disagreements}`] : []),
   ];
   return result({
-    title: "Prime run watch",
+    title: "Helix run watch",
     lines,
     details: {
       run_id: runId,
@@ -1129,21 +1129,21 @@ function renderRunsWatch(runId, deps) {
 }
 
 function renderRunsResume(runId, deps) {
-  if (!runId) return fail("missing-run-id", null, "Prime run resume refused");
+  if (!runId) return fail("missing-run-id", null, "Helix run resume refused");
   const valid = validateRunId(runId);
-  if (!valid.ok) return fail(valid.code, valid.detail, "Prime run resume refused");
+  if (!valid.ok) return fail(valid.code, valid.detail, "Helix run resume refused");
   const statePath = join(deps.runsRoot, runId, `${runId}.state.json`);
-  if (!existsSync(statePath)) return fail("run-not-found", "run-state-not-found", "Prime run resume refused");
+  if (!existsSync(statePath)) return fail("run-not-found", "run-state-not-found", "Helix run resume refused");
   let state;
   try {
     state = JSON.parse(readFileSync(statePath, "utf8"));
   } catch {
-    return fail("prime-config-unreadable", "state-json", "Prime run resume refused");
+    return fail("helix-config-unreadable", "state-json", "Helix run resume refused");
   }
-  const scanned = scanOrRefuse(state, "Prime run resume refused");
+  const scanned = scanOrRefuse(state, "Helix run resume refused");
   if (scanned.leak) return scanned.leak;
   const stateShape = validateRunnerState(state, { runId });
-  if (!stateShape.valid) return fail("invalid-resume-state", "state-structure", "Prime run resume refused");
+  if (!stateShape.valid) return fail("invalid-resume-state", "state-structure", "Helix run resume refused");
   const resolvedConfig = resolveRunConfig(deps.runRegistry, state.config_id);
   const resolvedChain = resolveChain(deps.chainRegistry, state.chain_id);
   if (!resolvedConfig.ok || !resolvedChain.ok
@@ -1154,7 +1154,7 @@ function renderRunsResume(runId, deps) {
       state.toggles ?? null,
       state.machine,
     )) {
-    return fail("invalid-resume-state", "machine-config-binding", "Prime run resume refused");
+    return fail("invalid-resume-state", "machine-config-binding", "Helix run resume refused");
   }
   const eventsPath = join(deps.runsRoot, runId, `${runId}.events.jsonl`);
   let history;
@@ -1181,7 +1181,7 @@ function renderRunsResume(runId, deps) {
       throw new Error("terminal-event-missing");
     }
   } catch {
-    return fail("resume-events-invalid", "event-stream-structure", "Prime run resume refused");
+    return fail("resume-events-invalid", "event-stream-structure", "Helix run resume refused");
   }
   const disagreementsPath = disagreementSnapshotPath(
     join(deps.runsRoot, runId),
@@ -1198,7 +1198,7 @@ function renderRunsResume(runId, deps) {
     if (!validateDisagreementDocument(document, runId).valid
       || hashRef(stableStringify(document)) !== state.disagreement_ref) throw new Error("invalid");
   } catch {
-    return fail("resume-disagreements-invalid", "disagreement-record-structure", "Prime run resume refused");
+    return fail("resume-disagreements-invalid", "disagreement-record-structure", "Helix run resume refused");
   }
   // Project only known-structural, integer machine fields — never the raw
   // machine object (which could carry unexpected keys from a doctored file).
@@ -1208,7 +1208,7 @@ function renderRunsResume(runId, deps) {
   };
   if (state.completed === true) {
     return result({
-      title: "Prime run resume",
+      title: "Helix run resume",
       lines: [`Run ${runId} already completed (${state.stop_reason ?? "done"}). Resuming is a no-op.`],
       details: { run_id: runId, completed: true, stop_reason: state.stop_reason ?? null },
     });
@@ -1216,9 +1216,9 @@ function renderRunsResume(runId, deps) {
   // The resume CLI carries the run's config binding so `--resume` restores the
   // SAME config, not the default; the runner cross-checks config_id/chain_id.
   const configFlag = ` --config ${state.config_id}`;
-  const cli = `node tools/loop/prime-task-loop.mjs --resume ${runId}${configFlag} --repo '<original-repository>'`;
+  const cli = `node tools/loop/helix-task-loop.mjs --resume ${runId}${configFlag} --repo '<original-repository>'`;
   return result({
-    title: "Prime run resume",
+    title: "Helix run resume",
     lines: [
       `Run ${runId} is resumable (stage index ${machine.stage_index ?? "?"}, ${machine.total_passes ?? "?"} pass(es) done).`,
       `Config: ${state.config_id}${state.run_target.repo === "self" ? " on the original repository" : ""}`,
@@ -1232,7 +1232,7 @@ function renderRunsResume(runId, deps) {
 function renderRunsList(deps) {
   const runs = listRuns(deps.runsRoot);
   return result({
-    title: "Prime runs",
+    title: "Helix runs",
     lines: [
       "Structural run records only",
       runs.length ? `Runs: ${runs.length}` : "Runs: none",
@@ -1244,11 +1244,11 @@ function renderRunsList(deps) {
 }
 
 function renderRunStatus(runId, deps) {
-  if (!runId) return fail("missing-run-id", null, "Prime run status refused");
+  if (!runId) return fail("missing-run-id", null, "Helix run status refused");
   const status = statusRun(deps.runsRoot, runId);
-  if (!status.ok) return fail(status.code, status.detail, "Prime run status refused");
+  if (!status.ok) return fail(status.code, status.detail, "Helix run status refused");
   return result({
-    title: "Prime run status",
+    title: "Helix run status",
     lines: [
       `Run: ${status.run_id}`,
       "Structural run records only",
@@ -1260,27 +1260,27 @@ function renderRunStatus(runId, deps) {
 }
 
 function renderRunPrune(runId, ctx, deps) {
-  if (!runId) return fail("missing-run-id", null, "Prime run prune refused");
+  if (!runId) return fail("missing-run-id", null, "Helix run prune refused");
   const valid = validateRunId(runId);
-  if (!valid.ok) return fail(valid.code, valid.detail, "Prime run prune refused");
+  if (!valid.ok) return fail(valid.code, valid.detail, "Helix run prune refused");
   if (ctx.mode !== "tui") {
-    return fail("prime-prune-requires-tui-confirm", "mode-not-tui", "Prime run prune refused");
+    return fail("helix-prune-requires-tui-confirm", "mode-not-tui", "Helix run prune refused");
   }
   if (ctx.confirm !== true) {
     return result({
       ok: true,
       status: "cancelled",
-      code: "prime-prune-cancelled",
-      title: "Prime run prune cancelled",
+      code: "helix-prune-cancelled",
+      title: "Helix run prune cancelled",
       lines: [`Prune cancelled for run ${runId}.`],
       details: { run_id: runId, confirmed: ctx.confirm === true },
       mutating: false,
     });
   }
   const pruned = pruneRun(deps.runsRoot, runId);
-  if (!pruned.ok) return fail(pruned.code, pruned.detail, "Prime run prune refused");
+  if (!pruned.ok) return fail(pruned.code, pruned.detail, "Helix run prune refused");
   return result({
-    title: "Prime run pruned",
+    title: "Helix run pruned",
     lines: [`Pruned structural run directory: ${runId}`],
     details: pruned,
     mutating: true,
@@ -1297,13 +1297,13 @@ function mutationKind(tokens) {
 
 function authorizeMutation(kind, ctx) {
   if (!kind) return null;
-  if (ctx.mode !== "tui") return fail("prime-mutation-requires-tui-confirm", "mode-not-tui", "Prime mutation refused");
+  if (ctx.mode !== "tui") return fail("helix-mutation-requires-tui-confirm", "mode-not-tui", "Helix mutation refused");
   if (ctx.confirm !== true) {
     return result({
       ok: true,
       status: "cancelled",
-      code: "prime-mutation-cancelled",
-      title: "Prime mutation cancelled",
+      code: "helix-mutation-cancelled",
+      title: "Helix mutation cancelled",
       lines: [`Mutation cancelled: ${kind}`],
       details: { mutation: kind, confirmed: false },
       mutating: false,
@@ -1312,16 +1312,16 @@ function authorizeMutation(kind, ctx) {
   return null;
 }
 
-export function isPrimePruneRequest(args) {
+export function isHelixPruneRequest(args) {
   const tokens = splitArgs(args);
   return tokens[0] === "runs" && tokens[1] === "prune";
 }
 
-export function isPrimeMutationRequest(args) {
+export function isHelixMutationRequest(args) {
   return mutationKind(splitArgs(args)) !== null;
 }
 
-export function getPrimeArgumentCompletions(argumentPrefix = "", options = {}) {
+export function getHelixArgumentCompletions(argumentPrefix = "", options = {}) {
   const prefix = typeof argumentPrefix === "string" ? argumentPrefix.trimStart() : "";
   if (!prefix || !prefix.includes(" ")) {
     return TOP_LEVEL_COMPLETIONS.filter((item) => item.value.startsWith(prefix));
@@ -1335,7 +1335,7 @@ export function getPrimeArgumentCompletions(argumentPrefix = "", options = {}) {
       return Array.isArray(registry?.configs)
         ? registry.configs
           .filter((config) => typeof config?.id === "string" && config.id.startsWith(query))
-          .map((config) => ({ value: `run ${config.id}`, label: config.id, description: "Prime run config" }))
+          .map((config) => ({ value: `run ${config.id}`, label: config.id, description: "Helix run config" }))
         : null;
     } catch {
       return null;
@@ -1348,7 +1348,7 @@ export function getPrimeArgumentCompletions(argumentPrefix = "", options = {}) {
   return null;
 }
 
-export function executePrimeCommand(args = "", ctx = {}, options = {}) {
+export function executeHelixCommand(args = "", ctx = {}, options = {}) {
   const tokens = splitArgs(args);
   if (tokens[0] === "help") return renderHelp();
 
@@ -1362,9 +1362,9 @@ export function executePrimeCommand(args = "", ctx = {}, options = {}) {
 
   const requestedMutation = mutationKind(tokens);
   if (requestedMutation === "prune") {
-    if (!tokens[2]) return fail("missing-run-id", null, "Prime run prune refused");
+    if (!tokens[2]) return fail("missing-run-id", null, "Helix run prune refused");
     const valid = validateRunId(tokens[2]);
-    if (!valid.ok) return fail(valid.code, valid.detail, "Prime run prune refused");
+    if (!valid.ok) return fail(valid.code, valid.detail, "Helix run prune refused");
   }
   const mutationRefusal = authorizeMutation(requestedMutation, ctx);
   if (mutationRefusal) return mutationRefusal;
@@ -1372,7 +1372,7 @@ export function executePrimeCommand(args = "", ctx = {}, options = {}) {
   const [verb, subverb, runId] = tokens;
   if (verb === "run") {
     const selected = subverb ? { ok: true, config_id: subverb } : resolveDefaultConfigId(deps);
-    if (!selected.ok) return fail(selected.code, selected.detail, "Prime run preflight refused");
+    if (!selected.ok) return fail(selected.code, selected.detail, "Helix run preflight refused");
     const configId = selected.config_id;
     return renderPreflight(buildPreflight(configId, deps), configId);
   }

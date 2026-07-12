@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  executePrimeCommand,
-  getPrimeArgumentCompletions,
-  isPrimeMutationRequest,
-  isPrimePruneRequest,
-} from "../extensions/lib/prime-command-core.mjs";
+  executeHelixCommand,
+  getHelixArgumentCompletions,
+  isHelixMutationRequest,
+  isHelixPruneRequest,
+} from "../extensions/lib/helix-command-core.mjs";
 import { preflightTaskLoopConfig } from "../dispatch/lib/task-loop.mjs";
 import { PUBLIC_SAFETY_PATTERNS } from "../tools/ci/public-safety-diff-scan.mjs";
 
@@ -20,7 +20,7 @@ function readJson(rel) {
 }
 
 function tempRunsRoot() {
-  return mkdtempSync(join(tmpdir(), "prime-command-runs-"));
+  return mkdtempSync(join(tmpdir(), "helix-command-runs-"));
 }
 
 function writeDebateRecord(root, runId = "safe-run") {
@@ -60,7 +60,7 @@ function writeDebateRecord(root, runId = "safe-run") {
 }
 
 function malformedConfigRoot() {
-  const malformedRoot = mkdtempSync(join(tmpdir(), "prime-command-malformed-"));
+  const malformedRoot = mkdtempSync(join(tmpdir(), "helix-command-malformed-"));
   mkdirSync(join(malformedRoot, "dispatch", "config"), { recursive: true });
   writeFileSync(join(malformedRoot, "dispatch", "config", "run-configs.json"), "{", "utf8");
   return malformedRoot;
@@ -73,9 +73,9 @@ function assertNoPublicSafetySignature(value) {
   }
 }
 
-test("prime dashboard renders active default config without provider calls", () => {
+test("helix dashboard renders active default config without provider calls", () => {
   const runsRoot = tempRunsRoot();
-  const out = executePrimeCommand("", { mode: "print" }, { runsRoot });
+  const out = executeHelixCommand("", { mode: "print" }, { runsRoot });
   assert.equal(out.ok, true);
   assert.equal(out.details.default_config_id, "mock-core-loop");
   assert.equal(out.details.live_status, "no-live (mock providers only)");
@@ -93,12 +93,12 @@ test("prime dashboard renders active default config without provider calls", () 
   assert.equal(rendered.includes("token_budget"), false);
 });
 
-test("prime run preflight renders resolved config and exact CLI command", () => {
-  const out = executePrimeCommand("run mock-core-loop", { mode: "print" }, { runsRoot: tempRunsRoot() });
+test("helix run preflight renders resolved config and exact CLI command", () => {
+  const out = executeHelixCommand("run mock-core-loop", { mode: "print" }, { runsRoot: tempRunsRoot() });
   assert.equal(out.ok, true);
   assert.equal(out.details.launches_loop, false);
   assert.equal(out.details.config_id, "mock-core-loop");
-  assert.equal(out.details.cli_invocation, "node tools/loop/prime-task-loop.mjs --config mock-core-loop --run-id mock-core-loop-manual");
+  assert.equal(out.details.cli_invocation, "node tools/loop/helix-task-loop.mjs --config mock-core-loop --run-id mock-core-loop-manual");
   assert.equal(out.text.includes("Providers: mock"), true);
   assert.equal(out.text.includes("Live: no-live (mock providers only)"), true);
   assert.equal(out.text.includes("Rail: max_iterations=5"), true);
@@ -112,16 +112,16 @@ test("prime run preflight renders resolved config and exact CLI command", () => 
   assert.equal(rendered.includes("token_budget"), false);
 });
 
-test("prime run unknown config fails with stable error", () => {
-  const out = executePrimeCommand("run missing-config", { mode: "print" }, { runsRoot: tempRunsRoot() });
+test("helix run unknown config fails with stable error", () => {
+  const out = executeHelixCommand("run missing-config", { mode: "print" }, { runsRoot: tempRunsRoot() });
   assert.equal(out.ok, false);
   assert.equal(out.status, "fail-closed");
   assert.equal(out.code, "unknown-run-config");
   assert.equal(out.details.detail, "config-id-not-found");
 });
 
-test("prime run unknown config does not echo private-path-shaped ids", () => {
-  const out = executePrimeCommand("run /ho" + "me/someone/private", { mode: "print" }, { runsRoot: tempRunsRoot() });
+test("helix run unknown config does not echo private-path-shaped ids", () => {
+  const out = executeHelixCommand("run /ho" + "me/someone/private", { mode: "print" }, { runsRoot: tempRunsRoot() });
   assert.equal(out.ok, false);
   assert.equal(out.code, "unknown-run-config");
   assert.equal(out.details.detail, "config-id-not-found");
@@ -129,29 +129,29 @@ test("prime run unknown config does not echo private-path-shaped ids", () => {
   assertNoPublicSafetySignature(out.details);
 });
 
-test("prime execution returns stable fail-closed output when registry JSON is malformed", () => {
+test("helix execution returns stable fail-closed output when registry JSON is malformed", () => {
   const malformedRoot = malformedConfigRoot();
   for (const args of ["", "runs list", "runs prune safe-run"]) {
-    assert.doesNotThrow(() => executePrimeCommand(args, { mode: "tui", confirm: true }, {
+    assert.doesNotThrow(() => executeHelixCommand(args, { mode: "tui", confirm: true }, {
       root: malformedRoot,
       runsRoot: tempRunsRoot(),
     }));
-    const out = executePrimeCommand(args, { mode: "tui", confirm: true }, {
+    const out = executeHelixCommand(args, { mode: "tui", confirm: true }, {
       root: malformedRoot,
       runsRoot: tempRunsRoot(),
     });
     assert.equal(out.ok, false);
     assert.equal(out.status, "fail-closed");
-    assert.equal(out.code, "prime-config-unreadable");
+    assert.equal(out.code, "helix-config-unreadable");
     assert.equal(out.details.detail, "run-configs.json");
     assert.equal(out.text.includes("SyntaxError"), false);
     assert.equal(out.text.includes(malformedRoot), false);
   }
 });
 
-test("prime help is view-only and does not require config loading", () => {
+test("helix help is view-only and does not require config loading", () => {
   const malformedRoot = malformedConfigRoot();
-  const out = executePrimeCommand("help", { mode: "print" }, {
+  const out = executeHelixCommand("help", { mode: "print" }, {
     root: malformedRoot,
     runsRoot: tempRunsRoot(),
   });
@@ -163,25 +163,25 @@ test("prime help is view-only and does not require config loading", () => {
   assert.equal(out.text.includes("docs/manual.md"), true);
 });
 
-test("prime prune is not called when config loading fails", () => {
+test("helix prune is not called when config loading fails", () => {
   const malformedRoot = malformedConfigRoot();
   const runsRoot = tempRunsRoot();
   const dir = writeDebateRecord(runsRoot);
-  const out = executePrimeCommand("runs prune safe-run", { mode: "tui", confirm: true }, {
+  const out = executeHelixCommand("runs prune safe-run", { mode: "tui", confirm: true }, {
     root: malformedRoot,
     runsRoot,
   });
 
   assert.equal(out.ok, false);
-  assert.equal(out.code, "prime-config-unreadable");
+  assert.equal(out.code, "helix-config-unreadable");
   assert.equal(out.details.mutating, false);
   assert.equal(existsSync(dir), true);
 });
 
-test("prime models and chains are view-only; profiles serves overlay casts", () => {
+test("helix models and chains are view-only; profiles serves overlay casts", () => {
   const options = { runsRoot: tempRunsRoot() };
-  const models = executePrimeCommand("models", { mode: "print" }, options);
-  const chains = executePrimeCommand("chains", { mode: "print" }, options);
+  const models = executeHelixCommand("models", { mode: "print" }, options);
+  const chains = executeHelixCommand("chains", { mode: "print" }, options);
   assert.equal(models.details.view_only, true);
   assert.equal(chains.details.view_only, true);
   assert.equal(models.details.roles.builder.models[0].provider, "mock");
@@ -191,15 +191,15 @@ test("prime models and chains are view-only; profiles serves overlay casts", () 
 
   // The profiles verb now serves OVERLAY profiles (saved casts) — the old
   // cost-profile browser stays gone.
-  const profiles = executePrimeCommand("profiles", { mode: "print" }, options);
+  const profiles = executeHelixCommand("profiles", { mode: "print" }, options);
   assert.equal(profiles.ok, true);
-  assert.equal(profiles.title, "Prime profiles");
+  assert.equal(profiles.title, "Helix profiles");
   assert.ok(Array.isArray(profiles.details.profiles));
   assert.ok(!JSON.stringify(profiles.details).includes("price"), "no cost-profile content survives");
 });
 
-test("prime hashes or omits every schema-valid registry prose field before rendering", () => {
-  const localRoot = mkdtempSync(join(tmpdir(), "prime-command-prose-boundary-"));
+test("helix hashes or omits every schema-valid registry prose field before rendering", () => {
+  const localRoot = mkdtempSync(join(tmpdir(), "helix-command-prose-boundary-"));
   const matricesDir = join(localRoot, "matrices");
   mkdirSync(matricesDir, { recursive: true });
   const canary = "RAW MODEL RESPONSE CANARY";
@@ -239,27 +239,27 @@ test("prime hashes or omits every schema-valid registry prose field before rende
 
   try {
     for (const args of ["", "run mock-core-loop", "models", "chains", "setup"]) {
-      const out = executePrimeCommand(args, { mode: "print" }, options);
+      const out = executeHelixCommand(args, { mode: "print" }, options);
       assert.equal(out.ok, true, `${args}: ${JSON.stringify(out)}`);
       const rendered = JSON.stringify(out);
       assert.equal(rendered.includes(canary), false, args);
       assert.equal(rendered.includes(body), false, args);
     }
-    const completions = getPrimeArgumentCompletions("run ", { runRegistry });
+    const completions = getHelixArgumentCompletions("run ", { runRegistry });
     assert.equal(JSON.stringify(completions).includes(canary), false);
   } finally {
     rmSync(localRoot, { recursive: true, force: true });
   }
 });
 
-test("prime chains derives loop-runnable status from the task route", () => {
+test("helix chains derives loop-runnable status from the task route", () => {
   const registry = readJson("dispatch/config/chains.json");
   const builderStepArchitecture = {
     ...registry.chains[0],
     id: "builder-step-architecture",
     task_class: "architecture",
   };
-  const out = executePrimeCommand("chains", { mode: "print" }, {
+  const out = executeHelixCommand("chains", { mode: "print" }, {
     runsRoot: tempRunsRoot(),
     chainRegistry: { ...registry, chains: [builderStepArchitecture] },
   });
@@ -270,7 +270,7 @@ test("prime chains derives loop-runnable status from the task route", () => {
   assert.equal(out.details.chains[0].loop_status, "chain-not-loop-runnable:builder-step-architecture");
 });
 
-test("prime run preflight fails closed on legacy cost-control fields in a run config", () => {
+test("helix run preflight fails closed on legacy cost-control fields in a run config", () => {
   const runRegistry = readJson("dispatch/config/run-configs.json");
   const chainRegistry = readJson("dispatch/config/chains.json");
   const roleMatrix = readJson("dispatch/config/role-matrix-defaults.json");
@@ -283,7 +283,7 @@ test("prime run preflight fails closed on legacy cost-control fields in a run co
     write_allowlist: ["proposal.txt"],
   };
   const shared = preflightTaskLoopConfig(legacy, { chainRegistry, roleMatrix, agentTeam });
-  const out = executePrimeCommand("run legacy-cost-control", { mode: "print" }, {
+  const out = executeHelixCommand("run legacy-cost-control", { mode: "print" }, {
     runsRoot: tempRunsRoot(),
     runRegistry: { ...runRegistry, configs: [legacy] },
     chainRegistry,
@@ -299,11 +299,11 @@ test("prime run preflight fails closed on legacy cost-control fields in a run co
   assert.equal(out.code, "invalid-run-config-registry");
 });
 
-test("prime runs list and status use structural run-manager data only", () => {
+test("helix runs list and status use structural run-manager data only", () => {
   const runsRoot = tempRunsRoot();
   writeDebateRecord(runsRoot);
 
-  const list = executePrimeCommand("runs list", { mode: "print" }, { runsRoot });
+  const list = executeHelixCommand("runs list", { mode: "print" }, { runsRoot });
   assert.equal(list.ok, true);
   assert.equal(list.details.runs.length, 1);
   assert.deepEqual(Object.keys(list.details.runs[0]).sort(), [
@@ -317,7 +317,7 @@ test("prime runs list and status use structural run-manager data only", () => {
     "total_tokens",
   ]);
 
-  const status = executePrimeCommand("runs status safe-run", { mode: "print" }, { runsRoot });
+  const status = executeHelixCommand("runs status safe-run", { mode: "print" }, { runsRoot });
   assert.equal(status.ok, true);
   assert.equal(status.details.entries[0].run_id, "safe-run");
   assert.equal(status.details.entries[0].prunable, true);
@@ -325,14 +325,14 @@ test("prime runs list and status use structural run-manager data only", () => {
   assert.equal(JSON.stringify(status.details).includes("transcript"), false);
 });
 
-test("prime run status refuses unsafe run ids through run-manager validation", () => {
-  const out = executePrimeCommand("runs status ../escape", { mode: "print" }, { runsRoot: tempRunsRoot() });
+test("helix run status refuses unsafe run ids through run-manager validation", () => {
+  const out = executeHelixCommand("runs status ../escape", { mode: "print" }, { runsRoot: tempRunsRoot() });
   assert.equal(out.ok, false);
   assert.equal(out.code, "unsafe-run-id");
   assert.equal(out.details.detail, "run-id-pattern");
 });
 
-test("prime run refusals do not echo private-path-shaped run ids", () => {
+test("helix run refusals do not echo private-path-shaped run ids", () => {
   const runIds = [
     "/Us" + "ers/someone/private",
     "/ho" + "me/someone/private",
@@ -345,7 +345,7 @@ test("prime run refusals do not echo private-path-shaped run ids", () => {
       { args: `runs prune ${runId}`, ctx: { mode: "tui" } },
     ];
     for (const { args, ctx } of cases) {
-      const out = executePrimeCommand(args, ctx, { runsRoot: tempRunsRoot() });
+      const out = executeHelixCommand(args, ctx, { runsRoot: tempRunsRoot() });
       assert.equal(out.ok, false, args);
       assert.equal(out.code, "unsafe-run-id", args);
       assert.equal(out.details.detail, "run-id-pattern", args);
@@ -355,36 +355,36 @@ test("prime run refusals do not echo private-path-shaped run ids", () => {
   }
 });
 
-test("prime prune requires TUI mode and explicit confirm", () => {
+test("helix prune requires TUI mode and explicit confirm", () => {
   const runsRoot = tempRunsRoot();
   const dir = writeDebateRecord(runsRoot);
 
-  const nonTui = executePrimeCommand("runs prune safe-run", { mode: "json", confirm: true }, { runsRoot });
+  const nonTui = executeHelixCommand("runs prune safe-run", { mode: "json", confirm: true }, { runsRoot });
   assert.equal(nonTui.ok, false);
-  assert.equal(nonTui.code, "prime-mutation-requires-tui-confirm");
+  assert.equal(nonTui.code, "helix-mutation-requires-tui-confirm");
   assert.equal(nonTui.details.detail, "mode-not-tui");
   assert.equal(existsSync(dir), true);
 
-  const missingConfirm = executePrimeCommand("runs prune safe-run", { mode: "tui" }, { runsRoot });
+  const missingConfirm = executeHelixCommand("runs prune safe-run", { mode: "tui" }, { runsRoot });
   assert.equal(missingConfirm.status, "cancelled");
-  assert.equal(missingConfirm.code, "prime-mutation-cancelled");
+  assert.equal(missingConfirm.code, "helix-mutation-cancelled");
   assert.equal(existsSync(dir), true);
 
-  const falseConfirm = executePrimeCommand("runs prune safe-run", { mode: "tui", confirm: false }, { runsRoot });
+  const falseConfirm = executeHelixCommand("runs prune safe-run", { mode: "tui", confirm: false }, { runsRoot });
   assert.equal(falseConfirm.status, "cancelled");
   assert.equal(existsSync(dir), true);
 
-  const confirmed = executePrimeCommand("runs prune safe-run", { mode: "tui", confirm: true }, { runsRoot });
+  const confirmed = executeHelixCommand("runs prune safe-run", { mode: "tui", confirm: true }, { runsRoot });
   assert.equal(confirmed.ok, true);
   assert.equal(confirmed.details.mutating, true);
   assert.equal(existsSync(dir), false);
 });
 
-test("prime prune refuses root-resolving run ids even with TUI confirmation", () => {
+test("helix prune refuses root-resolving run ids even with TUI confirmation", () => {
   const runsRoot = tempRunsRoot();
   const sentinel = join(runsRoot, "sentinel.json");
   writeFileSync(sentinel, "{}", "utf8");
-  const out = executePrimeCommand("runs prune .", { mode: "tui", confirm: true }, { runsRoot });
+  const out = executeHelixCommand("runs prune .", { mode: "tui", confirm: true }, { runsRoot });
 
   assert.equal(out.ok, false);
   assert.equal(out.code, "unsafe-run-id");
@@ -392,8 +392,8 @@ test("prime prune refuses root-resolving run ids even with TUI confirmation", ()
   assert.equal(existsSync(sentinel), true);
 });
 
-test("prime completions expose only the single-command verb set", () => {
-  assert.deepEqual(getPrimeArgumentCompletions("").map((item) => item.label), [
+test("helix completions expose only the single-command verb set", () => {
+  assert.deepEqual(getHelixArgumentCompletions("").map((item) => item.label), [
     "help",
     "run",
     "runs",
@@ -404,22 +404,22 @@ test("prime completions expose only the single-command verb set", () => {
     "setup",
     "research",
   ]);
-  assert.equal(isPrimePruneRequest("runs prune safe-run"), true);
-  assert.equal(isPrimePruneRequest("run mock-core-loop"), false);
+  assert.equal(isHelixPruneRequest("runs prune safe-run"), true);
+  assert.equal(isHelixPruneRequest("run mock-core-loop"), false);
   for (const args of [
     "runs prune safe-run",
     "settings set loops off",
     "profiles create work",
     "profiles switch work",
     "setup work plan=daily",
-  ]) assert.equal(isPrimeMutationRequest(args), true, args);
-  assert.equal(isPrimeMutationRequest("research why --metric x >= 1 --max 1"), false);
+  ]) assert.equal(isHelixMutationRequest(args), true, args);
+  assert.equal(isHelixMutationRequest("research why --metric x >= 1 --max 1"), false);
 });
 
-test("prime completions fail closed when run config completion input is malformed", () => {
+test("helix completions fail closed when run config completion input is malformed", () => {
   const malformedRoot = malformedConfigRoot();
 
-  assert.deepEqual(getPrimeArgumentCompletions("").map((item) => item.label), [
+  assert.deepEqual(getHelixArgumentCompletions("").map((item) => item.label), [
     "help",
     "run",
     "runs",
@@ -430,8 +430,8 @@ test("prime completions fail closed when run config completion input is malforme
     "setup",
     "research",
   ]);
-  assert.equal(getPrimeArgumentCompletions("run ", { root: malformedRoot }), null);
-  assert.deepEqual(getPrimeArgumentCompletions("runs ", { root: malformedRoot }).map((item) => item.label), [
+  assert.equal(getHelixArgumentCompletions("run ", { root: malformedRoot }), null);
+  assert.deepEqual(getHelixArgumentCompletions("runs ", { root: malformedRoot }).map((item) => item.label), [
     "list",
     "status",
     "watch",

@@ -176,7 +176,7 @@ test("research rejects unsafe or impractical iteration rails and malformed toggl
 });
 
 test("the research record is structural: hashes and measurements, never the text", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "prime-research-"));
+  const dir = mkdtempSync(join(tmpdir(), "helix-research-"));
   try {
     const result = await runResearch(spec(), {
       attended: true, toggles: ON,

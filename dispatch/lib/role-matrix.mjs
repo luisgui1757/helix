@@ -1,9 +1,9 @@
-// Prime dispatch — per-role model/effort/instance matrix expansion (Stage 3L).
+// Helix dispatch — per-role model/effort/instance matrix expansion (Stage 3L).
 //
 // Source of truth: ROADMAP Phase 3 / Theme J and the Stage 3A routing policy:
 // role -> [{ provider, model, effort, instances }], deterministic expansion into
 // dispatch specs, and provider-diversity requirements enforced or warned by
-// policy. Prime performs no cost control; a matrix naming real providers is
+// policy. Helix performs no cost control; a matrix naming real providers is
 // launchable as-is (presence = live).
 //
 // This module deliberately sits BEFORE runDispatch. It turns matrix config into
@@ -249,7 +249,7 @@ export function expandRoleMatrix(args) {
     allSpecs.push(expanded[0]);
   }
 
-  // Structural provider check only: the provider must be a known Prime provider
+  // Structural provider check only: the provider must be a known Helix provider
   // eligible for automated dispatch (claude-local stays excluded by roadmap gate).
   for (const spec of allSpecs) {
     if (!isAutomatedDispatchProvider(spec.provider)) {

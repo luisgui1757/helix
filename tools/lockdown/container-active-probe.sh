@@ -14,19 +14,19 @@
 
 set -euo pipefail
 
-AGENT_DIR="/tmp/prime-agent"
+AGENT_DIR="/tmp/helix-agent"
 PORT="8080"
-MODEL="prime-mock/echo-1"
+MODEL="helix-mock/echo-1"
 mkdir -p "${AGENT_DIR}"
 
 # Isolated models.json pointing Pi at the local mock. Dummy key only.
 cat > "${AGENT_DIR}/models.json" <<JSON
 {
   "providers": {
-    "prime-mock": {
+    "helix-mock": {
       "baseUrl": "http://127.0.0.1:${PORT}/v1",
       "api": "openai-completions",
-      "apiKey": "prime-mock-dummy-key",
+      "apiKey": "helix-mock-dummy-key",
       "authHeader": true,
       "compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false },
       "models": [ { "id": "echo-1", "contextWindow": 8192, "maxTokens": 256 } ]
@@ -57,7 +57,7 @@ fi
 # Run a real Pi session in print mode against the mock provider.
 export PI_CODING_AGENT_DIR="${AGENT_DIR}"
 set +e
-OUT="$(pi --provider prime-mock --model "${MODEL}" --approve --no-session --no-tools -p "ping" 2>"${AGENT_DIR}/pi.err")"
+OUT="$(pi --provider helix-mock --model "${MODEL}" --approve --no-session --no-tools -p "ping" 2>"${AGENT_DIR}/pi.err")"
 PI_RC=$?
 set -e
 
@@ -66,7 +66,7 @@ echo "MOCK-LOG (method/path only):"
 sed 's/^/  /' "${AGENT_DIR}/mock.log" || true
 
 got_canned=0
-echo "${OUT}" | grep -q "prime-lockdown-mock-ok" && got_canned=1
+echo "${OUT}" | grep -q "helix-lockdown-mock-ok" && got_canned=1
 mock_chat=0
 grep -q "POST /v1/chat/completions" "${AGENT_DIR}/mock.log" && mock_chat=1
 

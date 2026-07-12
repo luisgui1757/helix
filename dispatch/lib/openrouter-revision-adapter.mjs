@@ -1,4 +1,4 @@
-// Prime dispatch — OpenRouter live builder adapter (Stage 3J; YOLO posture 2026-07-09).
+// Helix dispatch — OpenRouter live builder adapter (Stage 3J; YOLO posture 2026-07-09).
 //
 // This is the smallest live implementation of the Stage 3I
 // `modelAdapter.runRevision` boundary. It calls Pi's native OpenRouter provider
@@ -156,7 +156,7 @@ function buildPrompt(config, revisionInput, ctx) {
   const prompt = promptBuilder(maxInputBytes);
 
   for (const line of [
-    "You are Prime's Stage 3J live builder adapter.",
+    "You are Helix's Stage 3J live builder adapter.",
     "Return ONLY JSON. Do not use Markdown fences unless forced by the interface.",
     'The JSON schema is exactly: {"edits":[{"path":"<allowed path>","content":"<complete file content>"}]}',
     `Allowed edit paths: ${paths}`,
