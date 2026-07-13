@@ -1,4 +1,4 @@
-// M8 — the /helix surface: settings, profiles, setup casts, research
+// Native Helix surface: settings, profiles, setup casts, research
 // preflight, run watch/resume, preset views, dashboard lines. All fake-Pi:
 // options-injected registries + temp roots; no Pi runtime, no live calls.
 
@@ -26,7 +26,6 @@ const registries = {
   roleMatrix: readJson("dispatch/config/role-matrix-defaults.json"),
   agentTeam: readJson("dispatch/config/agent-team-defaults.json"),
   packageJson: readJson("package.json"),
-  settings: readJson(".pi/settings.json"),
 };
 
 function tempOptions() {
@@ -35,10 +34,11 @@ function tempOptions() {
     root,
     options: {
       root,
+      stateRoot: root,
       ...registries,
       matricesDir: join(repoRoot, "dispatch", "config", "matrices"),
-      settingsPath: join(root, "dispatch", "local", "settings.json"),
-      runsRoot: join(root, "dispatch", "runs"),
+      settingsPath: join(root, "settings.json"),
+      runsRoot: join(root, "runs"),
     },
   };
 }
@@ -193,7 +193,7 @@ test("every /helix mutation requires attended TUI confirmation", () => {
 
     const cancelled = executeHelixCommand("profiles create guarded", { mode: "tui", confirm: false }, options);
     assert.equal(cancelled.code, "helix-mutation-cancelled");
-    assert.equal(existsSync(join(root, "dispatch", "local", "profiles", "guarded.json")), false);
+    assert.equal(existsSync(join(root, "profiles", "guarded.json")), false);
 
     const created = executeHelixCommand("profiles create guarded", { mode: "tui", confirm: true }, options);
     assert.equal(created.ok, true);
@@ -218,7 +218,7 @@ test("setup stores inventory-validated real composite members but run preflight 
       withInventory,
     );
     assert.equal(setup.ok, true, JSON.stringify(setup));
-    const profile = JSON.parse(readFileSync(join(root, "dispatch", "local", "profiles", "live.json"), "utf8"));
+    const profile = JSON.parse(readFileSync(join(root, "profiles", "live.json"), "utf8"));
     assert.equal(profile.overrides.presets.daily.roles.builder[0].provider, "openai-codex");
     assert.equal(profile.overrides.presets.daily.roles.reviewer[0].instances, 2);
 
@@ -235,7 +235,7 @@ test("setup stores inventory-validated real composite members but run preflight 
       withInventory,
     );
     assert.equal(unavailable.code, "preset-member-unavailable");
-    const absent = JSON.parse(readFileSync(join(root, "dispatch", "local", "profiles", "absent.json"), "utf8"));
+    const absent = JSON.parse(readFileSync(join(root, "profiles", "absent.json"), "utf8"));
     assert.deepEqual(absent.overrides, {}, "a refused setup must not mutate the existing profile");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -247,7 +247,7 @@ test("setup restores the prior profile when active-pointer persistence fails", (
   try {
     assert.equal(executeHelixCommand("profiles create victim", { mode: "tui", confirm: true }, options).ok, true);
     assert.equal(executeHelixCommand("setup victim plan=overlord", { mode: "tui", confirm: true }, options).ok, true);
-    const dir = join(root, "dispatch", "local", "profiles");
+    const dir = join(root, "profiles");
     mkdirSync(join(dir, "active.json.pending"));
 
     const refused = executeHelixCommand("setup victim plan=daily", { mode: "tui", confirm: true }, options);
@@ -264,7 +264,7 @@ test("setup restores the prior profile when active-pointer persistence fails", (
 test("malformed or dangling active profile pointers fail closed on rendered surfaces", () => {
   const { root, options } = tempOptions();
   try {
-    const dir = join(root, "dispatch", "local", "profiles");
+    const dir = join(root, "profiles");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "active.json"), JSON.stringify({ profile_id: null }), "utf8");
     for (const args of ["", "run mock-core-loop", "profiles", "models"]) {

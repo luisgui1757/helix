@@ -1,8 +1,7 @@
-// M10 regression: the loop CLI (tools/loop/helix-task-loop.mjs) had zero
-// automated coverage despite driving fresh runs, resume, and the guards.
+// Regression coverage for the loop CLI, including fresh runs, resume, and guards.
 // These exercise it as a child process against the real repo config.
 
-import test from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,9 +12,17 @@ import { defaultSettings, saveSettings } from "../dispatch/lib/settings.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const CLI = join(root, "tools", "loop", "helix-task-loop.mjs");
+const stateRoot = mkdtempSync(join(tmpdir(), "helix-cli-state-"));
+const runsRoot = join(stateRoot, "runs");
+
+after(() => rmSync(stateRoot, { recursive: true, force: true }));
 
 function runCli(args) {
-  const res = spawnSync("node", [CLI, ...args], { cwd: root, encoding: "utf8" });
+  const res = spawnSync("node", [CLI, ...args], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, HELIX_STATE_DIR: stateRoot },
+  });
   return { status: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
 }
 
@@ -43,13 +50,13 @@ test("a fresh CLI run over a synthetic repo converges and writes structural arti
     assert.match(parsed.worktree_branch, /^helix\/run-[0-9a-f]{24}$/);
     assert.match(parsed.events_path, /\.events\.jsonl$/);
   } finally {
-    rmSync(join(root, "dispatch", "runs", runId), { recursive: true, force: true });
+    rmSync(join(runsRoot, runId), { recursive: true, force: true });
   }
 });
 
 test("--resume without --repo fails closed (the per-run worktree lives under the original repo)", () => {
   const runId = `cli-resume-norepo-${process.pid}`;
-  const runDir = join(root, "dispatch", "runs", runId);
+  const runDir = join(runsRoot, runId);
   const repo = tempRepo();
   try {
     const fresh = runCli(["--run-id", runId, "--repo", repo, "--summary"]);
@@ -65,7 +72,7 @@ test("--resume without --repo fails closed (the per-run worktree lives under the
 
 test("a fresh run refuses to clobber an interrupted, still-resumable run's state", () => {
   const runId = `cli-clobber-${process.pid}`;
-  const runDir = join(root, "dispatch", "runs", runId);
+  const runDir = join(runsRoot, runId);
   try {
     mkdirSync(runDir, { recursive: true });
     const statePath = join(runDir, `${runId}.state.json`);
@@ -89,7 +96,7 @@ test("a fresh run refuses to clobber an interrupted, still-resumable run's state
 
 test("--resume with an explicit --config that disagrees fails closed", () => {
   const runId = `cli-resume-mismatch-${process.pid}`;
-  const runDir = join(root, "dispatch", "runs", runId);
+  const runDir = join(runsRoot, runId);
   const repo = tempRepo();
   try {
     const fresh = runCli(["--run-id", runId, "--repo", repo, "--summary"]);
@@ -113,9 +120,8 @@ test("--resume rejects an unsafe id before filesystem access or rendering it", (
 
 test("visual-cues OFF renders every persisted event as a plain line unless --summary is explicit", () => {
   const runId = `cli-visual-off-${process.pid}`;
-  const runDir = join(root, "dispatch", "runs", runId);
-  const settingsPath = join(root, "dispatch", "local", "settings.json");
-  const prior = existsSync(settingsPath) ? readFileSync(settingsPath) : null;
+  const runDir = join(runsRoot, runId);
+  const settingsPath = join(stateRoot, "settings.json");
   const repo = tempRepo();
   try {
     const settings = {
@@ -131,7 +137,6 @@ test("visual-cues OFF renders every persisted event as a plain line unless --sum
   } finally {
     rmSync(runDir, { recursive: true, force: true });
     rmSync(repo, { recursive: true, force: true });
-    if (prior === null) rmSync(settingsPath, { force: true });
-    else writeFileSync(settingsPath, prior);
+    rmSync(settingsPath, { force: true });
   }
 });

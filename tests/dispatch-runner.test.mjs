@@ -1,4 +1,4 @@
-// M5 — the staged runner: end-to-end mock convergence over a real worktree,
+// Staged runner: end-to-end mock convergence over a real worktree,
 // event-stream shape and safety, interrupt-safe state + resume, worktree
 // toggle, and verdict extraction.
 
@@ -1166,7 +1166,7 @@ test("chain effects cannot persist caller-supplied failure codes", async () => {
   }
 });
 
-// M10 round-2 regressions.
+// Additional runner regressions.
 
 test("live-adapter guard covers panel_roles: a real judge on an otherwise-mock cast fails closed", async () => {
   const repo = tempRepo();

@@ -1,7 +1,7 @@
-// Helix dispatch — bounded task-loop entrypoint (Stage 3M/N).
+// Helix dispatch — bounded task-loop entrypoint.
 //
 // This is the code-level entrypoint for daily-use loop configs. It composes the
-// existing Stage 3 primitives instead of adding new authority:
+// existing dispatch primitives instead of adding new authority:
 //   run config -> chain -> route -> role matrix -> runDebate
 // with a real git diff-stability checker, a real model-backed revision effect,
 // and a deterministic no-live adapter for all-mock casts. This build has no
@@ -284,7 +284,7 @@ export async function runTaskLoop(config, registries, deps = {}) {
     builder: builderConfig(builder),
   }, { modelAdapter: revisionModelAdapter });
 
-  // Feature toggles (M2). loops OFF degenerates to a single pass: every stage
+  // With loops OFF, execution degenerates to a single pass: every stage
   // runs at most once — max_iterations is forced to 1, gates still run and
   // report. This is degeneration, never an error.
   const toggles = deps.toggles ?? null;

@@ -1,4 +1,4 @@
-// Helix dispatch — feature-toggle settings substrate (M2, owner interview 2026-07-09).
+// Helix dispatch — feature-toggle settings substrate.
 //
 // Six user-local toggles select Helix's behavior; all default ON. OFF never
 // errors — each feature defines its degenerate form (multi-model off ⇒ solo
@@ -8,13 +8,13 @@
 // conflicts (a config demanding a composite while multi-model is off, the
 // research verb while autoresearch is off) — stable codes naming the toggle.
 //
-// Settings are untracked user-local state (dispatch/local/settings.json,
-// gitignored) with a schema_version and refuse-on-mismatch. They are never
-// tracked config and never carry secrets. Run records embed the resolved
-// toggle vector so every run is reproducible against the settings it ran under.
+// Settings are user-local Pi state (`<pi-agent-dir>/helix/settings.json`) with a
+// schema_version and refuse-on-mismatch. They are never tracked config and never
+// carry secrets. Run records embed the resolved toggle vector so every run is
+// reproducible against the settings it ran under.
 //
 // NOT toggleable (invariants, not features): public-safe structural records,
-// CI-never-live, the single /helix command, the max_iterations rail, and
+// CI-never-live, the native command registry, the max_iterations rail, and
 // structural fail-closed validation.
 
 import { existsSync, readFileSync } from "node:fs";
@@ -32,8 +32,8 @@ export const HELIX_TOGGLES = Object.freeze([
   "visual-cues",
 ]);
 
-/** Default (gitignored) user-local settings path, relative to the repo root. */
-export const DEFAULT_SETTINGS_REL_PATH = "dispatch/local/settings.json";
+/** Settings filename relative to Helix's user-state root. */
+export const DEFAULT_SETTINGS_REL_PATH = "settings.json";
 
 export const SETTINGS_CODES = Object.freeze({
   UNREADABLE: "helix-settings-unreadable",

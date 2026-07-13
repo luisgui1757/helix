@@ -1,7 +1,6 @@
-// Helix dispatch — OpenRouter live builder adapter (Stage 3J; YOLO posture 2026-07-09).
+// Helix dispatch — OpenRouter live builder adapter.
 //
-// This is the smallest live implementation of the Stage 3I
-// `modelAdapter.runRevision` boundary. It calls Pi's native OpenRouter provider
+// Implements the `modelAdapter.runRevision` boundary. It calls Pi's native OpenRouter provider
 // with all repo/session/tool/resource surfaces disabled, parses the model's JSON
 // edit payload, and returns only `{ edits:[{path,content}] }` to
 // `makeModelRevision`. Presence = live: any OpenRouter model id is callable —
@@ -156,7 +155,7 @@ function buildPrompt(config, revisionInput, ctx) {
   const prompt = promptBuilder(maxInputBytes);
 
   for (const line of [
-    "You are Helix's Stage 3J live builder adapter.",
+    "You are Helix's live builder adapter.",
     "Return ONLY JSON. Do not use Markdown fences unless forced by the interface.",
     'The JSON schema is exactly: {"edits":[{"path":"<allowed path>","content":"<complete file content>"}]}',
     `Allowed edit paths: ${paths}`,
@@ -213,7 +212,7 @@ function jsonFromBalancedObject(text) {
 }
 
 /**
- * Parse a live model response into the exact Stage 3I revision output shape.
+ * Parse a live model response into the exact revision output shape.
  * Returns stable codes on refusal and never includes raw response text in errors.
  *
  * @param {string} text stdout from the Pi/OpenRouter model call
@@ -313,7 +312,7 @@ function defaultRunPi({ model, prompt, timeout_ms, max_output_bytes }) {
 }
 
 /**
- * Create the live OpenRouter modelAdapter implementation for Stage 3I.
+ * Create the live OpenRouter modelAdapter implementation.
  *
  * @param {object} config
  * @param {string} config.model OpenRouter model id

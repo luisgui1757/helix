@@ -1,7 +1,7 @@
 // Helix dispatch — thin parallel-launch substrate (bounded, deterministic output).
 //
-// Source of truth: the Pi `examples/extensions/subagent` pattern the ROADMAP
-// points at: parallel mode runs at most a fixed number of tasks concurrently via
+// Mirrors Pi's `examples/extensions/subagent` pattern: parallel mode runs at
+// most a fixed number of tasks concurrently via
 // a bounded worker pool that collects results in INPUT order. This module
 // reproduces just that pattern, pure and dependency-free — no subprocesses,
 // no network, no ambient effects. Only embarrassingly-parallel candidate launches

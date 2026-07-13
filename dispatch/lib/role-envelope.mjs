@@ -1,6 +1,6 @@
 // Helix dispatch — role envelope schema + fail-closed runtime validation.
 //
-// Source of truth: fusion-dispatch-research.md §"Role Schema". Every role output
+// Every role output
 // (candidate, judge, synthesis, verification) MUST conform to this envelope, and
 // malformed provider/model output MUST be rejected here — before it can reach
 // judge or synthesis. The schema descriptor is JSON-Schema shaped (portable to

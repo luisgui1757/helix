@@ -1,10 +1,8 @@
 // Helix dispatch — bounded iterating multi-team / adversarial debate loop.
 //
-// Source of truth: fusion-dispatch-research.md §"Adversarial mode" and §9-Q2
-// (adversarial/multi-team debate is first-class for meaningful work;
-// "convergence = diff-stability + objective-gate-pass; per-run token-budget cap +
-// max-iter as runaway rails (not skips)"). This is the SMALLEST complete substrate
-// for long-lived, gate-seeking work: one iteration is exactly the Stage 3B–3F
+// Adversarial/multi-team debate is first-class for meaningful work. Convergence
+// is diff-stability plus objective-gate-pass; max iterations is the mandatory
+// runaway rail. One iteration is exactly one
 // dispatch cycle (candidate panel → optional judge → optional synthesis →
 // objective/advisory gate → optional verifier), and the loop repeats that cycle
 // only when the route calls for adversarial iteration and the gate has not
@@ -32,7 +30,7 @@
 // deterministic under mock adapters: a fixed seed/input yields stable
 // per-iteration records and a stable final debate summary.
 //
-// Stage 3H wires the loop to REAL local signals through two injected boundary
+// The loop connects to real local signals through two injected boundary
 // effects, keeping this core pure: `diffStability` can be the real git working-tree
 // surface (`makeGitDiffStability`, dispatch/lib/git-diff-surface.mjs), and an
 // optional `revise` effect produces the next proposal in the worktree between
@@ -230,7 +228,7 @@ export const DEBATE_REQUEST_SCHEMA = Object.freeze({
  * Whether a route calls for adversarial iteration: it is meaningful work (has an
  * adversarial role) AND the request did not opt out (`disable_adversarial`).
  * Delegates to the shared default-on policy surface so the debate loop and the
- * policy module agree on exactly one definition (Stage 3H).
+ * policy module agree on exactly one definition.
  *
  * @param {object|null} route a ROUTE_CONFIG_SCHEMA-shaped route (or null)
  * @param {object} baseRequest the per-iteration dispatch request
@@ -329,13 +327,13 @@ function uniqueInOrder(values) {
  *     non-deterministic fails closed). Wire the REAL git surface via
  *     `makeGitDiffStability` (dispatch/lib/git-diff-surface.mjs).
  *   revise?: (revisionState|null, ctx) → { ok, revision_ref, code? } — OPTIONAL
- *     revision boundary (Stage 3H). When present, it runs between non-converged
+ *     revision boundary. When present, it runs between non-converged
  *     adversarial iterations to produce the next proposal in the worktree; the
  *     debate core stays pure (all mutation is inside this injected effect). It must
  *     return a structural ref/hash (`revision_ref`), never free text; `ok !== true`,
  *     a thrown error, or a non-ref result fails the debate closed
  *     (`revision-failed` / `revision-invalid`) while preserving prior iteration
- *     evidence. Absent ⇒ Stage 3G behavior (no revision step), unchanged.
+ *     evidence. Absent means no revision step.
  * @returns {Promise<object>} structured debate result:
  *   { ok, status: "ok"|"fail-closed", converged, code?, detail?, run_id,
  *     iterations_run, max_iterations, total_tokens, stop_reason,
@@ -360,7 +358,7 @@ export async function runDebate(request, deps = {}) {
   const warnings = [];
   const iterations = [];
   // Structural revision evidence (refs/counts only; empty ⇒ no revision effect ran,
-  // preserving the Stage 3G summary shape). Populated by the Stage 3H boundary.
+  // preserving the no-revision summary shape). Populated by the revision boundary.
   const revisions = [];
   // Mutable loop state referenced by the summary builder (declared up front so the
   // summary builder's closure never touches it before initialization).
@@ -381,7 +379,7 @@ export async function runDebate(request, deps = {}) {
     total_tokens: totalTokens,
     iterations: iterations.map((it) => ({ ...it, warning_codes: [...it.warning_codes] })),
     // Structural revision evidence, included only when a revision effect ran so a
-    // pure Stage 3G debate summary stays byte-identical.
+    // pure no-revision debate summary stays byte-identical.
     ...(revisions.length ? { revisions: revisions.map((r) => ({ ...r })) } : {}),
     warning_codes: uniqueInOrder(warnings),
   });
@@ -469,8 +467,8 @@ export async function runDebate(request, deps = {}) {
     return failClosed("diff-checker-unavailable", "deps.diffStability (deterministic diff-stability checker) is required");
   }
 
-  // --- revision boundary availability (Stage 3H; optional but validated) --------
-  // The revision effect is OPTIONAL (absent ⇒ Stage 3G behavior). If supplied it
+  // --- revision boundary availability (optional but validated) ----------------
+  // The revision effect is optional. If supplied it
   // must be a function; a present-but-malformed effect fails closed rather than
   // being silently ignored.
   if (deps.revise != null && typeof deps.revise !== "function") {
@@ -575,7 +573,7 @@ export async function runDebate(request, deps = {}) {
       return failClosed("single-pass-not-converged", `single-pass route did not converge (gate ${record.gate.result}/${record.gate.kind}, diff ${diff.stable ? "stable" : "unstable"})`, cumulativeTokens);
     }
 
-    // --- revision boundary (Stage 3H) ------------------------------------------
+    // --- revision boundary -----------------------------------------------------
     // Another adversarial iteration WILL run, so produce the next proposal through
     // the injected revision effect (the only thing allowed to mutate the worktree).
     // The debate core stays pure; a failed revision stops fail-closed with a stable

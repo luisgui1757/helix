@@ -1,12 +1,5 @@
 #!/usr/bin/env node
-// Helix no-auth/no-live Pi load helper.
-//
-// Separates four proof types that earlier handoffs were prone to collapse:
-// package/resource loadability, Pi command/skill discoverability, no-live
-// behavior, and live-provider proof. Default mode is static and CI-safe. Runtime
-// RPC mode sends only `get_commands` to Pi with isolated HOME/agent dirs; it does
-// not prompt a model, read the user's Pi credential files, or make a provider
-// call.
+// No-auth proof that Pi loads Helix as a package and discovers every native command.
 
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,31 +9,47 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_ROOT = resolve(new URL("../..", import.meta.url).pathname);
 export const DEFAULT_RUNTIME_RPC_TIMEOUT_MS = 60_000;
-const EXPECTED = Object.freeze({
-  skill: "./skills/helix-ui",
-  themes: "./themes",
-  extensions: [
-    "./extensions/helix-fence.ts",
-    "./extensions/helix-answer.ts",
-    "./extensions/helix-command.ts",
-  ],
-  settingsSkill: "../skills/helix-ui",
-  settingsThemes: "../themes",
-  settingsExtensions: [
-    "../extensions/helix-fence.ts",
-    "../extensions/helix-answer.ts",
-    "../extensions/helix-command.ts",
-  ],
-  command: "helix",
-  skillCommand: "skill:helix-ui",
-});
+export const EXPECTED_HELIX_COMMANDS = Object.freeze([
+  "helix",
+  "helix-help",
+  "helix-run",
+  "helix-runs",
+  "helix-run-status",
+  "helix-run-watch",
+  "helix-run-resume",
+  "helix-run-prune",
+  "helix-models",
+  "helix-chains",
+  "helix-settings",
+  "helix-profiles",
+  "helix-setup",
+  "helix-research",
+]);
+const EXPECTED_EXTENSIONS = Object.freeze([
+  "./extensions/helix-fence.ts",
+  "./extensions/helix-answer.ts",
+  "./extensions/helix-command.ts",
+]);
+const REQUIRED_PACKAGE_FILES = Object.freeze([
+  "README.md",
+  "docs/manual.md",
+  "extensions/helix-fence.ts",
+  "extensions/helix-answer.ts",
+  "extensions/helix-command.ts",
+  "extensions/lib/helix-command-core.mjs",
+  "dispatch/config/run-configs.json",
+  "dispatch/lib/runner.mjs",
+  "tools/loop/helix-task-loop.mjs",
+]);
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function sameArray(a, b) {
-  return Array.isArray(a) && a.length === b.length && a.every((value, index) => value === b[index]);
+function sameArray(actual, expected) {
+  return Array.isArray(actual)
+    && actual.length === expected.length
+    && actual.every((value, index) => value === expected[index]);
 }
 
 function gate(id, proofType, status, detail, extra = {}) {
@@ -50,24 +59,18 @@ function gate(id, proofType, status, detail, extra = {}) {
 function staticLoadability(root) {
   const failures = [];
   const pkg = readJson(join(root, "package.json"));
-  const settings = readJson(join(root, ".pi/settings.json"));
-  if (!sameArray(pkg.pi?.skills, [EXPECTED.skill])) failures.push("package-skill-surface");
-  if (!sameArray(pkg.pi?.themes, [EXPECTED.themes])) failures.push("package-theme-surface");
-  if (!sameArray(pkg.pi?.extensions, EXPECTED.extensions)) failures.push("package-extension-surface");
-  if (!sameArray(settings.skills, [EXPECTED.settingsSkill])) failures.push("settings-skill-surface");
-  if (!sameArray(settings.themes, [EXPECTED.settingsThemes])) failures.push("settings-theme-surface");
-  if (!sameArray(settings.extensions, EXPECTED.settingsExtensions)) failures.push("settings-extension-surface");
-
-  for (const rel of ["skills/helix-ui/SKILL.md", "themes", "extensions/helix-fence.ts", "extensions/helix-answer.ts", "extensions/helix-command.ts"]) {
+  if (!sameArray(pkg.pi?.extensions, EXPECTED_EXTENSIONS)) failures.push("package-extension-surface");
+  if (pkg.pi?.skills !== undefined) failures.push("unexpected-skill-surface");
+  if (pkg.pi?.themes !== undefined) failures.push("unexpected-theme-surface");
+  for (const rel of REQUIRED_PACKAGE_FILES) {
     if (!existsSync(join(root, rel))) failures.push(`missing:${rel}`);
   }
-
   return gate(
     "package-resource-loadability",
     "package/resource loadability",
     failures.length === 0 ? "pass" : "fail",
     failures.length === 0
-      ? "static package manifest, project settings, and referenced resource files are present"
+      ? "package manifest and native extension runtime files are present"
       : failures.join(","),
   );
 }
@@ -93,9 +96,9 @@ function runRpcInventory(root, { piBin = "pi", timeoutMs = DEFAULT_RUNTIME_RPC_T
     };
     const proc = spawnSync(
       piBin,
-      ["--offline", "--approve", "--mode", "rpc", "--no-session"],
+      ["--offline", "--approve", "-e", root, "--mode", "rpc", "--no-session"],
       {
-        cwd: root,
+        cwd: temp,
         input: JSON.stringify({ id: "helix-load", type: "get_commands" }) + "\n",
         encoding: "utf8",
         env,
@@ -103,11 +106,8 @@ function runRpcInventory(root, { piBin = "pi", timeoutMs = DEFAULT_RUNTIME_RPC_T
         maxBuffer: 1024 * 1024,
       },
     );
-    if (proc.error) {
-      return { ok: false, code: "rpc-spawn-failed", detail: proc.error.code ?? proc.error.message };
-    }
-    const lines = String(proc.stdout ?? "").trim().split("\n").filter(Boolean);
-    const response = lines.map((line) => {
+    if (proc.error) return { ok: false, code: "rpc-spawn-failed", detail: proc.error.code ?? proc.error.message };
+    const response = String(proc.stdout ?? "").trim().split("\n").filter(Boolean).map((line) => {
       try {
         return JSON.parse(line);
       } catch {
@@ -115,7 +115,8 @@ function runRpcInventory(root, { piBin = "pi", timeoutMs = DEFAULT_RUNTIME_RPC_T
       }
     }).find((line) => line?.id === "helix-load" && line?.command === "get_commands");
     if (!response?.success) {
-      return { ok: false, code: "rpc-get-commands-failed", detail: response?.error ?? `exit=${proc.status}` };
+      const stderr = String(proc.stderr ?? "").trim().split("\n").at(-1) ?? "";
+      return { ok: false, code: "rpc-get-commands-failed", detail: response?.error ?? stderr ?? `exit=${proc.status}` };
     }
     return { ok: true, commands: response.data?.commands?.map(sanitizeCommand) ?? [] };
   } finally {
@@ -127,52 +128,26 @@ function discoverability(root, options) {
   if (!options.runtimeRpc) {
     return gate(
       "pi-discoverability",
-      "command/tool/skill discoverability",
+      "native command discoverability",
       "not-run",
-      "runtime Pi RPC inventory not requested; static loadability is not a discoverability proof",
-      { commands: [] },
+      "runtime Pi RPC inventory was not requested",
+      { commands: [], missing_commands: [...EXPECTED_HELIX_COMMANDS] },
     );
   }
   const inventory = runRpcInventory(root, options);
   if (!inventory.ok) {
-    return gate("pi-discoverability", "command/tool/skill discoverability", "fail", `${inventory.code}:${inventory.detail}`, { commands: [] });
+    return gate("pi-discoverability", "native command discoverability", "fail", `${inventory.code}:${inventory.detail}`, {
+      commands: [], missing_commands: [...EXPECTED_HELIX_COMMANDS],
+    });
   }
-  const names = inventory.commands.map((command) => command.name);
-  const commandFound = names.includes(EXPECTED.command);
-  const skillFound = names.includes(EXPECTED.skillCommand);
-  const status = commandFound ? "pass" : "fail";
+  const names = new Set(inventory.commands.map((command) => command.name));
+  const missing = EXPECTED_HELIX_COMMANDS.filter((name) => !names.has(name));
   return gate(
     "pi-discoverability",
-    "command/tool/skill discoverability",
-    status,
-    skillFound
-      ? "runtime RPC inventory found Helix command and Helix skill command"
-      : "runtime RPC inventory found Helix command; project skill command remains a known Pi 0.80.3 headless limitation",
-    {
-      command_found: commandFound,
-      skill_command_found: skillFound,
-      commands: inventory.commands,
-    },
-  );
-}
-
-function noLiveGate(options) {
-  return gate(
-    "no-live-behavior",
-    "no-live behavior",
-    "pass",
-    options.runtimeRpc
-      ? "runtime mode sends only RPC get_commands with offline env and isolated config dirs; no prompt/provider call"
-      : "static mode reads repository metadata only; no network, credentials, prompt, or provider call",
-  );
-}
-
-function liveProofGate() {
-  return gate(
-    "live-provider-proof",
-    "live-provider proof",
-    "skipped",
-    "requires explicit maintainer approval per proof; not run by this helper",
+    "native command discoverability",
+    missing.length === 0 ? "pass" : "fail",
+    missing.length === 0 ? "runtime Pi inventory found every Helix command" : `missing:${missing.join(",")}`,
+    { commands: inventory.commands, missing_commands: missing },
   );
 }
 
@@ -180,30 +155,31 @@ export function runPiE2ELoad({ root = DEFAULT_ROOT, runtimeRpc = false, piBin = 
   const gates = [
     staticLoadability(root),
     discoverability(root, { runtimeRpc, piBin, timeoutMs }),
-    noLiveGate({ runtimeRpc }),
-    liveProofGate(),
+    gate(
+      "no-live-behavior",
+      "no-live behavior",
+      "pass",
+      runtimeRpc
+        ? "Pi received only offline get_commands RPC with isolated config directories"
+        : "static mode read local package metadata only",
+    ),
+    gate("live-provider-proof", "live-provider proof", "skipped", "requires explicit paid-provider approval"),
   ];
-  return {
-    ok: gates.every((entry) => entry.status !== "fail"),
-    mode: runtimeRpc ? "runtime-rpc-no-live" : "static-no-live",
-    gates,
-  };
+  return { ok: gates.every((entry) => entry.status !== "fail"), mode: runtimeRpc ? "runtime-rpc-no-live" : "static-no-live", gates };
 }
 
 function parseArgs(argv) {
   const options = { root: DEFAULT_ROOT, runtimeRpc: false, piBin: "pi", timeoutMs: DEFAULT_RUNTIME_RPC_TIMEOUT_MS };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
     if (arg === "--runtime-rpc") options.runtimeRpc = true;
-    else if (arg === "--root") options.root = resolve(argv[++i]);
-    else if (arg === "--pi-bin") options.piBin = argv[++i];
-    else if (arg === "--timeout-ms") options.timeoutMs = Number(argv[++i]);
+    else if (arg === "--root") options.root = resolve(argv[++index]);
+    else if (arg === "--pi-bin") options.piBin = argv[++index];
+    else if (arg === "--timeout-ms") options.timeoutMs = Number(argv[++index]);
     else if (arg === "-h" || arg === "--help") {
-      console.log(`usage: node tools/smoke/pi-e2e-load.mjs [--runtime-rpc] [--root DIR] [--pi-bin pi] [--timeout-ms N]\n\nDefault runtime RPC timeout: ${DEFAULT_RUNTIME_RPC_TIMEOUT_MS} ms.`);
+      console.log("usage: node tools/smoke/pi-e2e-load.mjs [--runtime-rpc] [--root DIR] [--pi-bin pi] [--timeout-ms N]");
       process.exit(0);
-    } else {
-      throw new Error(`unknown arg: ${arg}`);
-    }
+    } else throw new Error(`unknown arg: ${arg}`);
   }
   return options;
 }

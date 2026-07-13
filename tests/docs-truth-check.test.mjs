@@ -1,110 +1,66 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import {
-  checkDocsTruth,
-  collectDocsTruthFacts,
-  HISTORICAL_STAGE_BANNER,
-} from "../tools/ci/docs-truth-check.mjs";
+import { checkDocsTruth, HELIX_COMMANDS, MAX_README_LINES } from "../tools/ci/docs-truth-check.mjs";
 
 function write(root, rel, text) {
   mkdirSync(join(root, rel, ".."), { recursive: true });
-  writeFileSync(join(root, rel), text);
+  writeFileSync(join(root, rel), text, "utf8");
 }
 
-test("docs truth check locks package surface and test count to docs", () => {
+function fixtureRoot() {
   const root = mkdtempSync(join(tmpdir(), "helix-docs-truth-"));
-  const historicalStage = "docs/stage3/example-stage.md";
-  write(root, "package.json", JSON.stringify({
-    pi: {
-      skills: ["./skills/helix-ui"],
-      themes: ["./themes"],
-      extensions: ["./extensions/helix-command.ts"],
-    },
-  }));
-  write(root, "themes/a.json", "{}");
-  write(root, "extensions/helix-command.ts", "pi.registerCommand(\"helix\", {});");
-  write(root, "tests/a.test.mjs", "test(\"one\", () => {});\ntest(\"two\", () => {});\n");
-  write(root, "ROADMAP.md", [
-    "Stage 3P whole-repo gap closure",
-    "Current v1 | Publication hardening",
-    "Phase 0-3P rows and named Stage 3B-N pages below preserve dated build",
-    "",
-  ].join("\n"));
-  write(root, "ROADMAP_SUMMARY.html", [
-    '<p data-node-test-declarations="2">Stage 3P whole-repo gap closure</p>',
-    "Historical build chronology (superseded)",
-    "Historical Stage 3 build chronology",
-    "live-adapter-not-wired",
-    "",
-  ].join("\n"));
-  write(root, "docs/resources/README.md", "/helix help\n");
-  write(root, "docs/manual.md", "/helix help\n");
-  write(root, "docs/stage3/design-contracts.md", [
-    "Fail closed on structure, YOLO on behavior",
-    "Named Stage 3B-N implementation pages are dated historical records",
-    "",
-  ].join("\n"));
-  write(root, historicalStage, `# Stage 3Z — fixture\n\n${HISTORICAL_STAGE_BANNER}\n`);
-
-  const facts = collectDocsTruthFacts(root);
+  write(root, "package.json", JSON.stringify({ pi: { extensions: ["a", "b", "c"] } }));
   write(root, "README.md", [
-    "<!-- HELIX-DOCS-TRUTH:BEGIN -->",
-    "```json",
-    JSON.stringify(facts, null, 2),
-    "```",
-    "<!-- HELIX-DOCS-TRUTH:END -->",
+    "# Helix",
+    "npm install -g @earendil-works/pi-coding-agent",
+    "pi install git:github.com/luisgui1757/helix",
+    "/helix-help",
+    "/helix-settings",
+    "~/.pi/agent/helix",
     "",
   ].join("\n"));
-  assert.deepEqual(checkDocsTruth(root), { ok: true, errors: [], facts });
+  write(root, "docs/manual.md", HELIX_COMMANDS.join("\n") + "\n");
+  write(root, "docs/architecture.md", "# Architecture\n");
+  return root;
+}
 
-  write(root, historicalStage, "# Stage 3Z — fixture\n\nstale stage instructions without a banner\n");
-  const unmarkedHistorical = checkDocsTruth(root);
-  assert.equal(unmarkedHistorical.ok, false);
-  assert.match(unmarkedHistorical.errors.join("\n"), /Historical implementation record/);
-  write(root, historicalStage, `# Stage 3Z — fixture\n\n${HISTORICAL_STAGE_BANNER}\n`);
+test("docs truth accepts the concise native-command surface", () => {
+  const root = fixtureRoot();
+  try {
+    assert.deepEqual(checkDocsTruth(root), { ok: true, errors: [] });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
-  write(root, "ROADMAP_SUMMARY.html", [
-    '<p data-node-test-declarations="1">Stage 3P whole-repo gap closure</p>',
-    "Historical build chronology (superseded)",
-    "Historical Stage 3 build chronology",
-    "live-adapter-not-wired",
-    "",
-  ].join("\n"));
-  const staleHtmlCount = checkDocsTruth(root);
-  assert.equal(staleHtmlCount.ok, false);
-  assert.match(staleHtmlCount.errors.join("\n"), /data-node-test-declarations/);
-  write(root, "ROADMAP_SUMMARY.html", [
-    '<p data-node-test-declarations="2">Stage 3P whole-repo gap closure</p>',
-    "Historical build chronology (superseded)",
-    "Historical Stage 3 build chronology",
-    "live-adapter-not-wired",
-    "",
-  ].join("\n"));
+test("docs truth rejects missing commands, stale stages, and README bloat", () => {
+  const root = fixtureRoot();
+  try {
+    write(root, "docs/manual.md", HELIX_COMMANDS.filter((command) => command !== "/helix-run").join("\n") + "\nStage 3\n");
+    write(root, "README.md", Array.from({ length: MAX_README_LINES + 1 }, (_, index) => index === 0
+      ? "npm install -g @earendil-works/pi-coding-agent pi install git:github.com/luisgui1757/helix /helix-help /helix-settings ~/.pi/agent/helix"
+      : "line").join("\n"));
+    const result = checkDocsTruth(root);
+    assert.equal(result.ok, false);
+    assert.match(result.errors.join("\n"), /exceeds/);
+    assert.match(result.errors.join("\n"), /\/helix-run/);
+    assert.match(result.errors.join("\n"), /Stage 3/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
-  write(root, "ROADMAP_SUMMARY.html", `${readFileSync(join(root, "ROADMAP_SUMMARY.html"), "utf8")}322 tests\n`);
-  const staleHtmlClaim = checkDocsTruth(root);
-  assert.equal(staleHtmlClaim.ok, false);
-  assert.match(staleHtmlClaim.errors.join("\n"), /stale docs-truth snippet/);
-  write(root, "ROADMAP_SUMMARY.html", [
-    '<p data-node-test-declarations="2">Stage 3P whole-repo gap closure</p>',
-    "Historical build chronology (superseded)",
-    "Historical Stage 3 build chronology",
-    "live-adapter-not-wired",
-    "",
-  ].join("\n"));
-
-  write(root, "README.md", [
-    "<!-- HELIX-DOCS-TRUTH:BEGIN -->",
-    "```json",
-    JSON.stringify({ ...facts, node_test_declarations: 1 }, null, 2),
-    "```",
-    "<!-- HELIX-DOCS-TRUTH:END -->",
-    "",
-  ].join("\n"));
-  const drifted = checkDocsTruth(root);
-  assert.equal(drifted.ok, false);
-  assert.match(drifted.errors.join("\n"), /HELIX-DOCS-TRUTH drifted/);
+test("docs truth rejects a skill or theme package surface", () => {
+  const root = fixtureRoot();
+  try {
+    write(root, "package.json", JSON.stringify({ pi: { extensions: ["a", "b", "c"], skills: ["skill"], themes: ["theme"] } }));
+    const result = checkDocsTruth(root);
+    assert.equal(result.ok, false);
+    assert.match(result.errors.join("\n"), /extension-only/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -1,12 +1,7 @@
-// Helix dispatch — real model-backed revision effect (Stage 3I).
+// Helix dispatch — real model-backed revision effect.
 //
-// Source of truth: fusion-dispatch-research.md §"Multi-agent orchestration"
-// (adversarial/multi-team debate; `builder`: implement the selected plan) and
-// ROADMAP §7-Theme B / Phase-3 checklist ("Wire a real model-backed revision
-// effect — a builder→critic loop that actually revises the proposal — into the
-// Stage 3H `revise` boundary"). This module is the SMALLEST real substrate that
-// turns the Stage 3H injected `revise` boundary from a hand-rolled deterministic
-// effect into a real, provider-policed one.
+// This module turns the debate loop's injected `revise` boundary into a
+// provider-policed builder effect while keeping the policy core pure.
 //
 // WHERE THIS SITS. `runDebate` (debate.mjs) stays policy-pure: the worktree/model
 // side effects live ONLY inside the effect this module builds. `makeModelRevision`

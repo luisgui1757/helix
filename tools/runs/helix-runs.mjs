@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 // helix-runs.mjs — list/status/prune structural Helix run records.
 
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { listRuns, pruneRun, statusRun } from "../../dispatch/lib/run-manager.mjs";
+import { helixStateRoot } from "../../extensions/lib/helix-paths.mjs";
 
-const root = fileURLToPath(new URL("../../", import.meta.url));
-const runsRoot = join(root, "dispatch", "runs");
+const runsRoot = join(helixStateRoot(), "runs");
 
 function usage(exitCode = 0) {
   console.log(`Usage:
@@ -14,7 +13,7 @@ function usage(exitCode = 0) {
   node tools/runs/helix-runs.mjs status <run-id>
   node tools/runs/helix-runs.mjs prune <run-id>
 
-Reads only structural JSON under dispatch/runs/.`);
+Reads only structural JSON from Helix's Pi user-state directory.`);
   process.exit(exitCode);
 }
 

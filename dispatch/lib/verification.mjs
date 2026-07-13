@@ -1,10 +1,8 @@
 // Helix dispatch — verification stage (objective proof summary; never the gate).
 //
-// Source of truth: fusion-dispatch-research.md §"Roles" (`verifier`: run
-// objective/deterministic proof checks and summarize proof) and §"Failure
-// Behavior" ("the verifier summarizes proof but never determines the recorded
-// gate result. Gate outcomes enter the run record from process exit status or a
-// deterministic checker result").
+// The verifier summarizes objective/deterministic proof but never determines the
+// recorded gate result. Gate outcomes enter the run record only from process exit
+// status or a deterministic checker result.
 //
 // The verifier input is a PURELY STRUCTURAL, public-safe proof summary — the gate
 // outcome (command names / kind / result / source), the run's exit status so far,

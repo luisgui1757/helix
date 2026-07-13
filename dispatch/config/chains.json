@@ -71,7 +71,7 @@
     },
     {
       "id": "research",
-      "description": "Autoresearch loop shape: hypothesize, run the experiment, measure against the declared metric; iterates until a stop reason (M7 machinery enforces metric/stop declarations).",
+      "description": "Autoresearch loop shape: hypothesize, run the experiment, measure against the declared metric, and iterate until a declared stop reason.",
       "task_class": "architecture",
       "stages": [
         {

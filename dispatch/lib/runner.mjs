@@ -1,10 +1,10 @@
-// Helix dispatch — the staged runner (M5, owner interview 2026-07-09).
+// Helix dispatch — the staged runner.
 //
 // Executes a run config end to end: resolve chain + cast → per-run worktree →
 // stage machine over REAL per-stage dispatch cycles → objective gate concludes.
 // Emits the structural event stream every renderer consumes, and persists an
 // interrupt-safe machine state after every pass so a killed run resumes from
-// its last completed pass (`/helix runs resume`, M8). Resuming a completed run
+// its last completed pass (`/helix-run-resume`). Resuming a completed run
 // is a recorded no-op.
 //
 // Stage execution: each pass of a stage is ONE runDispatch cycle over the
@@ -1406,7 +1406,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
   const sourceBaselineRef = hashRef(repositoryHead);
   let worktreeOwnerRef = isResume ? resumeState.worktree_owner_ref : null;
   const templatesDir = deps.templates_dir ?? join(REPO_ROOT, "dispatch", "config", "templates");
-  const briefsDir = deps.briefs_dir ?? join(REPO_ROOT, "docs", "stage3", "agents");
+  const briefsDir = deps.briefs_dir ?? join(REPO_ROOT, "dispatch", "config", "agents");
   const templateId = deps.template_id ?? "step-prompt-v1";
   const resourcesRef = promptResourcesRef(castResult.cast, templatesDir, briefsDir, templateId);
   if (!resourcesRef) return fail("prompt-resources-invalid");
@@ -1769,7 +1769,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     passAttempts.set(key, Math.max(passAttempts.get(key) ?? 0, event.attempt ?? 1));
   }
 
-  // --- context engine (M6) -----------------------------------------------------
+  // --- context engine ----------------------------------------------------------
   // Each stage starts FRESH from a handoff (packet, or raw transcript when the
   // context-engine toggle is OFF). Handoffs are ADAPTER INPUTS — records/events
   // only ever see the structural projection. Disagreements accumulate in the

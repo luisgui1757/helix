@@ -3,7 +3,7 @@
 # objective-gate-loop.sh — implement -> OBJECTIVE-GATE -> review -> fix, thin.
 #
 # The OBJECTIVE GATE is the PRIMARY termination signal (tests / lint / typecheck /
-# a named check). Rules (ROADMAP §7-Theme B, §8):
+# a named check). Rules:
 #   * A MISSING gate FAILS LOUD and STOPS (exit 3). Never proceed "because the
 #     model thinks it is done" — no gate means no source of truth.
 #   * The loop only exits 0 when the gate actually passes.

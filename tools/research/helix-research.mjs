@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// helix-research.mjs — attended autoresearch CLI (M7/M8).
+// helix-research.mjs — attended autoresearch CLI.
 //
 // Runs the mandatory research shape: hypothesis → experiment → measure →
 // compare → iterate, stopping on target-met | max-iterations |
@@ -13,11 +13,10 @@
 //     --measure-cmd "node bench.mjs"
 //
 // Attended only (a TTY, or --attended for test harnesses). Records are
-// structural (hashes + measurements) under dispatch/runs/<run-id>/.
+// structural (hashes + measurements) under Pi's Helix user-state directory.
 
 import { execSync } from "node:child_process";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   parseStrictNumberToken,
   preflightResearch,
@@ -25,8 +24,9 @@ import {
 } from "../../dispatch/lib/research.mjs";
 import { loadSettings, toggleVector, DEFAULT_SETTINGS_REL_PATH } from "../../dispatch/lib/settings.mjs";
 import { validateRunId, prepareRunDirectory } from "../../dispatch/lib/run-manager.mjs";
+import { helixStateRoot } from "../../extensions/lib/helix-paths.mjs";
 
-const root = fileURLToPath(new URL("../../", import.meta.url));
+const stateRoot = helixStateRoot();
 
 const args = process.argv.slice(2);
 const flags = { plateau: null, runId: null, attended: null };
@@ -57,7 +57,7 @@ if (!runIdValid.ok) {
   process.exit(1);
 }
 
-const settingsResult = loadSettings(join(root, DEFAULT_SETTINGS_REL_PATH));
+const settingsResult = loadSettings(join(stateRoot, DEFAULT_SETTINGS_REL_PATH));
 if (!settingsResult.ok) {
   console.error(JSON.stringify({ status: "fail-closed", code: settingsResult.code, detail: settingsResult.detail }));
   process.exit(1);
@@ -99,7 +99,7 @@ if (!preflight.ok) {
   process.exit(1);
 }
 
-const runDir = prepareRunDirectory(join(root, "dispatch", "runs"), runId);
+const runDir = prepareRunDirectory(join(stateRoot, "runs"), runId);
 if (!runDir.ok) {
   console.error(JSON.stringify({ status: "fail-closed", code: runDir.code, detail: runDir.detail }));
   process.exit(1);
@@ -118,7 +118,7 @@ console.log(JSON.stringify({
   code: result.code ?? null,
   stop_reason: result.stop_reason ?? null,
   iterations: result.iterations.length,
-  record_path: result.record_path ? result.record_path.replace(root, "") : null,
+  record_path: result.record_path ? result.record_path.replace(stateRoot, "") : null,
   warnings: result.warnings,
 }, null, 2));
 process.exit(result.ok ? 0 : 1);

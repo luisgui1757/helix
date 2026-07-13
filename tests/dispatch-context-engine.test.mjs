@@ -1,4 +1,4 @@
-// M6 — context engine: prompt compiler (hashes, never text), handoff packets
+// Context engine: prompt compiler (hashes, never text), handoff packets
 // (fresh context; adapter inputs vs structural projections), disagreement log
 // (open entries never dropped), transcript degeneration, pressure events.
 
@@ -23,7 +23,7 @@ import { loadPresetRegistry } from "../dispatch/lib/presets.mjs";
 
 const NOW = 1_751_731_200;
 const templatesDir = new URL("../dispatch/config/templates/", import.meta.url).pathname;
-const briefsDir = new URL("../docs/stage3/agents/", import.meta.url).pathname;
+const briefsDir = new URL("../dispatch/config/agents/", import.meta.url).pathname;
 const presets = loadPresetRegistry(new URL("../dispatch/config/matrices/", import.meta.url).pathname).presets;
 const chainRegistry = JSON.parse(readFileSync(new URL("../dispatch/config/chains.json", import.meta.url), "utf8"));
 const baseConfig = JSON.parse(readFileSync(new URL("../dispatch/config/run-configs.json", import.meta.url), "utf8")).configs[0];

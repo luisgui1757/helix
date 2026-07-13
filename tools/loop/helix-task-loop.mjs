@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// helix-task-loop.mjs — staged task-loop entrypoint (M5).
+// helix-task-loop.mjs — staged task-loop entrypoint.
 //
 // Runs a named run config through the STAGED runner: chain stages + casts +
 // per-run worktree + structural events + interrupt-safe resumable state.
@@ -35,8 +35,10 @@ import {
   applyProfileToPresets,
   resolveActiveProfile,
 } from "../../extensions/lib/helix-local.mjs";
+import { helixStateRoot } from "../../extensions/lib/helix-paths.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
+const stateRoot = helixStateRoot();
 const NOW = 1_751_731_200;
 
 function usage(exitCode = 0) {
@@ -111,7 +113,7 @@ if (resumeId) {
     console.error(JSON.stringify({ status: "fail-closed", code: resumeIdValid.code, detail: resumeIdValid.detail }));
     process.exit(1);
   }
-  const statePath = join(root, "dispatch", "runs", resumeId, `${resumeId}.state.json`);
+  const statePath = join(stateRoot, "runs", resumeId, `${resumeId}.state.json`);
   if (!existsSync(statePath)) {
     console.error(JSON.stringify({ status: "fail-closed", code: "resume-state-missing", detail: resumeId }));
     process.exit(1);
@@ -153,7 +155,7 @@ if (!resolvedConfig.ok) {
 let effectiveConfig = resolvedConfig.config;
 let activeProfile = { ok: true, profile: null };
 if (!resumeId) {
-  activeProfile = resolveActiveProfile(root);
+  activeProfile = resolveActiveProfile(stateRoot);
   if (!activeProfile.ok) {
     console.error(JSON.stringify({ status: "fail-closed", code: activeProfile.code, detail: activeProfile.detail }));
     process.exit(1);
@@ -171,7 +173,7 @@ if (!runIdValid.ok) {
 // User-local settings (absent file = all toggles ON; corrupt file fails closed).
 let toggles = peekedResumeState?.toggles ?? null;
 if (!resumeId) {
-  const settingsResult = loadSettings(join(root, DEFAULT_SETTINGS_REL_PATH));
+  const settingsResult = loadSettings(join(stateRoot, DEFAULT_SETTINGS_REL_PATH));
   if (!settingsResult.ok) {
     console.error(JSON.stringify({ status: "fail-closed", code: settingsResult.code, detail: settingsResult.detail }));
     process.exit(1);
@@ -201,7 +203,7 @@ try {
     baseRepo = tempRepo();
     tempRepoCreated = true;
   }
-  const recordsRoot = join(root, "dispatch", "runs");
+  const recordsRoot = join(stateRoot, "runs");
   const recordsPath = join(recordsRoot, safeRunId);
   const recordsReplaced = false;
   let runDirPath;
@@ -269,8 +271,8 @@ try {
     noop: result.noop ?? false,
     warnings: result.warnings ?? [],
     worktree_branch: result.worktree_branch ?? null,
-    events_path: result.events_path ? relative(root, result.events_path) : null,
-    state_path: result.state_path ? relative(root, result.state_path) : null,
+    events_path: result.events_path ? relative(stateRoot, result.events_path) : null,
+    state_path: result.state_path ? relative(stateRoot, result.state_path) : null,
     records_replaced: recordsReplaced,
     synthetic_worktree_cleaned: tempRepoCreated,
   };

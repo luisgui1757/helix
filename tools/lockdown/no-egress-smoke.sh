@@ -7,10 +7,9 @@
 #   1. deny-egress   — inside `--network none`, an outbound connection to a
 #                      non-allowlisted endpoint (pi.dev, a provider host) is
 #                      BLOCKED (no route). Deny-by-default is real, not configured.
-#   2. startup-offline — a representative Pi startup path (`pi --version`,
-#                      `pi --approve --no-session --list-models`, which loads the
-#                      committed .pi/settings.json + helix-ui skill + Rose Pine
-#                      themes) completes with exit 0 and ZERO network available.
+#   2. startup-offline — a representative Pi startup path (`pi --version`, then
+#                      `pi -e /workspace --approve --no-session --list-models`)
+#                      loads the Helix package with ZERO network available.
 #   3. active-mock (opt-in, --active) — a full Pi session (`pi -p`) routed at a
 #                      LOCAL mock "approved provider" on 127.0.0.1 returns its
 #                      canned reply, proving model traffic reaches only the
@@ -111,8 +110,8 @@ else
 fi
 rm -f /tmp/helix_ver.$$
 
-if drun pi --approve --no-session --list-models >/tmp/helix_lm.$$ 2>&1; then
-  record "startup: pi --approve --list-models (loads .pi settings + helix-ui + themes)" "PASS" "exit 0"
+if drun pi -e /workspace --approve --no-session --list-models >/tmp/helix_lm.$$ 2>&1; then
+  record "startup: Pi loads Helix package offline" "PASS" "exit 0"
 else
   record "startup: pi --approve --list-models" "FAIL" "exit $?"
 fi

@@ -2,17 +2,23 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import test from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
+import { mkdtempSync } from "node:fs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const cli = join(root, "tools", "research", "helix-research.mjs");
-const runsRoot = join(root, "dispatch", "runs");
+const stateRoot = mkdtempSync(join(tmpdir(), "helix-research-state-"));
+const runsRoot = join(stateRoot, "runs");
+
+after(() => rmSync(stateRoot, { recursive: true, force: true }));
 
 function runCli(args) {
   return spawnSync(process.execPath, [cli, ...args], {
     cwd: root,
     encoding: "utf8",
+    env: { ...process.env, HELIX_STATE_DIR: stateRoot },
   });
 }
 

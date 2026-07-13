@@ -1,4 +1,4 @@
-// M7 — autoresearch machinery: the mandatory shape, all four stop reasons,
+// Autoresearch machinery: the mandatory shape, all four stop reasons,
 // attendance, toggles, and the structural record.
 
 import test from "node:test";

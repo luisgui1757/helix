@@ -1,6 +1,6 @@
-// Helix dispatch — per-role model/effort/instance matrix expansion (Stage 3L).
+// Helix dispatch — per-role model/effort/instance matrix expansion.
 //
-// Source of truth: ROADMAP Phase 3 / Theme J and the Stage 3A routing policy:
+// The routing contract is:
 // role -> [{ provider, model, effort, instances }], deterministic expansion into
 // dispatch specs, and provider-diversity requirements enforced or warned by
 // policy. Helix performs no cost control; a matrix naming real providers is
@@ -173,7 +173,7 @@ function crossFamilyCheck({ route, candidates, warnings }) {
  * @param {object} args.matrix ROLE_MATRIX_CONFIG_SCHEMA-shaped config, or the
  *   bare `roles` object for inline tests.
  * @param {object} args.route ROUTE_CONFIG_SCHEMA-shaped route.
- * @param {object} [args.agent_team] optional Stage 3K team config. Provider
+ * @param {object} [args.agent_team] optional agent-team config. Provider
  *   independence from this team is enforced or warned per policy.
  * @param {"enforce"|"warn"} [args.provider_independence_policy] default:
  *   all-mock matrices warn (a mock fixture cannot prove independent providers);

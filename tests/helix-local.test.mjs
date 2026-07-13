@@ -1,4 +1,4 @@
-// M10 regression: profile substrate fail-closed paths (helix-local.mjs) had
+// Regression coverage for profile substrate fail-closed paths that previously had
 // zero coverage, and the "profiles override casts, never chain/gate" boundary
 // was only asserted vacuously. These exercise both directly.
 

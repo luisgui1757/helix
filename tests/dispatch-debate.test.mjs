@@ -576,7 +576,7 @@ test("writeDebateSummary refuses an unsafe run_id filename", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Stage 3H — real working-tree diff surface + real revision boundary
+// Real working-tree diff surface + real revision boundary
 // ----------------------------------------------------------------------------
 
 const GIT_ENV = {
@@ -787,9 +787,9 @@ test("an opted-out adversarial route records the structural adversarial-opt-out 
   assert.ok(result.warnings.includes("single-pass-route"));
 });
 
-test("without a revision effect the debate is Stage-3G-identical (no revisions field)", async () => {
+test("without a revision effect the debate keeps the legacy no-revision shape", async () => {
   // Backward-compatibility: a debate with no injected revision effect never adds a
-  // `revisions` key to the summary, so a pure Stage 3G summary stays byte-identical.
+  // `revisions` key to the summary, so a no-revision summary stays byte-identical.
   const result = await runDebate(
     { run_id: "d-norevise", base_request: riskyBase(), max_iterations: 5 },
     debateDeps({ diffStability: stableFrom(3) }),

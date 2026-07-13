@@ -1,65 +1,74 @@
-import { mkdirSync, writeFileSync, cpSync, rmSync, mkdtempSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_RUNTIME_RPC_TIMEOUT_MS, runPiE2ELoad } from "../tools/smoke/pi-e2e-load.mjs";
+import {
+  DEFAULT_RUNTIME_RPC_TIMEOUT_MS,
+  EXPECTED_HELIX_COMMANDS,
+  runPiE2ELoad,
+} from "../tools/smoke/pi-e2e-load.mjs";
+
+const extensionPaths = [
+  "./extensions/helix-fence.ts",
+  "./extensions/helix-answer.ts",
+  "./extensions/helix-command.ts",
+];
+const required = [
+  "README.md",
+  "docs/manual.md",
+  "extensions/helix-fence.ts",
+  "extensions/helix-answer.ts",
+  "extensions/helix-command.ts",
+  "extensions/lib/helix-command-core.mjs",
+  "dispatch/config/run-configs.json",
+  "dispatch/lib/runner.mjs",
+  "tools/loop/helix-task-loop.mjs",
+];
 
 function fixtureRoot() {
   const root = mkdtempSync(join(tmpdir(), "helix-load-helper-"));
-  mkdirSync(join(root, ".pi"), { recursive: true });
-  mkdirSync(join(root, "skills/helix-ui"), { recursive: true });
-  mkdirSync(join(root, "themes"), { recursive: true });
-  mkdirSync(join(root, "extensions"), { recursive: true });
-  writeFileSync(join(root, "skills/helix-ui/SKILL.md"), "---\nname: helix-ui\n---\n", "utf8");
-  for (const file of ["helix-fence.ts", "helix-answer.ts", "helix-command.ts"]) {
-    writeFileSync(join(root, "extensions", file), "export default function x() {}\n", "utf8");
+  for (const rel of required) {
+    mkdirSync(join(root, rel, ".."), { recursive: true });
+    writeFileSync(join(root, rel), rel.endsWith(".json") ? "{}\n" : "\n", "utf8");
   }
-  writeFileSync(join(root, "themes/helix-rose-pine.json"), "{}\n", "utf8");
-  writeFileSync(join(root, "package.json"), JSON.stringify({
-    pi: {
-      skills: ["./skills/helix-ui"],
-      themes: ["./themes"],
-      extensions: ["./extensions/helix-fence.ts", "./extensions/helix-answer.ts", "./extensions/helix-command.ts"],
-    },
-  }), "utf8");
-  writeFileSync(join(root, ".pi/settings.json"), JSON.stringify({
-    skills: ["../skills/helix-ui"],
-    themes: ["../themes"],
-    extensions: ["../extensions/helix-fence.ts", "../extensions/helix-answer.ts", "../extensions/helix-command.ts"],
-  }), "utf8");
+  writeFileSync(join(root, "package.json"), JSON.stringify({ pi: { extensions: extensionPaths } }), "utf8");
   return root;
 }
 
-test("static Pi load helper separates proof types without claiming discoverability", () => {
+test("static Pi load helper separates load, discoverability, and live proof", () => {
   const root = fixtureRoot();
   try {
     const result = runPiE2ELoad({ root });
     assert.equal(result.ok, true);
     assert.equal(result.mode, "static-no-live");
-    assert.equal(result.gates.find((g) => g.id === "package-resource-loadability").status, "pass");
-    assert.equal(result.gates.find((g) => g.id === "pi-discoverability").status, "not-run");
-    assert.equal(result.gates.find((g) => g.id === "live-provider-proof").status, "skipped");
+    assert.equal(result.gates.find((gate) => gate.id === "package-resource-loadability").status, "pass");
+    const discovery = result.gates.find((gate) => gate.id === "pi-discoverability");
+    assert.equal(discovery.status, "not-run");
+    assert.deepEqual(discovery.missing_commands, EXPECTED_HELIX_COMMANDS);
+    assert.equal(result.gates.find((gate) => gate.id === "live-provider-proof").status, "skipped");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("static Pi load helper fails package/resource loadability on drift", () => {
+test("static Pi load helper rejects skill drift and missing runtime files", () => {
   const root = fixtureRoot();
   try {
-    cpSync(join(root, "package.json"), join(root, "package.good.json"));
-    writeFileSync(join(root, "package.json"), JSON.stringify({ pi: { skills: [], themes: ["./themes"], extensions: [] } }), "utf8");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ pi: { extensions: [], skills: ["./skill"] } }), "utf8");
+    rmSync(join(root, "dispatch/lib/runner.mjs"));
     const result = runPiE2ELoad({ root });
     assert.equal(result.ok, false);
-    const load = result.gates.find((g) => g.id === "package-resource-loadability");
+    const load = result.gates.find((gate) => gate.id === "package-resource-loadability");
     assert.equal(load.status, "fail");
-    assert.match(load.detail, /package-skill-surface/);
+    assert.match(load.detail, /package-extension-surface/);
+    assert.match(load.detail, /unexpected-skill-surface/);
+    assert.match(load.detail, /missing:dispatch\/lib\/runner\.mjs/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("runtime RPC helper default timeout is long enough for cold Pi startup", () => {
+test("runtime RPC helper allows a cold Pi startup", () => {
   assert.equal(DEFAULT_RUNTIME_RPC_TIMEOUT_MS, 60_000);
 });

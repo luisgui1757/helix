@@ -2,18 +2,28 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   executeHelixCommand,
   getHelixArgumentCompletions,
   isHelixMutationRequest,
   isHelixPruneRequest,
+  renderHelixRunCompletion,
 } from "../extensions/lib/helix-command-core.mjs";
 import { preflightTaskLoopConfig } from "../dispatch/lib/task-loop.mjs";
 import { PUBLIC_SAFETY_PATTERNS } from "../tools/ci/public-safety-diff-scan.mjs";
 
 const root = new URL("..", import.meta.url);
+const testStateRoot = mkdtempSync(join(tmpdir(), "helix-command-state-"));
+const originalStateRoot = process.env.HELIX_STATE_DIR;
+process.env.HELIX_STATE_DIR = testStateRoot;
+
+after(() => {
+  if (originalStateRoot === undefined) delete process.env.HELIX_STATE_DIR;
+  else process.env.HELIX_STATE_DIR = originalStateRoot;
+  rmSync(testStateRoot, { recursive: true, force: true });
+});
 
 function readJson(rel) {
   return JSON.parse(readFileSync(new URL(rel, root), "utf8"));
@@ -93,12 +103,12 @@ test("helix dashboard renders active default config without provider calls", () 
   assert.equal(rendered.includes("token_budget"), false);
 });
 
-test("helix run preflight renders resolved config and exact CLI command", () => {
+test("helix run preflight renders the resolved installed-package workflow", () => {
   const out = executeHelixCommand("run mock-core-loop", { mode: "print" }, { runsRoot: tempRunsRoot() });
   assert.equal(out.ok, true);
   assert.equal(out.details.launches_loop, false);
   assert.equal(out.details.config_id, "mock-core-loop");
-  assert.equal(out.details.cli_invocation, "node tools/loop/helix-task-loop.mjs --config mock-core-loop --run-id mock-core-loop-manual");
+  assert.equal(out.details.cli_invocation, undefined);
   assert.equal(out.text.includes("Providers: mock"), true);
   assert.equal(out.text.includes("Live: no-live (mock providers only)"), true);
   assert.equal(out.text.includes("Rail: max_iterations=5"), true);
@@ -110,6 +120,35 @@ test("helix run preflight renders resolved config and exact CLI command", () => 
   assert.equal(rendered.includes("profile"), false);
   assert.equal(rendered.includes("write_allowlist"), false);
   assert.equal(rendered.includes("token_budget"), false);
+});
+
+test("native run completion renders only stable structural fields", () => {
+  const complete = renderHelixRunCompletion({
+    runId: "native-mock-run",
+    configId: "mock-core-loop",
+    exitCode: 0,
+    converged: true,
+    stopReason: "converged",
+  });
+  assert.equal(complete.ok, true);
+  assert.match(complete.text, /Inspect: \/helix-run-status native-mock-run/);
+
+  const failed = renderHelixRunCompletion({
+    runId: "native-mock-run",
+    configId: "mock-core-loop",
+    exitCode: 1,
+    stopReason: "/private/raw-error",
+  });
+  assert.equal(failed.code, "helix-runner-failed");
+  assert.equal(failed.text.includes("Users"), false);
+  assert.equal(failed.details.stop_reason, "unknown");
+
+  const incomplete = renderHelixRunCompletion({
+    runId: "native-mock-run",
+    configId: "mock-core-loop",
+    exitCode: 0,
+  });
+  assert.equal(incomplete.code, "helix-runner-result-invalid");
 });
 
 test("helix run unknown config fails with stable error", () => {
@@ -222,8 +261,6 @@ test("helix hashes or omits every schema-valid registry prose field before rende
   }
   const packageJson = structuredClone(readJson("package.json"));
   packageJson.pi.extensions.push(`./extensions/${canary}`);
-  const projectSettings = structuredClone(readJson(".pi/settings.json"));
-  projectSettings.extensions.push(`../extensions/${body}`);
   const options = {
     root: localRoot,
     runsRoot: tempRunsRoot(),
@@ -234,7 +271,6 @@ test("helix hashes or omits every schema-valid registry prose field before rende
     roleMatrix: readJson("dispatch/config/role-matrix-defaults.json"),
     agentTeam: readJson("dispatch/config/agent-team-defaults.json"),
     packageJson,
-    settings: projectSettings,
   };
 
   try {

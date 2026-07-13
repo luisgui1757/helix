@@ -1,35 +1,16 @@
-# Security Policy
+# Security policy
 
-`helix` is a private release candidate. Keep it private until an
-independent pre-publication audit verifies the complete Git object/ref graph,
-tracked content, pull-request metadata, repository settings, commit identity,
-and secret scan. the legacy repository is a private archive and must
-never be made public; deleting ordinary branches does not remove persistent PR
-refs or historical objects from that repository network.
+Report vulnerabilities privately through GitHub's security-advisory flow for
+this repository. Do not include credentials, private source, prompts, responses,
+or session links in a public issue.
 
-Do not commit credentials, tokens, session/share links, private prompts, raw
-agent transcripts, provenance footers, personal email addresses, private home
-paths, or machine-local configuration. Before public release, the maintainer
-must separately confirm that every previously exposed Claude Code web session
-is Private or deleted. That confirmation cannot be inferred from a clean
-snapshot. The project is licensed under the MIT License; the root `LICENSE`
-file and package metadata must remain aligned.
+Helix keeps package resources immutable, stores mutable state under Pi's agent
+directory, validates external input at command boundaries, and persists only
+structural public-safe run metadata. Mutating operations require an attended
+confirmation except for reversible feature toggles. Real-provider casts refuse
+until a verified live transport is present; Helix does not silently fall back to
+a mock or make an unapproved paid call.
 
-Helix's durable records are structural. Field-specific grammars reject URI- or
-path-shaped model, provider, effect-code, and reference values at their input
-boundaries. All structural persistence goes through the shared root-confined
-writer, which verifies canonical containment, refuses symlinked parents and
-targets, creates temporary files exclusively with no-follow semantics, and
-verifies the atomic installation. Private crash-checkpoint directories use the
-same confined reservation and verified installation boundary. New writers must
-use that boundary rather than direct filesystem writes.
-
-Use environment variables or approved local secret stores for provider keys.
-CI must remain no-live and must not reference provider credentials. Raw review
-artifacts belong only in a separate private archive unless they have been
-explicitly sanitized for this release tree.
-
-Report suspected vulnerabilities privately through GitHub's private
-vulnerability-reporting/security-advisory flow when it is available for this
-repository, or through another private channel provided by the maintainer. Do
-not open a public issue for suspected secrets or vulnerabilities.
+Supported security fixes target the latest release. Reports should include the
+affected version, impact, and a minimal reproduction that contains no private
+data.

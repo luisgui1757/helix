@@ -1,10 +1,8 @@
 // Helix dispatch — synthesis stage (final recommendation; preserves contradictions).
 //
-// Source of truth: fusion-dispatch-research.md §"Roles" (the `synthesizer`
-// produces the final recommendation/action plan from the judge analysis and the
-// PRESERVED disagreements) and §"Judge-Bias Mitigations" ("The synthesizer must
-// quote unresolved contradictions into the final output instead of averaging
-// them away").
+// The synthesizer produces the final recommendation/action plan from judge
+// analysis and preserved disagreements. It carries unresolved contradictions
+// into the final output instead of averaging them away.
 //
 // The synthesis input is an IDENTITY/COST-STRIPPED, PROVIDER-BOUND role-output
 // projection — NOT a public-safe record artifact. It strips provider/model/cost

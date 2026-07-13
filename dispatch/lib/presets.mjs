@@ -1,4 +1,4 @@
-// Helix dispatch — composite presets + per-stage cast assignments (M4).
+// Helix dispatch — composite presets + per-stage cast assignments.
 //
 // A composite (overlord, daily) is a NAMED ROLE-MATRIX PRESET with a thin
 // metadata wrapper. Composites are STEP-LEVEL EXECUTORS: a run config (or,
@@ -9,7 +9,7 @@
 //
 // Tracked presets ship as SKELETONS with mock members; real member lineups
 // depend on personal provider logins and live in untracked user-local profiles
-// (assembled via /helix setup from Pi's live inventory, M8).
+// (assembled via `/helix-setup` from Pi's live inventory).
 //
 // Owner contracts (2026-07-09):
 //   - degradation is fail-closed: a missing/unavailable member refuses NAMING
@@ -198,7 +198,7 @@ export function loadPresetRegistry(dir) {
 
 /**
  * Fail-closed degradation: every member must be available. `availability` is
- * an injected checker `(member) => boolean` (M8's setup wires Pi's live model
+ * an injected checker `(member) => boolean` (`/helix-setup` wires Pi's live model
  * inventory; mock members are always available when it is absent). The refusal
  * NAMES the first unavailable member — no silent substitution.
  */
