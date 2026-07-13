@@ -14,24 +14,27 @@ test("CI exposes one stable test check after the complete Node matrix", () => {
   assert.match(workflow, /^        run: test "\$MATRIX_RESULT" = success$/m);
 });
 
-test("Protect main keeps reviews for contributors and PR-only bypass for the owner", () => {
-  const ruleset = JSON.parse(readFileSync(`${ROOT}/.github/rulesets/protect-main.json`, "utf8"));
-  const pullRequest = ruleset.rules.find((rule) => rule.type === "pull_request");
-  const statusChecks = ruleset.rules.find((rule) => rule.type === "required_status_checks");
+test("Protect main keeps integrity unbypassable and review bypass owner-only", () => {
+  const integrity = JSON.parse(readFileSync(`${ROOT}/.github/rulesets/main-integrity.json`, "utf8"));
+  const review = JSON.parse(readFileSync(`${ROOT}/.github/rulesets/main-review.json`, "utf8"));
+  const statusChecks = integrity.rules.find((rule) => rule.type === "required_status_checks");
+  const pullRequest = review.rules.find((rule) => rule.type === "pull_request");
 
-  assert.deepEqual(ruleset.bypass_actors, [{
+  assert.deepEqual(integrity.bypass_actors, []);
+  assert.deepEqual(review.bypass_actors, [{
     actor_id: 139752288,
     actor_type: "User",
     bypass_mode: "pull_request",
   }]);
-  assert.deepEqual(ruleset.conditions.ref_name, { exclude: [], include: ["~DEFAULT_BRANCH"] });
-  assert.deepEqual(ruleset.rules.map((rule) => rule.type), [
+  assert.deepEqual(integrity.conditions.ref_name, { exclude: [], include: ["~DEFAULT_BRANCH"] });
+  assert.deepEqual(review.conditions.ref_name, { exclude: [], include: ["~DEFAULT_BRANCH"] });
+  assert.deepEqual(integrity.rules.map((rule) => rule.type), [
     "deletion",
     "non_fast_forward",
     "required_linear_history",
-    "pull_request",
     "required_status_checks",
   ]);
+  assert.deepEqual(review.rules.map((rule) => rule.type), ["pull_request"]);
   assert.equal(pullRequest.parameters.required_approving_review_count, 1);
   assert.equal(pullRequest.parameters.require_last_push_approval, true);
   assert.equal(pullRequest.parameters.required_review_thread_resolution, true);
