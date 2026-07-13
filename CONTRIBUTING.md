@@ -17,6 +17,15 @@ npm run check:no-live-egress
 npm test
 ```
 
+GitHub protects `main` with the checked-in
+[`Protect main`](.github/rulesets/protect-main.json) ruleset. The two Node.js
+matrix jobs feed one stable required check named `test`; do not require the
+matrix job names directly or add overlapping classic branch protection. Normal
+merges require one independent approval and resolved conversations. The
+repository owner is the sole pull-request-only bypass actor, so an owner merge
+still requires a pull request and a successful exact-head `test` check but does
+not require self-approval.
+
 Code, behavior, and architecture changes must update the relevant Markdown in
 the same change. Do not weaken checks, hide unsupported behavior behind a mock,
 or commit credentials, transcripts, provider payloads, or private paths.

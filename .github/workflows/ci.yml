@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  test_matrix:
+    name: test (${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -35,3 +36,14 @@ jobs:
       - run: node tools/smoke/pi-e2e-load.mjs
       - run: npm pack --dry-run
       - run: git diff --check
+
+  test:
+    name: test
+    if: ${{ always() }}
+    needs: test_matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the complete test matrix
+        env:
+          MATRIX_RESULT: ${{ needs.test_matrix.result }}
+        run: test "$MATRIX_RESULT" = success
