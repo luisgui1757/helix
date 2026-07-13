@@ -1,4 +1,4 @@
-// Helix dispatch — named run config registry (Stage 3M; slimmed 2026-07-09).
+// Helix dispatch — named run config registry.
 //
 // Run configs are the daily-use entrypoint defaults: a named chain, a role
 // matrix, the one iteration rail, a deterministic objective gate, and optional
@@ -45,7 +45,7 @@ export const RUN_CONFIG_SCHEMA = Object.freeze({
     chain: { type: "string", pattern: CONFIG_ID_PATTERN },
     role_matrix: { type: "string", pattern: CONFIG_ID_PATTERN },
     max_iterations: { type: "integer", minimum: 1, maximum: MAX_ITERATIONS },
-    // Per-stage casts (M4): stage-id → composite or plain model. Keys and
+    // Per-stage casts: stage-id → composite or plain model. Keys and
     // values are validated semantically below (the dependency-free validator
     // has no schema-valued additionalProperties).
     assignments: { type: "object" },

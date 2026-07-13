@@ -1,8 +1,7 @@
 // Helix dispatch — deterministic evaluation fixtures + oracles.
 //
-// Source of truth: fusion-dispatch-research.md §"Evaluation Fixtures" (amended
-// 2026-07-09: cost control removed from the harness — no profiles, no price/
-// no-spend policy; the provider gate is isAutomatedDispatchProvider only). These
+// These fixtures intentionally contain no cost-control policy; the provider gate
+// is `isAutomatedDispatchProvider` only. They
 // are dispatcher/POLICY fixtures over canned mock outputs; they do NOT test model
 // quality. Each fixture's `expect` block is the oracle: expected route, panel
 // resolution (resolvePanel(route, requestedCount)), per-candidate envelope
@@ -46,7 +45,7 @@ const roadmapReconciliation = {
     gate: { command_names: ["roadmap-consistency-check"], kind: "objective", result: "fail", source: "deterministic-checker" },
     warning_codes: ["contradiction-preserved"],
     judge: { seed: 5, permutation: [1, 0], blinding: true, rubric_id: "roadmap-recon-rubric-v1", label_reveal_events: [], judge_in_panel: false },
-    branch: "stage3/dispatch-policy-core", gate_file_paths: ["ROADMAP.md"],
+    branch: "feature/dispatch-policy", gate_file_paths: ["docs/architecture.md"],
   }),
   expect: {
     task_class: "roadmap-reconciliation", route_id: "roadmap-reconciliation", classify_warnings_include: [],
@@ -70,7 +69,7 @@ const codeReview = {
     role_ids: ["builder", "reviewer"],
     exit_status: "ok",
     gate: { command_names: ["npm-test", "npm-run-check-resources"], kind: "objective", result: "pass", source: "exit-status" },
-    branch: "stage3/dispatch-policy-core", gate_file_paths: ["tests/dispatch-role-envelope.test.mjs"],
+    branch: "feature/dispatch-policy", gate_file_paths: ["tests/dispatch-role-envelope.test.mjs"],
   }),
   expect: {
     task_class: "routine-code", route_id: "routine-code", classify_warnings_include: [],
@@ -97,7 +96,7 @@ const extensionImplementationPlan = {
     exit_status: "ok",
     gate: { command_names: ["spec-checklist", "second-provider-review"], kind: "objective", result: "pass", source: "deterministic-checker" },
     judge: { seed: 11, permutation: [2, 0, 1], blinding: true, rubric_id: "ext-impl-rubric-v1", label_reveal_events: [], judge_in_panel: false },
-    branch: "stage3/dispatch-policy-core", gate_file_paths: ["docs/architecture/fusion-dispatch-research.md"],
+    branch: "feature/dispatch-policy", gate_file_paths: ["docs/architecture.md"],
   }),
   expect: {
     task_class: "architecture", route_id: "architecture", classify_warnings_include: [],
@@ -130,7 +129,7 @@ const securityPosture = {
     exit_status: "fail-closed",
     gate: { command_names: ["public-safety"], kind: "objective", result: "fail", source: "deterministic-checker" },
     warning_codes: ["floor-raised-classification", "provider-not-automated:claude-local"],
-    branch: "stage3/dispatch-policy-core", gate_file_paths: ["tools/check-helix-resources.mjs"],
+    branch: "feature/dispatch-policy", gate_file_paths: ["tools/check-helix-resources.mjs"],
   }),
   expect: {
     task_class: "security", route_id: "security", classify_warnings_include: ["floor-raised-classification"],
@@ -139,10 +138,10 @@ const securityPosture = {
   },
 };
 
-/** 5. helix-ui path recommends a design; verifier keeps a11y/perf checks objective. */
+/** 5. UI-quality path recommends a design; verifier keeps a11y/perf checks objective. */
 const uiQuality = {
   id: "ui-quality",
-  description: "helix-ui path produces a design recommendation; the verifier keeps accessibility/performance checks objective, separate from model taste.",
+  description: "The UI-quality path produces a design recommendation; the verifier keeps accessibility/performance checks objective, separate from model taste.",
   task: { class_hint: "ui-quality", signals: [], confident: true, mode: "tui" },
   candidates: [
     { envelope: makeEnvelope({ role: "builder", recommendation: "layout-A" }), expect_valid: true },
@@ -153,7 +152,7 @@ const uiQuality = {
     role_ids: ["builder", "reviewer"],
     exit_status: "ok",
     gate: { command_names: ["visual-check", "a11y-check", "perf-check"], kind: "objective", result: "pass", source: "deterministic-checker" },
-    branch: "stage3/dispatch-policy-core", gate_file_paths: ["skills/helix-ui/SKILL.md"],
+    branch: "feature/dispatch-policy", gate_file_paths: ["extensions/helix-command.ts"],
   }),
   expect: {
     task_class: "ui-quality", route_id: "ui-quality", classify_warnings_include: [],

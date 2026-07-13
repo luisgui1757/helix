@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// revision-effect-smoke.mjs — deterministic model-backed revision smoke (Stage 3I).
+// revision-effect-smoke.mjs — deterministic model-backed revision smoke.
 //
 // Drives a real iterating/adversarial debate over a REAL temp git repo where the
 // next proposal is produced by the real `makeModelRevision` effect through an
@@ -105,7 +105,7 @@ try {
   console.log(`  revisions:    ${debate.revisions.length} (after iterations ${debate.revisions.map((r) => r.after_iteration).join(", ") || "-"})`);
   console.log(`  model calls:  ${modelAdapter.calls}`);
   console.log(`  worktree:     proposal.txt is ${worktree.includes("revised-by-model") ? "revised by the model" : "UNCHANGED"}`);
-  console.log(`  summary:      ${debate.summary_path ?? "(not written)"}`);
+  console.log(`  summary:      ${debate.summary_path ? "written" : "(not written)"}`);
 
   // Success is a REAL convergence via a REAL worktree mutation — not a canned value.
   const ok = debate.ok

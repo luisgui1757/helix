@@ -1,9 +1,6 @@
-// Helix dispatch — thin one-cycle orchestrator over the Stage 3B policy core.
+// Helix dispatch — thin one-cycle orchestrator over the policy core.
 //
-// Source of truth: docs/architecture/fusion-dispatch-research.md (accepted Stage
-// 3A spec, amended 2026-07-09: cost control removed from the harness — spend is
-// bounded by the backend control instance, never here) and
-// docs/stage3/dispatch-policy-core.md (the substrate this consumes).
+// Spend is bounded by the backend control instance, never by this harness.
 // Scope: ONE dispatch cycle — classify → resolve route/panel → launch candidates
 // through an injected adapter → validate every envelope at the boundary →
 // blinded judge projection (advisory) → objective gate from exit status /
@@ -238,7 +235,7 @@ function uniqueInOrder(values) {
  *     the fail-closed direction)
  *   depth?: recursion depth (internal; adapters receive depth+1 in ctx)
  *   parallel?: { max_concurrency:int>=1 } — opt-in bounded
- *     parallel candidate launch (Stage 3F). Absent ⇒ sequential (unchanged);
+ *     parallel candidate launch. Absent ⇒ sequential (unchanged);
  *     present ⇒ candidates launch with <= max_concurrency in flight and a bounded
  *     per-run token budget (an invalid cap or an unbounded budget fails closed).
  *     Output order is candidate-index deterministic regardless of completion order.
@@ -288,7 +285,7 @@ export async function runDispatch(request, deps = {}) {
   if (decision.fail_closed) {
     return failClosed(decision.reason ?? "classification-fail-closed", null, { decision });
   }
-  // Route resolution. The staged runner (M5) injects a per-stage synthetic
+  // Route resolution. The staged runner injects a per-stage synthetic
   // route (stage roles as the panel); it must still be a valid route shape —
   // an invalid override fails closed rather than half-applying.
   let route;
@@ -359,7 +356,7 @@ export async function runDispatch(request, deps = {}) {
     };
     if (request.branch != null) fields.branch = request.branch;
     if (request.gate_file_paths != null) fields.gate_file_paths = request.gate_file_paths;
-    // The resolved feature-toggle vector (M2): embedded so the record is
+    // The resolved feature-toggle vector is embedded so the record is
     // reproducible against the settings it ran under. Validated by the record
     // schema; absent for pre-toggle callers.
     if (deps.toggles != null) fields.toggles = deps.toggles;
@@ -392,7 +389,7 @@ export async function runDispatch(request, deps = {}) {
       synthesis: synthesisMeta ? { ...synthesisMeta, envelope: synthesisEnvelope } : null,
       // Structural stable metadata only ({ rubric_id, status }). The verifier
       // envelope stays INTERNAL (validation / cap re-check / run-record rollups) —
-      // its narrative is never exposed in the returned result (Stage 3E contract).
+      // its narrative is never exposed in the returned result.
       verification: verifierMeta,
       record,
       record_path,

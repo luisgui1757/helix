@@ -1,8 +1,7 @@
 // Helix dispatch — deterministic task classifier + classification floors.
 //
-// Source of truth: fusion-dispatch-research.md §"Routing Policy" (Rules:
-// classification floors, uncertain-routes-upward, user overrides) and
-// §"Failure Behavior" (non-TTY escalation is a fail-closed stop).
+// Routing contract: classification floors, uncertain routes upward, explicit
+// user overrides, and fail-closed stops when non-TTY escalation is required.
 //
 // The classifier is deterministic and testable. It never routes a floor-triggering
 // task below its required risk class; when it cannot classify at all it routes

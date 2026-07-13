@@ -1,139 +1,89 @@
 #!/usr/bin/env node
-// Keep high-drift documentation claims tied to tracked repo facts.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const TRUTH_BEGIN = "<!-- HELIX-DOCS-TRUTH:BEGIN -->";
-const TRUTH_END = "<!-- HELIX-DOCS-TRUTH:END -->";
-export const HISTORICAL_STAGE_BANNER = "Historical implementation record — not current operational documentation";
+export const MAX_README_LINES = 120;
+export const HELIX_COMMANDS = Object.freeze([
+  "/helix",
+  "/helix-help",
+  "/helix-run",
+  "/helix-runs",
+  "/helix-run-status",
+  "/helix-run-watch",
+  "/helix-run-resume",
+  "/helix-run-prune",
+  "/helix-models",
+  "/helix-chains",
+  "/helix-settings",
+  "/helix-profiles",
+  "/helix-setup",
+  "/helix-research",
+]);
 
 function readText(root, rel) {
   return readFileSync(join(root, rel), "utf8");
 }
 
-function readJson(root, rel) {
-  return JSON.parse(readText(root, rel));
+function requireSnippet(errors, text, rel, snippet) {
+  if (!text.includes(snippet)) errors.push(`${rel}: missing ${JSON.stringify(snippet)}`);
 }
 
-function walk(root, rel, predicate, found = []) {
-  for (const entry of readdirSync(join(root, rel), { withFileTypes: true })) {
-    const child = join(rel, entry.name);
-    if (entry.isDirectory()) {
-      walk(root, child, predicate, found);
-    } else if (predicate(child)) {
-      found.push(child);
-    }
-  }
-  return found;
+function rejectSnippet(errors, text, rel, snippet) {
+  if (text.includes(snippet)) errors.push(`${rel}: stale shipping content ${JSON.stringify(snippet)}`);
 }
 
-function countMatches(text, pattern) {
-  return [...text.matchAll(pattern)].length;
-}
-
-export function countNodeTestDeclarations(root) {
-  return walk(root, "tests", (path) => path.endsWith(".mjs"))
-    .reduce((sum, rel) => sum + countMatches(readText(root, rel), /^\s*test\(/gm), 0);
-}
-
-export function countExtensionSlashCommands(root, pkg) {
-  return (pkg.pi?.extensions ?? []).reduce((sum, extensionPath) => {
-    const rel = extensionPath.replace(/^\.\//, "");
-    return sum + countMatches(readText(root, rel), /\.registerCommand\(/g);
-  }, 0);
-}
-
-export function collectDocsTruthFacts(root = ROOT) {
-  const pkg = readJson(root, "package.json");
-  return {
-    node_test_declarations: countNodeTestDeclarations(root),
-    package_resources: {
-      skill_entries: pkg.pi?.skills?.length ?? 0,
-      theme_entries: pkg.pi?.themes?.length ?? 0,
-      theme_files: walk(root, "themes", (path) => path.endsWith(".json")).length,
-      extension_entries: pkg.pi?.extensions?.length ?? 0,
-    },
-    extension_slash_commands: countExtensionSlashCommands(root, pkg),
-    helix_command_surface: "one /helix command with verbs",
-    roadmap_status_snippet: "Stage 3P whole-repo gap closure",
-  };
-}
-
-export function parseReadmeTruthBlock(readmeText) {
-  const begin = readmeText.indexOf(TRUTH_BEGIN);
-  const end = readmeText.indexOf(TRUTH_END);
-  if (begin === -1 || end === -1 || end <= begin) {
-    throw new Error("README.md is missing HELIX-DOCS-TRUTH block");
-  }
-  const body = readmeText.slice(begin + TRUTH_BEGIN.length, end);
-  const match = body.match(/```json\s*([\s\S]*?)\s*```/);
-  if (!match) throw new Error("README.md HELIX-DOCS-TRUTH block must contain a json fence");
-  return JSON.parse(match[1]);
-}
-
-function sameJson(actual, expected) {
-  return JSON.stringify(actual) === JSON.stringify(expected);
-}
-
-function requireSnippet(errors, root, rel, snippet) {
-  if (!readText(root, rel).includes(snippet)) {
-    errors.push(`${rel}: missing docs-truth snippet ${JSON.stringify(snippet)}`);
-  }
-}
-
-function rejectSnippet(errors, root, rel, snippet) {
-  if (readText(root, rel).includes(snippet)) {
-    errors.push(`${rel}: stale docs-truth snippet ${JSON.stringify(snippet)}`);
-  }
-}
-
-function requireHistoricalStageBanners(errors, root) {
-  const stageDocs = walk(root, "docs/stage3", (rel) => rel.endsWith(".md"))
-    .filter((rel) => readText(root, rel).startsWith("# Stage 3"));
-  for (const rel of stageDocs) {
-    requireSnippet(errors, root, rel, HISTORICAL_STAGE_BANNER);
+function requireCommand(errors, manual, command) {
+  const escaped = command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!new RegExp(`(?:^|[\\s\`])${escaped}(?=[\\s\`]|$)`, "m").test(manual)) {
+    errors.push(`docs/manual.md: missing ${JSON.stringify(command)}`);
   }
 }
 
 export function checkDocsTruth(root = ROOT) {
   const errors = [];
-  const facts = collectDocsTruthFacts(root);
-  let locked;
-  try {
-    locked = parseReadmeTruthBlock(readText(root, "README.md"));
-  } catch (error) {
-    errors.push(error.message);
-    locked = null;
+  for (const rel of ["README.md", "docs/manual.md", "docs/architecture.md", "package.json"]) {
+    if (!existsSync(join(root, rel))) errors.push(`${rel}: required documentation surface is missing`);
   }
-  if (locked && !sameJson(locked, facts)) {
-    errors.push(`README.md HELIX-DOCS-TRUTH drifted: expected ${JSON.stringify(facts)} got ${JSON.stringify(locked)}`);
+  if (errors.length > 0) return { ok: false, errors };
+
+  const readme = readText(root, "README.md");
+  const manual = readText(root, "docs/manual.md");
+  const pkg = JSON.parse(readText(root, "package.json"));
+  const lineCount = readme.trimEnd().split(/\r?\n/).length;
+  if (lineCount > MAX_README_LINES) errors.push(`README.md: ${lineCount} lines exceeds ${MAX_README_LINES}`);
+
+  for (const snippet of [
+    "npm install -g @earendil-works/pi-coding-agent",
+    "pi install git:github.com/luisgui1757/helix",
+    "/helix-help",
+    "/helix-settings",
+    "~/.pi/agent/helix",
+  ]) requireSnippet(errors, readme, "README.md", snippet);
+
+  for (const command of HELIX_COMMANDS) requireCommand(errors, manual, command);
+
+  for (const [rel, text] of [["README.md", readme], ["docs/manual.md", manual]]) {
+    for (const stale of ["Stage 1", "Stage 2", "Stage 3", "ROADMAP", "reviews/", "/skill:helix", "helix-rose-pine"]) {
+      rejectSnippet(errors, text, rel, stale);
+    }
   }
-  requireSnippet(errors, root, "ROADMAP.md", facts.roadmap_status_snippet);
-  requireSnippet(errors, root, "ROADMAP.md", "Current v1 | Publication hardening");
-  requireSnippet(errors, root, "ROADMAP.md", "Phase 0-3P rows and named Stage 3B-N pages below preserve dated build");
-  requireSnippet(errors, root, "ROADMAP_SUMMARY.html", facts.roadmap_status_snippet);
-  requireSnippet(errors, root, "ROADMAP_SUMMARY.html", `data-node-test-declarations="${facts.node_test_declarations}"`);
-  requireSnippet(errors, root, "ROADMAP_SUMMARY.html", "Historical build chronology (superseded)");
-  requireSnippet(errors, root, "ROADMAP_SUMMARY.html", "Historical Stage 3 build chronology");
-  requireSnippet(errors, root, "ROADMAP_SUMMARY.html", "live-adapter-not-wired");
-  rejectSnippet(errors, root, "ROADMAP_SUMMARY.html", "322 tests");
-  rejectSnippet(errors, root, "ROADMAP_SUMMARY.html", "362 node tests");
-  rejectSnippet(errors, root, "ROADMAP_SUMMARY.html", "358 top-level node test declarations");
-  requireSnippet(errors, root, "docs/resources/README.md", "/helix help");
-  requireSnippet(errors, root, "docs/manual.md", "/helix help");
-  requireSnippet(errors, root, "docs/stage3/design-contracts.md", "Fail closed on structure, YOLO on behavior");
-  requireSnippet(errors, root, "docs/stage3/design-contracts.md", "Named Stage 3B-N implementation pages are dated historical records");
-  requireHistoricalStageBanners(errors, root);
-  return { ok: errors.length === 0, errors, facts };
+
+  if (pkg.pi?.skills !== undefined || pkg.pi?.themes !== undefined) {
+    errors.push("package.json: docs contract requires an extension-only Pi package");
+  }
+  if ((pkg.pi?.extensions ?? []).length !== 3) {
+    errors.push("package.json: docs contract requires exactly three Pi extensions");
+  }
+  return { ok: errors.length === 0, errors };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const result = checkDocsTruth(process.cwd());
   if (result.ok) {
-    console.log(`docs-truth-check: PASS ${JSON.stringify(result.facts)}`);
+    console.log("docs-truth-check: PASS");
     process.exit(0);
   }
   for (const error of result.errors) console.error(`docs-truth-check: ${error}`);

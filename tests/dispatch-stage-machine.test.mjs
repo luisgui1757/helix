@@ -1,4 +1,4 @@
-// M3 — staged chain state machine: verdict routing, back-jumps, red-first gate
+// Staged chain state machine: verdict routing, back-jumps, red-first gate
 // expectations, ceilings, budgets, loops-off degeneration, and the rule that
 // only the objective gate concludes a run.
 
@@ -271,7 +271,7 @@ test("semantic guards: verdict role must be in the stage; jumps only to earlier 
   assert.equal(validateChainRegistry(escapingArtifact).valid, false);
 });
 
-// M10 regressions: resume validation (invalid-resume-state) had zero coverage.
+// Resume validation regressions that previously had zero coverage.
 
 test("resume continues from a valid persisted state without replaying the completed pass", async () => {
   // Plan already done (stage_index 1 = implement), 1 pass consumed.

@@ -43,21 +43,24 @@ else
   kv "git:" "not a git repository"
 fi
 
-# --- Committed telemetry posture (project .pi/settings.json) ----------------
-if [ -f .pi/settings.json ] && command -v node >/dev/null 2>&1; then
-  node -e '
-    const s=JSON.parse(require("fs").readFileSync(".pi/settings.json","utf8"));
-    const p=(k,v)=>console.log("  "+(k+":").padEnd(26)+" "+v);
-    p("install telemetry", s.enableInstallTelemetry===false?"off (committed)":"NOT off");
-    p("analytics", s.enableAnalytics===false?"off (committed)":"NOT off");
-    p("theme", s.theme||"(unset)");
-    p("project skills", Array.isArray(s.skills)?s.skills.length:0);
-    p("project themes dirs", Array.isArray(s.themes)?s.themes.length:0);
-  '
-fi
-
 # --- Machine-local provider default (presence + non-google only; NO secrets) -
 AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+HELIX_DIR="${HELIX_STATE_DIR:-${AGENT_DIR}/helix}"
+if [ -n "${HELIX_STATE_DIR:-}" ]; then
+  kv "helix state:" "HELIX_STATE_DIR override"
+else
+  kv "helix state:" "Pi agent directory / helix"
+fi
+if [ -f "${HELIX_DIR}/settings.json" ] && command -v node >/dev/null 2>&1; then
+  node -e '
+    const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    const toggles=Object.values(s.toggles||{});
+    console.log("  "+"helix features:".padEnd(26)+" "+toggles.filter(Boolean).length+"/"+toggles.length+" enabled");
+  ' "${HELIX_DIR}/settings.json"
+else
+  kv "helix features:" "defaults (all enabled)"
+fi
+
 if [ -f "${AGENT_DIR}/settings.json" ] && command -v node >/dev/null 2>&1; then
   node -e '
     const f=process.argv[1];

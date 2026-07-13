@@ -1,7 +1,7 @@
-// Helix dispatch — structural run directory hygiene/status tooling (Stage 3N).
+// Helix dispatch — structural run directory hygiene/status tooling.
 //
-// Run records stay gitignored under dispatch/runs until a public export step
-// exists. This module only manages structural JSON records and summaries; it
+// Command and CLI adapters inject the user-local runs directory. This module
+// only manages structural JSON records and summaries; it
 // never reads provider payload logs, transcripts, auth files, or private run
 // payloads.
 

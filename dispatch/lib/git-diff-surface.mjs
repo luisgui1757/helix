@@ -1,9 +1,8 @@
-// Helix dispatch — real working-tree diff surface (Stage 3H boundary effect).
+// Helix dispatch — real working-tree diff surface.
 //
-// Source of truth: fusion-dispatch-research.md §"Routing Policy" ("Convergence
-// means diff stability plus objective-gate pass") and §"Public-Safe Logging".
-// Stage 3G's debate loop consumed diff-stability as an INJECTED deterministic
-// checker over a mock string; this module supplies the REAL signal from the git
+// Convergence means diff stability plus objective-gate pass. The debate loop
+// consumes diff-stability as an injected deterministic checker; this module
+// supplies the real signal from the git
 // working tree — a boundary effect exactly like `runGate`.
 //
 // It computes a STRUCTURAL fingerprint of the current working-tree change against

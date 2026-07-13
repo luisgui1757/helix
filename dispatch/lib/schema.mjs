@@ -2,21 +2,14 @@
 //
 // WHY THIS EXISTS INSTEAD OF LITERAL TypeBox
 // ------------------------------------------
-// The Stage 3A spec (docs/architecture/fusion-dispatch-research.md) mandates a
-// *runtime* validator (TypeScript types alone are insufficient because
-// provider/model output arrives at runtime) and names TypeBox as the Pi-native
-// mechanism. But this package is dependency-free by invariant:
-// tools/check-helix-resources.mjs fails the build if package.json declares ANY
-// runtime dependency, and the bare `typebox` specifier resolves only inside Pi's
-// runtime (it is MODULE_NOT_FOUND under `node --test`). So the tested policy core
-// cannot import TypeBox. See docs/stage3/dispatch-policy-core.md for the full
-// reconciliation recorded against the spec.
+// Provider/model output arrives at runtime, so TypeScript types alone are not a
+// boundary. The policy core is deliberately dependency-free and cannot depend on
+// Pi's runtime-only TypeBox resolution under plain `node --test`.
 //
 // The schema descriptors below are authored in the SAME JSON-Schema shape that
 // `Type.Object(...)` / `Type.Union(...)` emit, so they are drop-in portable to
-// real TypeBox the moment the dispatcher is wired into a Pi extension (where
-// `typebox` is available). This module is the zero-dependency runtime validator
-// that enforces those descriptors under `node --test` and fails closed.
+// real TypeBox. This module enforces those descriptors under `node --test` and
+// fails closed without coupling policy to the Pi adapter.
 //
 // Supported JSON-Schema keywords (exactly the subset the envelope/config need):
 //   type: object|array|string|integer|number|boolean|null

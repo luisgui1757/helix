@@ -4,9 +4,9 @@
  * When more than one valid Canonical Gold Standard exists (circumstantial — e.g.
  * Docker vs Podman vs Apple Containers), the agent calls this tool with a TOP
  * recommendation plus ranked alternatives; the user picks; the choice returns to
- * the agent. Built on Pi 0.80.3 natives: `pi.registerTool` (TypeBox-compatible
- * JSON Schema params) + `ctx.ui.select`. Model-callable, so it does NOT add a
- * `/` menu entry (protects the command-surface budget, ROADMAP §6).
+ * the agent. Built on Pi natives: `pi.registerTool` (TypeBox-compatible JSON
+ * Schema params) + `ctx.ui.select`. Model-callable, so it does not add a slash
+ * command that users could mistake for a direct workflow action.
  *
  * Deterministic non-interactive path: in `-p` / json / rpc (no TUI), it returns
  * the top recommendation without prompting. See extensions/lib/answer-core.mjs.

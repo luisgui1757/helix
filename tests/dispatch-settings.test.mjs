@@ -1,4 +1,4 @@
-// M2 — feature-toggle settings substrate: defaults, persistence, refusal codes,
+// Feature-toggle settings substrate: defaults, persistence, refusal codes,
 // record embedding, and the first degeneration hook (loops off ⇒ single pass).
 
 import test from "node:test";

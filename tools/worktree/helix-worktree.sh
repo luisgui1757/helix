@@ -2,15 +2,14 @@
 #
 # helix-worktree.sh — thin worktree-manager basics on canonical `git worktree`.
 #
-# Worktrees are the default for implementation / multi-agent work; in-place stays
-# available for read-only reviews and tiny edits (ROADMAP §9-Q1). This is the
-# Phase-1 "basics" stand-in — create / list / enter / prune / merge / remove —
-# NOT a full manager.
+# Worktrees are the default for implementation and multi-agent work; in-place
+# remains available for read-only reviews and tiny edits. This helper covers
+# create / list / enter / prune / merge / remove.
 #
 # SAFE PROVISIONING: `create` copies NOTHING by default. Secrets and heavy blobs
 # are never copied: no `.env`, no auth files, no sessions, no node_modules. There
 # is deliberately no auto-copy allowlist yet; provision by hand and keep provider
-# keys machine-local (docs/m0a/provider-and-egress-posture.md).
+# keys machine-local.
 #
 # Usage:
 #   tools/worktree/helix-worktree.sh create <name> [branch] [base]

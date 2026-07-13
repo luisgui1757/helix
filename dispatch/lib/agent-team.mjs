@@ -1,6 +1,6 @@
 // Helix dispatch — lean agent-team defaults + canonical role identity.
 //
-// Source of truth: ROADMAP Theme J / Stage 3K. Agent-team defaults are config
+// Source of truth: the shipped agent-team registry and role briefs. Defaults are config
 // artifacts that feed later role-matrix/chain work; they do not launch models,
 // fork dispatch policy, or let cosmetic aliases become routing/log identifiers.
 
@@ -16,7 +16,7 @@ export const CANONICAL_AGENT_ROLES = Object.freeze([
   "RedTeam",
 ]);
 
-/** Bridge from Stage 3K canonical role IDs to the existing dispatch role enum. */
+/** Bridge from canonical user-facing role IDs to the dispatch role enum. */
 export const DISPATCH_ROLE_BY_CANONICAL = Object.freeze({
   Scout: "scout",
   Planner: "planner",
@@ -27,7 +27,7 @@ export const DISPATCH_ROLE_BY_CANONICAL = Object.freeze({
 });
 
 const TEAM_ID_PATTERN = "^[a-z0-9][a-z0-9._:-]*$";
-const AGENT_FILE_PATTERN = "^docs/stage3/agents/[a-z0-9._/-]+\\.md$";
+const AGENT_FILE_PATTERN = "^dispatch/config/agents/[a-z0-9._/-]+\\.md$";
 
 const nullableString = { anyOf: [{ type: "string", minLength: 1 }, { type: "null" }] };
 

@@ -1,4 +1,4 @@
-// M4 — composite presets + per-stage casts: skeleton registry, fail-closed
+// Composite presets + per-stage casts: skeleton registry, fail-closed
 // degradation naming the member, effort vocabularies, multi-model-off
 // conflicts vs solo collapse, and chain cast resolution.
 

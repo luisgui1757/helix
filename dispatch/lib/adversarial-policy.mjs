@@ -1,10 +1,4 @@
-// Helix dispatch — default-on adversarial policy for meaningful work (Stage 3H).
-//
-// Source of truth: fusion-dispatch-research.md §"Multi-agent orchestration"
-// (adversarial/multi-team debate) and ROADMAP §7-Theme B / §9-Q2:
-// "default-on for meaningful work — plans, reviews, risky changes, security,
-// architecture, and PR preflight ... `/adversarial off` per-task ... Explicit
-// every-task or heavier 3+ model runs remain user opt-in."
+// Helix dispatch — default-on adversarial policy for meaningful work.
 //
 // This is a PURE policy surface: no UI, no slash command, no side effects. The
 // opt-out is exposed through the EXISTING structural channel
@@ -22,7 +16,7 @@ export const ADVERSARIAL_ROLES = Object.freeze(["redteam", "judge", "synthesizer
 
 /**
  * The task classes that are "meaningful work" — adversarial/multi-team debate is
- * default-on for these (spec / ROADMAP §9-Q2). This list is kept in lockstep with
+ * default-on for these. This list is kept in lockstep with
  * "the route carries an adversarial role" (asserted in tests); it is the human-
  * readable statement of the same policy, not a second source of truth.
  */

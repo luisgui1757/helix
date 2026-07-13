@@ -1,7 +1,7 @@
 // Helix dispatch — canonical provider identity + canonical→Pi mapping.
 //
 // Provider identifiers in run records are Helix-canonical, not the verbatim Pi
-// provider id (spec §"Provider And Cost Policy"). Stage 3B owns this mapping.
+// provider id. This module is the single source of truth for that mapping.
 
 /**
  * The canonical Helix provider set. Order is stable and used by the role
@@ -19,8 +19,7 @@ export const HELIX_PROVIDERS = Object.freeze([
 
 /**
  * Canonical Helix provider → Pi/runtime source. Descriptive only (no ids, no
- * secrets). Source of truth: fusion-dispatch-research.md §"Provider And Cost
- * Policy".
+ * secrets).
  */
 export const PROVIDER_PI_SOURCE = Object.freeze({
   "openai-codex": "Pi native OpenAI Codex OAuth/subscription provider",
@@ -28,14 +27,14 @@ export const PROVIDER_PI_SOURCE = Object.freeze({
   openrouter: "Pi native OpenRouter provider",
   "github-copilot": "Pi native GitHub Copilot OAuth/subscription provider",
   "azure-foundry": "models.json / OpenAI-compatible Azure AI Foundry entry",
-  "claude-local": "first-party Claude CLI wrapper only if ROADMAP Q4 accepts it",
+  "claude-local": "reserved first-party Claude CLI wrapper; not automated in this release",
   mock: "deterministic fixture provider",
 });
 
 /**
- * Providers excluded from automated Stage-3 dispatch until an explicit roadmap
- * gate lands. `claude-local` is excluded until ROADMAP Q4 settles native-Claude
- * dispatch; `mock` is a fixture provider, never a real dispatch target.
+ * Providers excluded from automated dispatch. `claude-local` remains reserved
+ * until a separately reviewed transport exists; `mock` is a fixture provider,
+ * never a real dispatch target.
  */
 export const NON_AUTOMATED_PROVIDERS = Object.freeze(["claude-local"]);
 
@@ -55,7 +54,7 @@ export function piSourceFor(provider) {
     : null;
 }
 
-/** Whether a canonical provider is eligible for automated dispatch this stage. */
+/** Whether a canonical provider is eligible for automated dispatch. */
 export function isAutomatedDispatchProvider(provider) {
   return isHelixProvider(provider) && !NON_AUTOMATED_PROVIDERS.includes(provider);
 }

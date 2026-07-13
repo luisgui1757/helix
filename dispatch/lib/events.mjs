@@ -1,4 +1,4 @@
-// Helix dispatch — structural loop event stream (M5, owner interview 2026-07-09).
+// Helix dispatch — structural loop event stream.
 //
 // The runner emits an append-only stream of STRUCTURAL events; every renderer
 // (TUI widget, plain lines, JSONL file) consumes the SAME stream. Events carry

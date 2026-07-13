@@ -4,23 +4,16 @@ dist/
 build/
 coverage/
 
-# Pi local state (installed package caches). Keep .pi/settings.json (shareable).
-.pi/npm/
-.pi/git/
+# Pi project-local package settings and caches are machine-owned. Helix is
+# loaded from its package manifest (`pi -e .` while developing).
+.pi/
 
 # Local AI-tool settings (machine-specific)
 .claude/
 
-# Private review transcripts / raw agent runs.
-# Keep sanitized summaries in tracked docs; do not publish raw run transcripts by default.
-reviews/runs/*
-
-# Dispatch run records + local claims/evidence (structural, but written locally
-# until a mechanical public-safe export step exists — Stage 3B).
+# Legacy in-repository state locations remain ignored for old checkouts. New
+# installs write under Pi's user data directory instead.
 dispatch/runs/
-
-# User-local Helix state: feature-toggle settings + profiles (personal casts).
-# Never tracked — real member lineups depend on personal provider logins.
 dispatch/local/
 
 # Secrets / env

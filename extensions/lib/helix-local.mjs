@@ -1,5 +1,5 @@
-// Helix /helix — user-local state helpers (M8): named profiles + active
-// pointer over gitignored dispatch/local/. Profiles are saved CASTS: they may
+// Helix user-local state helpers: named profiles + active pointer under Pi's
+// user data directory. Profiles are saved CASTS: they may
 // override assignments, complete preset member lineups, the default assignment,
 // and the default run config —
 // NEVER run semantics (chain, gate, run_target): the overrides schema simply
@@ -111,7 +111,7 @@ export function validateProfile(profile) {
 }
 
 export function profilesDir(root) {
-  return join(root, "dispatch", "local", "profiles");
+  return join(root, "profiles");
 }
 
 export function listProfiles(root) {
@@ -150,7 +150,7 @@ export function saveProfile(root, profile, { replace = false } = {}) {
     const path = join(profilesDir(root), `${profile.profile_id}.json`);
     if (existsSync(path) && !replace) return { ok: false, code: PROFILE_CODES.EXISTS, detail: profile.profile_id };
     if (pathEntryExists(`${path}.pending`)) return { ok: false, code: PROFILE_CODES.WRITE_FAILED };
-    writeTextAtomic(root, join("dispatch", "local", "profiles", `${profile.profile_id}.json`),
+    writeTextAtomic(root, join("profiles", `${profile.profile_id}.json`),
       JSON.stringify(profile, null, 2) + "\n", { replace });
   } catch {
     return { ok: false, code: PROFILE_CODES.WRITE_FAILED };
@@ -192,7 +192,7 @@ export function switchProfile(root, profileId) {
   try {
     const legacyPending = join(profilesDir(root), "active.json.pending");
     if (pathEntryExists(legacyPending)) return { ok: false, code: PROFILE_CODES.WRITE_FAILED };
-    writeTextAtomic(root, join("dispatch", "local", "profiles", "active.json"),
+    writeTextAtomic(root, join("profiles", "active.json"),
       JSON.stringify({ schema_version: 1, profile_id: profileId }, null, 2) + "\n");
   } catch {
     return { ok: false, code: PROFILE_CODES.WRITE_FAILED };

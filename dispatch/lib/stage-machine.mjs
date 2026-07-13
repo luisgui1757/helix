@@ -1,4 +1,4 @@
-// Helix dispatch — staged chain state machine (M3, owner interview 2026-07-09).
+// Helix dispatch — staged chain state machine.
 //
 // Executes a staged chain: each stage is a mini-loop routed by a reviewer
 // VERDICT (approve = advance, revise = stay, revise-jump = jump back to the
@@ -158,7 +158,7 @@ export function validateMachineResume(chain, maxIterations, toggles, resume) {
  *
  * @param {object} request { chain, max_iterations, toggles?, resume? } where
  *   resume = { phase, stage_index, pass_counts: {stage_id: n}, total_passes } is a
- *   previously persisted machine state (interrupt-safe resume, M5). Resume
+ *   previously persisted machine state for interrupt-safe resume. Resume
  *   state is validated structurally; an inconsistent state fails closed.
  * @param {object} deps { runStage, runGate, onPass?, onCheckpoint? } —
  *   onPass(entry, state)
@@ -226,7 +226,7 @@ export async function runStagedChain(request, deps = {}) {
     }
   };
 
-  // --- interrupt-safe resume (M5): restore a persisted machine state --------
+  // --- interrupt-safe resume: restore a persisted machine state -------------
   if (request.resume != null) {
     const resume = request.resume;
     if (!validateMachineResume(chain, maxIterations, toggles, resume)) {

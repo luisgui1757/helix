@@ -15,8 +15,7 @@
  *
  * This is defense-in-depth, NOT containment — the denylist is a regex speed bump
  * (evadable via heredocs, aliases, scripts, `find -delete`). The real boundary is
- * OS/container sandboxing (docs/m0a/lockdown-boundary.md). See
- * docs/stage1-2/yolo-fence.md.
+ * an OS/container sandbox; `tools/lockdown/` provides the local no-egress proof.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

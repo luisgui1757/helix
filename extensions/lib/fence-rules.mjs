@@ -3,7 +3,7 @@
 // The fence is a DEFENSE-IN-DEPTH SPEED BUMP, not containment. A regex denylist
 // on command strings is evadable (heredocs, aliases, `$(...)`, base64, scripts,
 // `find -delete`, env-var indirection). The real boundary is OS/container
-// sandboxing (see docs/stage1-2/yolo-fence.md and docs/m0a/lockdown-boundary.md).
+// sandboxing; `tools/lockdown/` carries the no-egress container proof.
 // These rules exist to catch the obvious, high-blast-radius, irreversible cases
 // and force an explicit confirm (TTY) or a fail-closed block (non-TTY).
 

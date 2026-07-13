@@ -1,28 +1,42 @@
 {
-  "name": "helix-pi",
+  "name": "pi-helix",
   "version": "0.1.0",
   "license": "MIT",
-  "private": true,
-  "description": "Helix resources for the Pi CLI.",
+  "description": "Native multi-model team workflows for the Pi coding agent.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luisgui1757/helix.git"
+  },
+  "homepage": "https://github.com/luisgui1757/helix#readme",
+  "bugs": {
+    "url": "https://github.com/luisgui1757/helix/issues"
+  },
   "engines": {
-    "node": ">=26 <27"
+    "node": ">=22.19.0"
   },
   "keywords": [
     "pi-package",
-    "pi-skill",
-    "pi-theme",
-    "pi-extension"
+    "pi-extension",
+    "multi-agent",
+    "coding-agent"
   ],
   "type": "module",
   "files": [
     "README.md",
     "LICENSE",
-    "LICENSES",
-    "skills",
-    "themes",
     "extensions",
-    "docs/resources"
+    "dispatch/config",
+    "dispatch/lib",
+    "docs/manual.md",
+    "tools/loop/helix-task-loop.mjs",
+    "tools/research/helix-research.mjs"
   ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "check:resources": "node tools/check-helix-resources.mjs",
     "check:docs-truth": "node tools/ci/docs-truth-check.mjs",
@@ -31,12 +45,6 @@
     "test": "node --test tests/*.test.mjs && bash tools/worktree/selftest.sh && bash tools/loop/selftest.sh"
   },
   "pi": {
-    "skills": [
-      "./skills/helix-ui"
-    ],
-    "themes": [
-      "./themes"
-    ],
     "extensions": [
       "./extensions/helix-fence.ts",
       "./extensions/helix-answer.ts",

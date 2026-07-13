@@ -1,7 +1,6 @@
 // Helix dispatch — task-class routes + panel resolution.
 //
-// Source of truth: fusion-dispatch-research.md §"Routing Policy" (route table +
-// rules). Panel bounds come from the route alone: a route's min_successes applies
+// Panel bounds come from the route alone: a route's min_successes applies
 // to the LAUNCHED candidates, and a panel is never silently shrunk — any
 // reduction is recorded as a warning. Helix performs no cost control; spend is
 // bounded by the backend control instance (billing ceiling), not the harness.
@@ -53,7 +52,7 @@ export const ROUTE_CONFIG_SCHEMA = Object.freeze({
     objective_gate: { anyOf: [{ type: "string", minLength: 1 }, { type: "null" }] },
     gate_kind: { type: "string", enum: ["objective", "advisory"] },
     requires_cross_family: { type: "boolean" },
-    // Reserved role→candidates matrix. Stage 3B ships empty defaults (see spec
+    // Reserved role→candidates matrix. Defaults are empty; callers supply the
     // §"Routing Policy" effort/instances reservation); shape is stable now.
     role_matrix: {
       type: "object",

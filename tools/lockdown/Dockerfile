@@ -2,7 +2,7 @@
 #
 # Helix lockdown smoke image — the canonical "Plain Docker" boundary from Pi's
 # own docs/containerization.md, pinned to the Pi version this repo is verified
-# against (ROADMAP §4).
+# against.
 #
 # Build-time network is used ONLY to install the pinned Pi CLI. The smoke itself
 # runs the container with `docker run --network none`, i.e. deny-by-default
@@ -14,15 +14,15 @@
 
 FROM node:24-bookworm-slim
 
-# Pin to the repo's verified Pi version. Override with --build-arg if re-pinning
-# in the same change as ROADMAP §4 / tools/m0a/collect-evidence.sh.
+# Pin to the repo's verified Pi version. Override with --build-arg only when the
+# smoke, runtime load proof, and documentation are re-verified in the same change.
 ARG PI_VERSION=0.80.3
 
 RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
   && pi --version
 
-# The repo resource surface (.pi/settings.json, skills/, themes/) is bind-mounted
-# read-only at /workspace by the smoke runner; this is just the default cwd.
+# The extension package is bind-mounted read-only at /workspace by the smoke
+# runner; this is just the default cwd.
 WORKDIR /workspace
 
 # No ENTRYPOINT: the smoke runner passes an explicit command per check so the

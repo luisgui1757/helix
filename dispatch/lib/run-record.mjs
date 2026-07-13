@@ -1,7 +1,6 @@
 // Helix dispatch — public-safe run-record writer.
 //
-// Source of truth: fusion-dispatch-research.md §"Public-Safe Logging". Stage 3B
-// persists STRUCTURAL public-safe records only: ids, hashes/refs, metadata, and
+// Persists STRUCTURAL public-safe records only: ids, hashes/refs, metadata, and
 // rollups — never raw prompts, model responses, provider payloads, transcripts,
 // private code, secrets, session URLs, or home paths. Claims/evidence are
 // refs/hashes to ignored local storage, never free text. Branch names and gate
@@ -30,7 +29,7 @@ import { writeTextAtomic } from "./persistence.mjs";
 
 export { PUBLIC_CODE_PATTERN, REF_PATTERN } from "./public-values.mjs";
 
-/** Default (gitignored) local directory for structural run records. */
+/** Legacy relative default for direct library callers; product adapters inject user state. */
 export const DEFAULT_RUN_RECORD_DIR = "dispatch/runs";
 
 
@@ -165,7 +164,7 @@ export const RUN_RECORD_SCHEMA = Object.freeze({
     // Conditional: plain only for repo==="self"; hashed for any other target.
     branch: { anyOf: [{ type: "string", pattern: BRANCH_PATTERN }, refSchema] },
     gate_file_paths: { type: "array", items: { anyOf: [{ type: "string", pattern: RELATIVE_PATH_PATTERN }, refSchema] } },
-    // The resolved feature-toggle vector this run executed under (M2) — exactly
+    // The resolved feature-toggle vector this run executed under — exactly
     // the six booleans, so a record is reproducible against its settings.
     // Optional: pre-toggle callers omit it; the runner always embeds it.
     toggles: {
@@ -387,7 +386,7 @@ export function validateRunRecord(record) {
  * Persist a built record to `${dir}/${run_id}.json` (deterministic filename).
  * The record is re-scanned for public safety before writing. Returns the path.
  * @param {object} record a record from buildRunRecord
- * @param {string} [dir] output directory (default: gitignored dispatch/runs)
+ * @param {string} [dir] output directory (product adapters inject user state)
  */
 export function writeRunRecord(record, dir = DEFAULT_RUN_RECORD_DIR) {
   if (!RUN_ID_PATTERN.test(record?.run_id ?? "")) {

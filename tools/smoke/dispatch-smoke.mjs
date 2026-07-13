@@ -2,7 +2,7 @@
 // dispatch-smoke.mjs — deterministic dispatch smokes over the thin orchestrator.
 // Mock adapters only: NO network, NO credentials.
 //
-// Four dispatch scenarios then one Stage 3G iterating-debate scenario run in sequence:
+// Four dispatch scenarios then one iterating-debate scenario run in sequence:
 //   1. routine-code — panel + objective gate (no judge/synthesis).
 //   2. roadmap-reconciliation — panel + blinded judge + synthesis that PRESERVES
 //      a candidate contradiction, then the objective gate.
@@ -10,13 +10,13 @@
 //      summarizes the objective proof (never decides the gate).
 //   4. risky-change (PARALLEL) — a 3-candidate panel launched with a bounded
 //      concurrency cap; output order stays deterministic.
-//   5. risky-change (DEBATE, Stage 3G) — a bounded iterating/adversarial loop over
+//   5. risky-change (DEBATE) — a bounded iterating/adversarial loop over
 //      the cycle above: an unstable diff that stabilizes on iteration 2, then a
 //      passing objective gate ⇒ convergence (diff-stability + objective-gate-pass),
 //      capped by max_iterations (the one rail).
 // Everything is fixed (clock, seed, run ids, canned envelopes, canned gates,
 // deterministic diff checker), so repeated runs produce byte-identical structural
-// run records + debate summary in the gitignored dispatch/runs/ directory. Output is
+// run records + debate summary in an isolated temporary directory. Output is
 // structural-only: ids, codes, and counts — never prompts, model responses, or
 // provider payloads.
 //
@@ -25,11 +25,15 @@
 
 import { runDispatch } from "../../dispatch/lib/orchestrate.mjs";
 import { runDebate } from "../../dispatch/lib/debate.mjs";
-import { DEFAULT_RUN_RECORD_DIR } from "../../dispatch/lib/run-record.mjs";
 import { makeEnvelope } from "../../dispatch/fixtures/sample.mjs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const NOW = 1_751_731_200; // fixed epoch seconds — determinism over wall clock
 const SEED = 7;
+const recordDir = mkdtempSync(join(tmpdir(), "helix-dispatch-smoke-"));
+process.on("exit", () => rmSync(recordDir, { recursive: true, force: true }));
 
 // Canned deterministic gates: these smokes prove orchestration, not the checks.
 const passGate = (command) => () => ({ command_names: [command], result: "pass", source: "deterministic-checker" });
@@ -160,7 +164,7 @@ for (const scenario of [routine, synthesis, verification, parallel]) {
     now: NOW,
     seed: SEED,
     mode: "print",
-    record_dir: DEFAULT_RUN_RECORD_DIR,
+    record_dir: recordDir,
     ...(scenario.parallel ? { parallel: scenario.parallel } : {}),
   });
 
@@ -173,7 +177,7 @@ for (const scenario of [routine, synthesis, verification, parallel]) {
   console.log(`  verifier:   ${result.verification ? `ran (status=${result.verification.status}, advisory)` : "(none)"}`);
   console.log(`  gate:       ${result.record ? `${result.record.gate.result} (${result.record.gate.source})` : "-"}`);
   console.log(`  warnings:   ${result.warnings.length ? result.warnings.join(", ") : "(none)"}`);
-  console.log(`  record:     ${result.record_path ?? "(not written)"}`);
+  console.log(`  record:     ${result.record_path ? "written" : "(not written)"}`);
 
   if (!result.ok) {
     console.error(`dispatch-smoke: scenario ${scenario.run_id} did not reach 'ok' — fail closed.`);
@@ -181,7 +185,7 @@ for (const scenario of [routine, synthesis, verification, parallel]) {
   }
 }
 
-// --- scenario 5: risky-change DEBATE (Stage 3G iterating / adversarial loop) ------
+// --- scenario 5: risky-change DEBATE (iterating / adversarial loop) ---------
 // One iteration is the risky-change dispatch cycle. A deterministic diff checker
 // reports the proposed change unstable on iteration 1 and stable from iteration 2;
 // the objective gate passes each iteration. Convergence = diff-stability +
@@ -219,7 +223,7 @@ const debate = await runDebate(
     now: NOW,
     seed: SEED,
     mode: "print",
-    record_dir: DEFAULT_RUN_RECORD_DIR,
+    record_dir: recordDir,
     diffStability: debateDiff,
   },
 );
@@ -230,7 +234,7 @@ console.log(`  iterations: ${debate.iterations_run}/${debate.max_iterations}`);
 console.log(`  diffs:      ${debate.iterations.map((it) => `${it.iteration}:${it.diff_result}`).join(", ")}`);
 console.log(`  gates:      ${debate.iterations.map((it) => `${it.iteration}:${it.gate_result}`).join(", ")}`);
 console.log(`  tokens:     ${debate.total_tokens}`);
-console.log(`  summary:    ${debate.summary_path ?? "(not written)"}`);
+console.log(`  summary:    ${debate.summary_path ? "written" : "(not written)"}`);
 if (!debate.ok) {
   console.error(`dispatch-smoke: debate scenario ${DEBATE_RUN_ID} did not converge — fail closed.`);
   failures += 1;

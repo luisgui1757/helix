@@ -1,7 +1,7 @@
 // Helix dispatch — judge-bias mitigations (blinding projection + judge selection).
 //
-// Source of truth: fusion-dispatch-research.md §"Judge-Bias Mitigations". The
-// judge sees a PROJECTION of each candidate: identifying fields (provider, model,
+// Bias-mitigation contract: the judge sees a projection of each candidate.
+// Identifying fields (provider, model,
 // usage, attempt, iteration, input_ref, run_id) are stripped and
 // candidates are re-keyed A/B/C in a recorded (seed-reproducible) permutation.
 // Label reveals are allowed only by config/TUI approval and are recorded.

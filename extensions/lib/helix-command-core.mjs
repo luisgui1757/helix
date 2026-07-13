@@ -1,7 +1,7 @@
-// Helix /helix command core - Stage 3O PR1.
+// Pi-runtime-free command core for Helix's native slash-command surface.
 //
 // This module is Pi-runtime-free: it renders resolved Helix control-surface
-// views and delegates policy to the existing Stage 3 validators/resolvers. The
+// views and delegates policy to the existing dispatch validators/resolvers. The
 // Mutating verbs (settings set, profile create/switch, setup, and structural
 // prune) are gated by ctx.mode + explicit confirmation before any writer runs.
 
@@ -59,25 +59,31 @@ import {
   applyProfileToConfig,
   applyProfileToPresets,
 } from "./helix-local.mjs";
+import { helixStateRoot as defaultHelixStateRoot } from "./helix-paths.mjs";
 
 const DEFAULT_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 export const HELIX_USAGE = `Usage:
   /helix
-  /helix help
-  /helix run [config-id]
-  /helix runs list | status <run-id> | watch <run-id> | resume <run-id> | prune <run-id>
-  /helix models
-  /helix chains
-  /helix settings [set <toggle> on|off]
-  /helix profiles [show <id> | switch <id> | create <id>]
-  /helix setup [<existing-profile-id> <stage>=<preset | provider/model[:effort]> ...]
+  /helix-help
+  /helix-run [config-id]
+  /helix-runs
+  /helix-run-status <run-id>
+  /helix-run-watch <run-id>
+  /helix-run-resume <run-id>
+  /helix-run-prune <run-id>
+  /helix-models
+  /helix-chains
+  /helix-settings [<toggle> on|off]
+  /helix-profiles [show <id> | switch <id> | create <id>]
+  /helix-setup [<existing-profile-id> <stage>=<preset | provider/model[:effort]> ...]
                [<preset>.<role>=<provider/model[:effort][*instances]>[, ...] ...]
-  /helix research <question> --metric <name> <cmp> <target> --max <n> [--plateau <n>]
+  /helix-research <question> --metric <name> <cmp> <target> --max <n> [--plateau <n>]
 
-The slash command is preflight/view/state only: loops execute through the printed
-CLI commands. The shipped runner executes mock casts only; a cast naming any real
-provider refuses as live-adapter-not-wired until the approval-gated transport lands.`;
+Most commands are preflight/view/state operations. The packaged runner executes
+mock casts; a cast naming any real provider refuses as live-adapter-not-wired
+until a live transport is implemented and verified. In Pi's TUI, /helix-run
+starts the resolved mock cast only after an attended confirmation.`;
 
 const TOP_LEVEL_COMPLETIONS = Object.freeze([
   { value: "help", label: "help", description: "Show the public-safe Helix cheat sheet" },
@@ -108,42 +114,42 @@ const REFUSAL_GUIDANCE = Object.freeze({
   },
   "unknown-run-config": {
     reason: "The requested run config is not in the Helix run registry.",
-    next: "Use /helix run with no argument to see the default config, or inspect /helix chains.",
+    next: "Use /helix-run with no argument to see the default config, or inspect /helix-chains.",
   },
   "missing-run-id": {
     reason: "This verb needs a structural run id.",
-    next: "Run /helix runs list and copy a listed run id.",
+    next: "Run /helix-runs and copy a listed run id.",
   },
   "unsafe-run-id": {
     reason: "The run id is not a safe structural record token.",
-    next: "Use an exact run id from /helix runs list; path traversal and root-resolving ids are refused.",
+    next: "Use an exact run id from /helix-runs; path traversal and root-resolving ids are refused.",
   },
   "run-not-found": {
     reason: "No structural run record matched that run id.",
-    next: "Run /helix runs list and choose an existing run id.",
+    next: "Run /helix-runs and choose an existing run id.",
   },
   "helix-settings-unreadable": {
     reason: "The user-local settings file exists but cannot be read or parsed.",
-    next: "Fix or delete dispatch/local/settings.json (absent = all toggles on).",
+    next: "Fix or delete the Helix settings.json under Pi's agent directory (absent = all toggles on).",
   },
   "research-requires-attended": {
     reason: "Research is attended-only by owner decision.",
-    next: "Run /helix research from an interactive TUI session and stay at the terminal.",
+    next: "Run /helix-research from an interactive TUI session and stay at the terminal.",
   },
   "toggle-disabled:autoresearch": {
     reason: "The autoresearch toggle is off - invoking the verb is an explicit conflict.",
-    next: "Run /helix settings set autoresearch on, then retry.",
+    next: "Run /helix-settings and enable Autoresearch, then retry.",
   },
   "toggle-disabled:multi-model": {
     reason: "A composite cast needs the multi-model toggle.",
-    next: "Run /helix settings set multi-model on, or assign a plain provider/model instead.",
+    next: "Run /helix-settings and enable Multi-model, or assign a plain provider/model instead.",
   },
   "helix-prune-requires-tui-confirm": {
     reason: "Prune requires an attended TUI confirmation.",
     next: "Open Pi in TUI mode and retry, or leave the record in place.",
   },
   "helix-mutation-requires-tui-confirm": {
-    reason: "Every /helix mutation requires an attended TUI confirmation.",
+    reason: "This state mutation requires an attended TUI confirmation.",
     next: "Open Pi in TUI mode, retry the mutation, and confirm the prompt.",
   },
   "helix-mutation-cancelled": {
@@ -160,7 +166,11 @@ const REFUSAL_GUIDANCE = Object.freeze({
   },
   "preset-member-unavailable": {
     reason: "A requested provider/model is not in Pi's currently available inventory.",
-    next: "Log in to that provider or choose an exact model shown by /helix setup.",
+    next: "Log in to that provider or choose an exact model shown by /helix-setup.",
+  },
+  "helix-runner-result-invalid": {
+    reason: "The packaged runner returned an incomplete or unsafe structural result.",
+    next: "Inspect the run with /helix-runs; Helix did not render raw runner output.",
   },
 });
 
@@ -183,17 +193,18 @@ function readJson(root, rel) {
 
 function dependencies(options = {}) {
   const root = options.root ?? DEFAULT_ROOT;
+  const stateRoot = options.stateRoot ?? defaultHelixStateRoot();
   const load = (key, rel) => options[key] ?? readJson(root, rel);
   return {
     root,
+    stateRoot,
     runRegistry: load("runRegistry", "dispatch/config/run-configs.json"),
     chainRegistry: load("chainRegistry", "dispatch/config/chains.json"),
     roleMatrix: load("roleMatrix", "dispatch/config/role-matrix-defaults.json"),
     agentTeam: load("agentTeam", "dispatch/config/agent-team-defaults.json"),
     packageJson: load("packageJson", "package.json"),
-    settings: load("settings", ".pi/settings.json"),
-    runsRoot: options.runsRoot ?? join(root, "dispatch", "runs"),
-    settingsPath: options.settingsPath ?? join(root, DEFAULT_SETTINGS_REL_PATH),
+    runsRoot: options.runsRoot ?? join(stateRoot, "runs"),
+    settingsPath: options.settingsPath ?? join(stateRoot, DEFAULT_SETTINGS_REL_PATH),
     matricesDir: options.matricesDir ?? join(root, "dispatch", "config", "matrices"),
     modelInventory: Array.isArray(options.modelInventory) ? options.modelInventory : null,
     toggles: options.toggles ?? null,
@@ -265,7 +276,7 @@ function fail(code, detail, title = "Helix command refused") {
   const renderedDetail = publicDetail(detail);
   const guidance = REFUSAL_GUIDANCE[renderedCode] ?? {
     reason: "Helix refused before doing unsafe or unsupported work.",
-    next: "Run /helix help, then retry with a supported no-live/view-only verb.",
+    next: "Run /helix-help, then retry with a supported command.",
   };
   return result({
     ok: false,
@@ -313,16 +324,14 @@ function renderHelp() {
     lines: [
       "Helix help",
       "Mode: view-only",
-      "Install/load: open this repository as a trusted Pi project; package resources are pinned in package.json and .pi/settings.json.",
-      "Verify loaded: run /helix. Runtime RPC inventory can be checked with node tools/smoke/pi-e2e-load.mjs --runtime-rpc.",
-      "First no-live preflight: /helix run mock-core-loop.",
-      "Run loop manually: use the CLI printed by /helix run; PR1 does not launch loops from the slash command.",
-      "Runs: /helix runs list, /helix runs status <run-id>, /helix runs prune <run-id>.",
-      "Mutations: settings set, profiles create/switch, setup, and prune are TUI-only and require explicit confirmation.",
-      "Views: /helix models (presets), /helix chains (staged catalog), /helix settings, /helix profiles.",
-      "Casts: /helix setup saves stage assignments and complete per-role composite member lineups from Pi's available-model inventory.",
-      "Loops: /helix run preflights; the printed CLI executes; /helix runs watch renders the loop widget from its event stream; /helix runs resume prints the resume CLI.",
-      "Research: /helix research validates the mandatory metric+stop shape (attended, TUI only) and prints the research CLI.",
+      "Install: follow the package command in README.md, then restart Pi.",
+      "Start: /helix shows the dashboard; /helix-settings opens the interactive feature list.",
+      "Run: /helix-run [config-id] shows the preflight, then starts the mock workflow after confirmation.",
+      "Runs: /helix-runs, /helix-run-status, /helix-run-watch, /helix-run-resume, /helix-run-prune.",
+      "Views: /helix-models, /helix-chains, /helix-profiles.",
+      "Casts: /helix-setup saves stage assignments and composite member lineups from Pi's available-model inventory.",
+      "Research: /helix-research validates the mandatory metric and stop condition, then prints the packaged research invocation.",
+      "Attendance: run launch and profile/setup/prune changes are confirmed; settings toggles save immediately because they are reversible.",
       "Live: presence declares live intent, but this build refuses real-provider casts as live-adapter-not-wired. The default mock config is no-live.",
       "Refusals: every refusal shows a stable code, reason, and next safe action.",
       "Manual: docs/manual.md.",
@@ -389,11 +398,8 @@ function summarizeChain(chain) {
   };
 }
 
-function resourceStatus(pkg, settings) {
-  const pkgSkills = Array.isArray(pkg?.pi?.skills) ? pkg.pi.skills : [];
-  const pkgThemes = Array.isArray(pkg?.pi?.themes) ? pkg.pi.themes : [];
+function resourceStatus(pkg) {
   const pkgExtensions = Array.isArray(pkg?.pi?.extensions) ? pkg.pi.extensions : [];
-  const settingsExtensions = Array.isArray(settings?.extensions) ? settings.extensions : [];
   const safeName = (entry) => {
     if (typeof entry === "string") {
       const name = basename(entry);
@@ -409,14 +415,9 @@ function resourceStatus(pkg, settings) {
     return hashRef(String(entry ?? ""));
   };
   return {
-    skills: pkgSkills.length,
-    themes: pkgThemes.length,
     extensions: pkgExtensions.length,
     package_extensions: pkgExtensions.map(safeName),
-    settings_extensions: settingsExtensions.map(safeName),
-    helix_command_pinned:
-      pkgExtensions.includes("./extensions/helix-command.ts") &&
-      settingsExtensions.includes("../extensions/helix-command.ts"),
+    helix_command_pinned: pkgExtensions.includes("./extensions/helix-command.ts"),
   };
 }
 
@@ -443,14 +444,6 @@ function structuralPreset(preset) {
       })),
     ])),
   };
-}
-
-function manualRunId(configId) {
-  return `${configId}-manual`;
-}
-
-function cliInvocation(configId) {
-  return `node tools/loop/helix-task-loop.mjs --config ${configId} --run-id ${manualRunId(configId)}`;
 }
 
 /** Providers named by a resolved staged cast (the SIGNAL the runner acts on) —
@@ -494,7 +487,7 @@ function buildPreflight(configId, deps) {
   // default assignment only - never chain/gate/run_target, by schema).
   let config = resolved.config;
   let profileApplied = null;
-  const active = resolveActiveProfile(deps.root);
+  const active = resolveActiveProfile(deps.stateRoot);
   if (!active.ok) return { ok: false, code: active.code, detail: active.detail };
   if (active.profile) {
     const applied = applyProfileToConfig(config, active.profile);
@@ -549,7 +542,6 @@ function buildPreflight(configId, deps) {
     cast_providers: providers,
     live_status: castLiveStatus(castResult.cast),
     warnings: [],
-    cli: cliInvocation(config.id),
     profile_applied: profileApplied,
   };
 }
@@ -558,7 +550,7 @@ function renderPreflight(preflight, requestedId) {
   if (!preflight.ok) {
     return fail(preflight.code, preflight.detail, "Helix run preflight refused");
   }
-  const { config, chain, cast, warnings, cli } = preflight;
+  const { config, chain, cast, warnings } = preflight;
   const stageCast = cast.map((c) => `${c.stage_id}=${c.executor_ref}`).join(" ");
   return result({
     title: "Helix run preflight",
@@ -576,10 +568,8 @@ function renderPreflight(preflight, requestedId) {
         ? `Parallel: max_concurrency=${config.parallel.max_concurrency}`
         : "Parallel: none",
       `Warnings: ${warnings.length ? warnings.join(", ") : "none"}`,
-      `Run ID suggestion: ${manualRunId(config.id)}`,
-      `CLI: ${cli}`,
       "",
-      "The slash command does not launch the loop. Run the CLI command explicitly if you want execution.",
+      "In Pi's TUI, confirm this preflight to start the packaged mock workflow.",
     ],
     details: {
       requested_config_id: requestedId,
@@ -594,14 +584,51 @@ function renderPreflight(preflight, requestedId) {
       },
       live_status: preflight.live_status,
       warnings,
-      cli_invocation: cli,
       launches_loop: false,
     },
   });
 }
 
+export function renderHelixRunCompletion({ runId, configId, exitCode, converged = false, stopReason = null }) {
+  if (!validateRunId(runId).ok
+    || !isPublicCode(configId)
+    || !Number.isSafeInteger(exitCode)
+    || exitCode < 0
+    || exitCode > 255
+    || typeof converged !== "boolean"
+    || (exitCode === 0 && !isPublicCode(stopReason))) {
+    return fail("helix-runner-result-invalid", null, "Helix run result refused");
+  }
+  const safeStopReason = isPublicCode(stopReason) ? stopReason : "unknown";
+  if (exitCode !== 0) {
+    return result({
+      ok: false,
+      status: "fail-closed",
+      code: "helix-runner-failed",
+      title: "Helix run failed",
+      lines: [
+        "Helix refusal: helix-runner-failed",
+        "Reason: the packaged mock runner exited without a successful result.",
+        `Run: ${runId}`,
+        `Next safe action: inspect /helix-run-status ${runId}; no raw runner output was rendered.`,
+      ],
+      details: { run_id: runId, config_id: configId, exit_code: exitCode, converged: false, stop_reason: safeStopReason },
+    });
+  }
+  return result({
+    title: "Helix run complete",
+    lines: [
+      `Run: ${runId}`,
+      `Config: ${configId}`,
+      `Result: ${converged ? "converged" : "complete"} (${safeStopReason})`,
+      `Inspect: /helix-run-status ${runId}`,
+    ],
+    details: { run_id: runId, config_id: configId, exit_code: exitCode, converged, stop_reason: safeStopReason },
+  });
+}
+
 function resolveDefaultConfigId(deps) {
-  const active = resolveActiveProfile(deps.root);
+  const active = resolveActiveProfile(deps.stateRoot);
   if (!active.ok) return active;
   const configId = active.profile?.overrides?.default_run_config ?? deps.runRegistry?.configs?.[0]?.id;
   if (typeof configId !== "string") return { ok: false, code: "missing-default-run-config", detail: null };
@@ -644,7 +671,7 @@ function renderDashboard(deps) {
 
   lines.push(
     lastRun ? `Last run: ${lastRun.run_id} ${lastRun.status}` : "Last run: none",
-    `Package/resources: skills=${resourceStatus(deps.packageJson, deps.settings).skills}, themes=${resourceStatus(deps.packageJson, deps.settings).themes}, extensions=${resourceStatus(deps.packageJson, deps.settings).extensions}`,
+    `Package/resources: extensions=${resourceStatus(deps.packageJson).extensions}`,
   );
 
   return result({
@@ -667,7 +694,7 @@ function renderDashboard(deps) {
           detail: preflight.detail,
         },
       last_run: lastRun,
-      resource_status: resourceStatus(deps.packageJson, deps.settings),
+      resource_status: resourceStatus(deps.packageJson),
     },
   });
 }
@@ -678,7 +705,7 @@ function renderModels(deps) {
   if (!matrixShape.valid) return fail("invalid-role-matrix", "role-matrix-defaults", "Helix models refused");
   const presetsResult = loadPresets(deps);
   if (!presetsResult.ok) return fail(presetsResult.code, presetsResult.detail, "Helix models refused");
-  const active = resolveActiveProfile(deps.root);
+  const active = resolveActiveProfile(deps.stateRoot);
   if (!active.ok) return fail(active.code, active.detail, "Helix models refused");
   const profiled = applyProfileToPresets(presetsResult.presets, active.profile);
   if (!profiled.ok) return fail(profiled.code, profiled.detail, "Helix models refused");
@@ -760,7 +787,7 @@ function renderSettings(deps, tokens) {
       "OFF never errors - features degenerate; only explicit conflicts refuse.",
       ...renderToggleLines(loaded.settings),
       "",
-      "Change: /helix settings set <toggle> on|off",
+      "Change: /helix-settings <toggle> on|off",
     ],
     details: { toggles: toggleVector(loaded.settings), source: loaded.source },
   });
@@ -774,7 +801,7 @@ function renderProfiles(deps, tokens) {
   const sub = tokens[1];
   const id = tokens[2];
   if (sub === "switch") {
-    const switched = switchProfile(deps.root, id);
+    const switched = switchProfile(deps.stateRoot, id);
     if (!switched.ok) return fail(switched.code, switched.detail, "Helix profile switch refused");
     return result({
       title: "Helix profile switched",
@@ -785,7 +812,7 @@ function renderProfiles(deps, tokens) {
   }
   if (sub === "create") {
     if (typeof id !== "string" || id.length === 0) return usage(tokens.join(" "));
-    const created = saveProfile(deps.root, { schema_version: 1, profile_id: id, overrides: {} });
+    const created = saveProfile(deps.stateRoot, { schema_version: 1, profile_id: id, overrides: {} });
     if (!created.ok) return fail(created.code, created.detail, "Helix profile create refused");
     return result({
       title: "Helix profile created",
@@ -795,7 +822,7 @@ function renderProfiles(deps, tokens) {
     });
   }
   if (sub === "show") {
-    const loaded = loadProfile(deps.root, id);
+    const loaded = loadProfile(deps.stateRoot, id);
     if (!loaded.ok) return fail(loaded.code, loaded.detail, "Helix profile show refused");
     const overrides = loaded.profile.overrides;
     return result({
@@ -811,15 +838,15 @@ function renderProfiles(deps, tokens) {
       details: { profile: loaded.profile },
     });
   }
-  const listed = listProfiles(deps.root);
+  const listed = listProfiles(deps.stateRoot);
   if (!listed.ok) return fail(listed.code, listed.detail, "Helix profiles refused");
-  const active = resolveActiveProfile(deps.root);
+  const active = resolveActiveProfile(deps.stateRoot);
   if (!active.ok) return fail(active.code, active.detail, "Helix profiles refused");
   return result({
     title: "Helix profiles",
     lines: [
       `Active: ${active.profile_id ?? "(none - tracked defaults)"}`,
-      listed.profiles.length ? "Profiles:" : "Profiles: none (create one with /helix profiles create <id>)",
+      listed.profiles.length ? "Profiles:" : "Profiles: none (create one with /helix-profiles create <id>)",
       ...listed.profiles.map((profile) =>
         `  ${profile.profile_id}${profile.profile_id === active.profile_id ? " (active)" : ""}: ${Object.keys(profile.overrides.assignments ?? {}).length} assignment(s)`),
     ],
@@ -900,7 +927,7 @@ function renderSetup(deps, tokens) {
     return result({
       title: "Helix setup",
       lines: [
-        "Create a profile first, then assemble its cast: /helix profiles create <id>; /helix setup <id> <stage>=<executor> ...",
+        "Create a profile first, then assemble its cast: /helix-profiles create <id>; /helix-setup <id> <stage>=<executor> ...",
         "Replace composite members: <preset>.<role>=<provider/model[:effort][*instances]>[, ...].",
         "",
         "Presets:",
@@ -925,9 +952,9 @@ function renderSetup(deps, tokens) {
   const profileId = tokens[1];
   const pairs = tokens.slice(2);
   if (pairs.length === 0) return usage(tokens.join(" "));
-  const active = resolveActiveProfile(deps.root);
+  const active = resolveActiveProfile(deps.stateRoot);
   if (!active.ok) return fail(active.code, active.detail, "Helix setup refused");
-  const existing = loadProfile(deps.root, profileId);
+  const existing = loadProfile(deps.stateRoot, profileId);
   if (!existing.ok) return fail(existing.code, existing.detail, "Helix setup refused");
   const base = existing.profile;
   const assignments = {};
@@ -981,7 +1008,7 @@ function renderSetup(deps, tokens) {
       ...(Object.keys(presetOverlays).length ? { presets: presetOverlays } : {}),
     },
   };
-  const activated = saveAndActivateProfile(deps.root, profile);
+  const activated = saveAndActivateProfile(deps.stateRoot, profile);
   if (!activated.ok) return fail(activated.code, activated.detail, "Helix setup refused");
   return result({
     title: "Helix setup saved",
@@ -990,7 +1017,7 @@ function renderSetup(deps, tokens) {
       ...Object.entries(assignments).map(([stage, a]) => `  ${stage} -> ${assignmentLabel(a)}`),
       ...Object.entries(presetOverlays).map(([presetId, overlay]) => `  ${presetId}: ${Object.keys(overlay.roles).length} role lineup(s)`),
       "",
-      "Preflight it: /helix run",
+      "Preflight it: /helix-run",
     ],
     details: { profile_id: profileId, assignments, preset_overlays: Object.keys(presetOverlays), mutating: true },
     mutating: true,
@@ -1371,6 +1398,7 @@ export function executeHelixCommand(args = "", ctx = {}, options = {}) {
 
   const [verb, subverb, runId] = tokens;
   if (verb === "run") {
+    if (tokens.length > 2) return usage(tokens.join(" "));
     const selected = subverb ? { ok: true, config_id: subverb } : resolveDefaultConfigId(deps);
     if (!selected.ok) return fail(selected.code, selected.detail, "Helix run preflight refused");
     const configId = selected.config_id;

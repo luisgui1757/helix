@@ -1,8 +1,8 @@
-// Helix dispatch — clean-context handoff packets + disagreement log (M6).
+// Helix dispatch — clean-context handoff packets + disagreement log.
 //
 // Each stage starts FRESH: it receives a handoff packet (claims, counterclaims,
 // evidence refs, unresolved disagreement ids) instead of a dragged transcript.
-// Packets are ADAPTER INPUTS (Stage 3D precedent): they may carry substantive
+// Packets are adapter inputs: they may carry substantive
 // text BETWEEN steps, but records/events persist only the structural
 // projection (ids, hashes, refs, counts).
 //

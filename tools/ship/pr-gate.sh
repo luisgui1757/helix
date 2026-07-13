@@ -72,7 +72,7 @@ fi
 
 # --- 3. Review --------------------------------------------------------------
 step "3. Review"
-advisory "Independent second-provider review for meaningful work (docs/m0a/vertical-smoke/second-provider-review-handoff.md)."
+advisory "Use an independent second-provider review for meaningful or high-risk work."
 
 # --- 4. Tests (hard) --------------------------------------------------------
 step "4. Tests"
@@ -89,6 +89,11 @@ if node -e "process.exit(require('./package.json').scripts?.['check:resources']?
   if npm run --silent check:resources >/dev/null 2>&1; then pass "npm run check:resources"; else failg "npm run check:resources"; fi
 else
   advisory "no check:resources script"
+fi
+if node -e "process.exit(require('./package.json').scripts?.['check:docs-truth']?0:1)" 2>/dev/null; then
+  if npm run --silent check:docs-truth >/dev/null 2>&1; then pass "npm run check:docs-truth"; else failg "npm run check:docs-truth"; fi
+else
+  advisory "no check:docs-truth script"
 fi
 
 # --- 6. Lint (hard where runnable) ------------------------------------------

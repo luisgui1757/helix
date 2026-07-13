@@ -1,4 +1,4 @@
-// M9 — the toggle combination matrix: Helix must operate NOMINALLY under every
+// Toggle combination matrix: Helix must operate nominally under every
 // combination — all-on, all-off, each only-X-on singleton, and the owner's
 // three named scenarios. OFF degenerates; only explicit conflicts refuse.
 // Plus: every chain in the five-loop catalog executes end to end (mock, no-live).
