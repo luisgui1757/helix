@@ -11,7 +11,15 @@ pi install git:github.com/luisgui1757/helix
 pi
 ```
 
-Run `/helix-help` after installation. Run `/helix` at any time to return to the
+Before using Helix, configure or sync the providers you want in Pi. Helix reads
+Pi's already available model inventory; provider login, selection, and setup
+remain Pi concerns.
+
+On the first cold Pi startup, Helix offers a four-step keyboard tour covering
+that prerequisite, optional feature settings, casts, and run inspection. Choose
+**Later** to leave no marker and offer the tour again on the next cold startup.
+Choose **Don't show again** to persist a dismissal. Finishing the tour persists
+completion. Run `/helix-help` after installation or `/helix` to return to the
 dashboard.
 
 ## Commands
@@ -27,6 +35,13 @@ commands are the primary interface.
 Shows install guidance, the native command map, the live-transport boundary, and
 the next safe action for refusals. It is view-only and does not load mutable
 state.
+
+### `/helix-onboarding`
+
+Reruns the getting-started tour even when it was completed or dismissed. Use ↑
+and ↓ to move between screens, Enter to advance or finish, and Esc to defer.
+The tour does not select a provider or change feature, profile, cast, or workflow
+configuration.
 
 ### `/helix-run [config-id]`
 
@@ -113,9 +128,14 @@ command refuses when Autoresearch is disabled or the session is unattended.
 
 ## State and safety
 
-Helix writes `settings.json`, `profiles/`, and `runs/` under
+Helix writes `onboarding.json`, `settings.json`, `profiles/`, and `runs/` under
 `~/.pi/agent/helix`. `PI_CODING_AGENT_DIR` changes Pi's agent directory;
 `HELIX_STATE_DIR` overrides only the Helix state root.
+
+`onboarding.json` contains only a schema version and `completed` or `dismissed`
+status. **Later** writes nothing. The tour is offered only for a cold attended
+TUI startup, never for reload, new-session, resume, fork, print, JSON, or RPC
+session starts.
 
 Run launch plus mutating profile, setup, and prune commands require an attended
 Pi confirmation. Settings toggles save directly from the checkbox interface. All malformed,

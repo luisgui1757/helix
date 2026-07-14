@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,6 +8,7 @@ import helixCommand from "../extensions/helix-command.ts";
 const COMMAND_NAMES = [
   "helix",
   "helix-help",
+  "helix-onboarding",
   "helix-run",
   "helix-runs",
   "helix-run-status",
@@ -26,7 +27,11 @@ function loadHelixCommands(overrides = {}) {
   const commands = [];
   const messages = [];
   const renderers = new Map();
+  const handlers = new Map();
   helixCommand({
+    on(event, handler) {
+      handlers.set(event, handler);
+    },
     registerCommand(name, options) {
       commands.push({ name, ...options });
     },
@@ -38,11 +43,53 @@ function loadHelixCommands(overrides = {}) {
     },
     ...overrides,
   });
-  return { commands, messages, renderers };
+  return { commands, handlers, messages, renderers };
 }
 
 function commandByName(commands, name) {
   return commands.find((command) => command.name === name);
+}
+
+function onboardingUi({ choice = "Start the 4-step tour", inputs = ["ENTER", "ENTER", "ENTER", "ENTER"], width = 80 } = {}) {
+  const notices = [];
+  const renders = [];
+  let selects = 0;
+  let customs = 0;
+  const theme = {
+    bold: (text) => text,
+    fg: (_color, text) => text,
+  };
+  const keybindings = {
+    matches(data, action) {
+      return (action === "tui.select.up" && data === "UP")
+        || (action === "tui.select.down" && data === "DOWN")
+        || (action === "tui.select.confirm" && data === "ENTER")
+        || (action === "tui.select.cancel" && data === "ESC");
+    },
+  };
+  return {
+    get customs() { return customs; },
+    get selects() { return selects; },
+    notices,
+    renders,
+    async select(title, options) {
+      selects += 1;
+      assert.equal(title, "Welcome to Helix");
+      assert.deepEqual(options, ["Start the 4-step tour", "Later", "Don't show again"]);
+      return choice;
+    },
+    notify(message, level) {
+      notices.push({ message, level });
+    },
+    async custom(factory) {
+      customs += 1;
+      let result;
+      const component = await factory({ requestRender() {} }, theme, keybindings, (value) => { result = value; });
+      renders.push(component.render(width));
+      for (const input of inputs) component.handleInput(input);
+      return result;
+    },
+  };
 }
 
 test("helix extension registers one dedicated command per user-facing capability", () => {
@@ -75,7 +122,108 @@ test("helix-help renders product help without loading mutable state", async () =
   assert.equal(messages.length, 1);
   assert.equal(messages[0].message.details.title, "Helix help");
   assert.equal(messages[0].message.details.status, "ok");
+  assert.match(messages[0].message.content, /\/helix-onboarding/);
   assert.match(messages[0].message.content, /\/helix-settings/);
+});
+
+test("first cold TUI startup gives an explicit Pi-provider prerequisite tour once", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-onboarding-startup-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    const { handlers } = loadHelixCommands();
+    const ui = onboardingUi({ width: 30 });
+    await handlers.get("session_start")({ reason: "startup" }, { mode: "tui", ui });
+
+    const firstPage = ui.renders[0].join("\n");
+    assert.match(firstPage, /Connect providers in Pi/);
+    assert.match(firstPage, /configure or sync the/);
+    assert.match(firstPage, /does\s+not log in, choose, or/);
+    assert.match(firstPage, /esc later/);
+    assert.equal(ui.renders[0].every((line) => line.length <= 30), true);
+    assert.deepEqual(JSON.parse(readFileSync(join(stateRoot, "onboarding.json"), "utf8")), {
+      schema_version: 1,
+      status: "completed",
+    });
+
+    await handlers.get("session_start")({ reason: "startup" }, { mode: "tui", ui });
+    assert.equal(ui.selects, 1);
+    assert.equal(ui.customs, 1);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("first-run onboarding only prompts on a cold attended startup", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-onboarding-reasons-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    const { handlers } = loadHelixCommands();
+    const ui = onboardingUi();
+    for (const reason of ["reload", "new", "resume", "fork"]) {
+      await handlers.get("session_start")({ reason }, { mode: "tui", ui });
+    }
+    await handlers.get("session_start")({ reason: "startup" }, { mode: "print", ui });
+    assert.equal(ui.selects, 0);
+    assert.equal(ui.customs, 0);
+    assert.equal(existsSync(join(stateRoot, "onboarding.json")), false);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("an unreadable onboarding marker refuses with an actionable recovery", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-onboarding-unreadable-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    writeFileSync(join(stateRoot, "onboarding.json"), "{}\n", "utf8");
+    const { handlers } = loadHelixCommands();
+    const ui = onboardingUi();
+    await handlers.get("session_start")({ reason: "startup" }, { mode: "tui", ui });
+
+    assert.equal(ui.selects, 0);
+    assert.equal(ui.customs, 0);
+    assert.deepEqual(ui.notices, [{
+      message: "Helix onboarding state is unreadable · fix or remove onboarding.json in Helix state, then retry",
+      level: "warning",
+    }]);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("Later defers without state while Don't show again persists a rerunnable dismissal", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-onboarding-choices-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    const { commands, handlers } = loadHelixCommands();
+    const later = onboardingUi({ choice: "Later", inputs: [] });
+    await handlers.get("session_start")({ reason: "startup" }, { mode: "tui", ui: later });
+    assert.equal(existsSync(join(stateRoot, "onboarding.json")), false);
+
+    const dismissed = onboardingUi({ choice: "Don't show again", inputs: [] });
+    await handlers.get("session_start")({ reason: "startup" }, { mode: "tui", ui: dismissed });
+    assert.equal(JSON.parse(readFileSync(join(stateRoot, "onboarding.json"), "utf8")).status, "dismissed");
+
+    const rerun = onboardingUi();
+    await commandByName(commands, "helix-onboarding").handler("", { mode: "tui", ui: rerun });
+    assert.equal(rerun.selects, 0);
+    assert.equal(rerun.customs, 1);
+    assert.equal(JSON.parse(readFileSync(join(stateRoot, "onboarding.json"), "utf8")).status, "completed");
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
 });
 
 test("legacy /helix verbs remain compatible while dedicated commands are primary", async () => {

@@ -18,6 +18,10 @@ Then install Helix through Pi's package manager:
 pi install git:github.com/luisgui1757/helix
 ```
 
+Before using Helix, configure or sync the providers you want in Pi. Helix uses
+Pi's already available models; it does not log in, choose, or configure
+providers.
+
 This is the same package mechanism used by the [Pi package
 catalog](https://pi.dev/packages). Start Pi and open Helix:
 
@@ -37,10 +41,15 @@ pi -e .
 
 ## Use
 
+On the first cold Pi startup, Helix offers a compact four-step tour. Choose
+**Later** to see it again at the next startup, or **Don't show again** to hide
+it. Run `/helix-onboarding` whenever you want to reopen it.
+
 Start with `/helix` for the dashboard or `/helix-help` for the command guide.
 
 | Command | Purpose |
 |---|---|
+| `/helix-onboarding` | Rerun the getting-started tour |
 | `/helix-settings` | Open the interactive feature list |
 | `/helix-run` | Preflight and start the no-live mock workflow |
 | `/helix-runs` | List structural run records |
@@ -63,7 +72,8 @@ toggle, and Esc to close.
 [x] Visual cues
 ```
 
-Settings, profiles, and run records live under `~/.pi/agent/helix`. Set
+The onboarding marker, settings, profiles, and run records live under
+`~/.pi/agent/helix`. Set
 `PI_CODING_AGENT_DIR` to move Pi's full agent directory or `HELIX_STATE_DIR` to
 move Helix state only. Helix does not require a project `.pi` directory.
 

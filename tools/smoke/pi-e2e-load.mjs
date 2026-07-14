@@ -12,6 +12,7 @@ export const DEFAULT_RUNTIME_RPC_TIMEOUT_MS = 60_000;
 export const EXPECTED_HELIX_COMMANDS = Object.freeze([
   "helix",
   "helix-help",
+  "helix-onboarding",
   "helix-run",
   "helix-runs",
   "helix-run-status",
