@@ -27,7 +27,7 @@ const TEMPLATE_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
  * @param {string} args.briefs_dir tracked role-brief directory
  * @param {string} args.role dispatch role (brief = `${briefs_dir}/${role}.md`)
  * @param {object} args.fields { chain_id, stage_id, pass, gate_summary,
- *   task_instruction, handoff } — every {{placeholder}} must resolve
+ *   artifact_summary, task_instruction, handoff } — every {{placeholder}} must resolve
  * @returns {{ok:true, prompt:string, record:{template_id, template_hash,
  *   brief_ref, input_hashes:object}} | {ok:false, code, detail}}
  */
@@ -45,13 +45,16 @@ export function compileStepPrompt(args) {
   const brief = readFileSync(briefPath, "utf8");
 
   const resolved = { role_brief: brief, ...fields };
-  let prompt = template;
-  for (const [key, value] of Object.entries(resolved)) {
-    prompt = prompt.split(`{{${key}}}`).join(String(value ?? ""));
-  }
-  const unresolved = prompt.match(/\{\{[a-z_]+\}\}/);
+  let unresolved = null;
+  const prompt = template.replace(/\{\{([a-z_]+)\}\}/g, (placeholder, key) => {
+    if (!Object.hasOwn(resolved, key)) {
+      unresolved ??= key;
+      return placeholder;
+    }
+    return String(resolved[key] ?? "");
+  });
   if (unresolved) {
-    return { ok: false, code: COMPILER_CODES.PLACEHOLDER_UNRESOLVED, detail: unresolved[0].replace(/[{}]/g, "") };
+    return { ok: false, code: COMPILER_CODES.PLACEHOLDER_UNRESOLVED, detail: unresolved };
   }
 
   // Structural record: template identity + input hashes, never compiled text.

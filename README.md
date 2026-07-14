@@ -22,8 +22,7 @@ Before using Helix, configure or sync the providers you want in Pi. Helix uses
 Pi's already available models; it does not log in, choose, or configure
 providers.
 
-This is the same package mechanism used by the [Pi package
-catalog](https://pi.dev/packages). Start Pi and open Helix:
+This is the [Pi package catalog](https://pi.dev/packages) mechanism. Start Pi and open Helix:
 
 ```sh
 pi
@@ -51,7 +50,10 @@ Start with `/helix` for the dashboard or `/helix-help` for the command guide.
 |---|---|
 | `/helix-onboarding` | Rerun the getting-started tour |
 | `/helix-settings` | Open the interactive feature list |
-| `/helix-run` | Preflight and start the no-live mock workflow |
+| `/helix-run [workflow] -- <task>` | Preflight and start a named workflow |
+| `/helix-workflows` | List, visualize, inspect, and test named workflows |
+| `/helix-workflow-create` | Build a personal workflow from guided blocks |
+| `/helix-workflow-edit`, `-clone`, `-delete` | Manage personal workflows |
 | `/helix-runs` | List structural run records |
 | `/helix-run-watch <id>` | Follow run progress |
 | `/helix-models` | See Pi models and Helix casts |
@@ -72,15 +74,38 @@ toggle, and Esc to close.
 [x] Visual cues
 ```
 
-The onboarding marker, settings, profiles, and run records live under
-`~/.pi/agent/helix`. Set
-`PI_CODING_AGENT_DIR` to move Pi's full agent directory or `HELIX_STATE_DIR` to
-move Helix state only. Helix does not require a project `.pi` directory.
+The onboarding marker, settings, profiles, workflows, and run records live under
+`~/.pi/agent/helix`. Set `PI_CODING_AGENT_DIR` to move Pi's full agent directory
+or `HELIX_STATE_DIR` to move Helix state only. Helix needs no project `.pi` directory.
 
-In Pi's TUI, `/helix-run` shows the complete preflight and starts only after you
-confirm it. Helix currently executes deterministic mock casts only. A cast that names a real
-provider fails closed with `live-adapter-not-wired`; it never silently falls back
-to a mock or makes an unapproved paid call.
+Before using a real cast, configure or sign in to the provider in Pi. Provider
+selection and credentials are Pi's concern: Helix consumes only exact
+provider/model entries that Pi reports as configured and available. OpenRouter
+free models and any other configured Pi provider follow the same path.
+
+In Pi's TUI, `/helix-run` shows the workflow, stage panel, exact cast, pass and
+time rails, task, repository, and worktree setting before it starts. Mock casts
+remain deterministic. Real casts create fresh in-process Pi agent sessions; no
+real cast silently falls back to mock, while partially configured casts route
+their remaining mock members to the deterministic adapter. The confirmed
+workflow/profile/toggle/preset binding is rechecked before any run directory or
+provider call. A Git worktree protects repository state, but it is not an OS
+sandbox and Pi tools keep their normal trust boundary.
+
+`/helix-workflow-create` starts with a safe template, then lets you compose
+stages, candidate panels, durable outputs, explicit conditions, forward/retry/
+back/stop routes, casts, concurrency, and bounded stopping criteria. A direct
+argv command such as `npm test` is the recommended independent objective check;
+model-written file text is an explicitly weaker fallback. Read-only panels can
+run concurrently, while writer panels serialize. `show` and `watch` render the
+loop, transitions, current stage, and pass counts. Workflow testing separates
+definition simulation, deployment preflight, isolated mock runtime exercise,
+and task-specific proof—only a real run can provide the last one.
+
+See the [workflow cookbook](docs/workflows.md) for blocks, limits, lifecycle, visuals, tests, and examples.
+
+The exact task stays in memory; only its hash enters structural run state.
+Task-bound resume is unsupported; start a fresh attended run instead.
 
 See the [command manual](docs/manual.md) for every command and refusal contract.
 

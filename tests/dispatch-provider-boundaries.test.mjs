@@ -28,8 +28,9 @@ test("canonical provider set is stable and every provider has a Pi source", () =
     assert.equal(isHelixProvider(provider), true, provider);
     assert.equal(typeof piSourceFor(provider), "string", provider);
   }
-  assert.equal(isHelixProvider("unknown-provider"), false);
-  assert.equal(piSourceFor("unknown-provider"), null);
+  assert.equal(isHelixProvider("custom-provider"), true);
+  assert.equal(piSourceFor("custom-provider"), "Pi configured provider from ModelRegistry");
+  assert.equal(isHelixProvider("provider/with-path"), false);
 });
 
 test("claude-local is the only canonical provider excluded from automated dispatch", () => {
@@ -38,8 +39,9 @@ test("claude-local is the only canonical provider excluded from automated dispat
   for (const provider of HELIX_PROVIDERS.filter((p) => p !== "claude-local")) {
     assert.equal(isAutomatedDispatchProvider(provider), true, provider);
   }
-  // Unknown or non-string providers are never dispatchable.
-  assert.equal(isAutomatedDispatchProvider("unknown-provider"), false);
+  // Exact public-safe Pi provider ids are dispatchable; malformed ids are not.
+  assert.equal(isAutomatedDispatchProvider("custom-provider"), true);
+  assert.equal(isAutomatedDispatchProvider("provider/with-path"), false);
   assert.equal(isAutomatedDispatchProvider(null), false);
 });
 
@@ -51,7 +53,7 @@ test("provider family mapping covers every canonical provider", () => {
   // The two OpenAI surfaces share a family; mock is its own single family.
   assert.equal(providerFamily("openai-codex"), providerFamily("openai-api"));
   assert.equal(providerFamily("mock"), "mock");
-  assert.equal(providerFamily("unknown-provider"), "unknown");
+  assert.equal(providerFamily("custom-provider"), "custom-provider");
 });
 
 test("a non-automated provider stops dispatch before any adapter call", async () => {

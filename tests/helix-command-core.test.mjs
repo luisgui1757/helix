@@ -10,9 +10,13 @@ import {
   isHelixMutationRequest,
   isHelixPruneRequest,
   renderHelixRunCompletion,
+  renderWorkflowRuntimeTest,
 } from "../extensions/lib/helix-command-core.mjs";
 import { preflightTaskLoopConfig } from "../dispatch/lib/task-loop.mjs";
 import { PUBLIC_SAFETY_PATTERNS } from "../tools/ci/public-safety-diff-scan.mjs";
+import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
+import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
+import { saveProfile, switchProfile } from "../extensions/lib/helix-local.mjs";
 
 const root = new URL("..", import.meta.url);
 const testStateRoot = mkdtempSync(join(tmpdir(), "helix-command-state-"));
@@ -116,10 +120,109 @@ test("helix run preflight renders the resolved installed-package workflow", () =
   assert.deepEqual(out.details.providers, ["mock"]);
   assert.equal(out.details.live_status, "no-live (mock providers only)");
   assert.deepEqual(out.details.rail, { max_iterations: 5, parallel: { max_concurrency: 2 } });
+  assert.deepEqual(out.details.runtime_limits, { max_runtime_ms: 600_000, call_timeout_ms: 120_000 });
+  assert.match(out.details.execution_binding_ref, /^sha256:[0-9a-f]{64}$/);
   const rendered = JSON.stringify(out.details);
   assert.equal(rendered.includes("profile"), false);
   assert.equal(rendered.includes("write_allowlist"), false);
   assert.equal(rendered.includes("token_budget"), false);
+});
+
+test("named workflows ignore irrelevant global profile stages visibly instead of failing cast resolution", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-cross-workflow-profile-"));
+  const created = createWorkflowFromTemplate({ id: "tdd-user", template: "tdd-fix" });
+  assert.equal(created.ok, true);
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+  assert.equal(saveProfile(stateRoot, {
+    schema_version: 1,
+    profile_id: "full-cycle-cast",
+    overrides: {
+      assignments: {
+        plan: { kind: "composite", preset: "overlord" },
+        implement: { kind: "composite", preset: "daily" },
+      },
+    },
+  }).ok, true);
+  assert.equal(switchProfile(stateRoot, "full-cycle-cast").ok, true);
+
+  const out = executeHelixCommand("run tdd-user", { mode: "print" }, {
+    stateRoot, runsRoot: join(stateRoot, "runs"),
+  });
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.deepEqual(out.details.warnings, ["profile-stage-overrides-ignored:implement+plan"]);
+  assert.match(out.text, /profile-stage-overrides-ignored:implement\+plan/);
+});
+
+test("user workflows with unavailable host effects are rejected before persistence", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-host-effects-"));
+  const created = createWorkflowFromTemplate({ id: "host-flow" });
+  assert.equal(created.ok, true);
+  created.workflow.stages[0].steps.unshift({
+    id: "check", kind: "local-check", note: "typed host check",
+  });
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).code, "invalid-workflow");
+  assert.equal(existsSync(join(stateRoot, "workflows", "host-flow.json")), false);
+});
+
+test("workflow test fails deployment checks for an unknown preset instead of returning false green", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-preset-check-"));
+  const created = createWorkflowFromTemplate({ id: "unknown-preset-flow" });
+  assert.equal(created.ok, true);
+  created.workflow.deployment.default_assignment = { kind: "composite", preset: "does-not-exist" };
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+
+  const tested = executeHelixCommand("workflows test unknown-preset-flow", { mode: "print" }, { stateRoot });
+  assert.equal(tested.ok, false);
+  assert.equal(tested.code, "unknown-preset:does-not-exist");
+});
+
+test("workflow test refuses a missing objective-check executable", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-command-check-"));
+  const created = createWorkflowFromTemplate({
+    id: "missing-check-flow",
+    objective_gate: {
+      type: "command-exit-zero",
+      command: "helix-definitely-missing-checker",
+      args: [],
+      timeout_ms: 10_000,
+    },
+  });
+  assert.equal(created.ok, true, JSON.stringify(created));
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+  const tested = executeHelixCommand("workflows test missing-check-flow", { mode: "print" }, { stateRoot });
+  assert.equal(tested.code, "objective-gate-command-unavailable");
+});
+
+test("workflow deployment testing requires live model inventory for real casts", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-inventory-check-"));
+  const created = createWorkflowFromTemplate({ id: "real-cast-flow" });
+  assert.equal(created.ok, true);
+  created.workflow.deployment.default_assignment = {
+    kind: "model", provider: "openrouter", model: "cohere/north-mini-code:free", effort: "low",
+  };
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+
+  const unknown = executeHelixCommand("workflows test real-cast-flow", { mode: "print" }, { stateRoot });
+  assert.equal(unknown.code, "helix-model-inventory-unavailable");
+
+  const available = executeHelixCommand("workflows test real-cast-flow", { mode: "print" }, {
+    stateRoot,
+    modelInventory: [{ provider: "openrouter", model: "cohere/north-mini-code:free" }],
+  });
+  assert.equal(available.ok, true, JSON.stringify(available));
+});
+
+test("workflow creation refuses unsafe durable-output and gate paths", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-unsafe-workflow-create-"));
+  for (const [index, path] of [".", "dir/", "a//b", ".git"].entries()) {
+    const out = executeHelixCommand(
+      `workflows create unsafe-${index} implement-review ${path} MARKER 6`,
+      { mode: "tui", confirm: true },
+      { stateRoot },
+    );
+    assert.equal(out.code, "invalid-workflow", path);
+  }
+  assert.equal(existsSync(join(stateRoot, "workflows")), false);
 });
 
 test("native run completion renders only stable structural fields", () => {
@@ -149,6 +252,30 @@ test("native run completion renders only stable structural fields", () => {
     exitCode: 0,
   });
   assert.equal(incomplete.code, "helix-runner-result-invalid");
+});
+
+test("workflow runtime test renderer accepts only the proved smoke contract", () => {
+  const complete = renderWorkflowRuntimeTest({
+    workflowId: "my-flow",
+    outcome: {
+      ok: true,
+      provider_calls: 0,
+      objective_check: "simulated",
+      stages_exercised: 2,
+      total_passes: 3,
+    },
+  });
+  assert.equal(complete.ok, true);
+  assert.equal(complete.details.provider_calls, 0);
+
+  for (const outcome of [
+    { ok: true, provider_calls: 1, objective_check: "simulated", stages_exercised: 2, total_passes: 3 },
+    { ok: true, provider_calls: 0, objective_check: "real", stages_exercised: 2, total_passes: 3 },
+    { ok: true, provider_calls: 0, objective_check: "simulated", stages_exercised: 0, total_passes: 3 },
+    { ok: true, provider_calls: 0, objective_check: "simulated", stages_exercised: 2, total_passes: Number.NaN },
+  ]) {
+    assert.equal(renderWorkflowRuntimeTest({ workflowId: "my-flow", outcome }).code, "workflow-runtime-smoke-invalid");
+  }
 });
 
 test("helix run unknown config fails with stable error", () => {
@@ -250,7 +377,7 @@ test("helix hashes or omits every schema-valid registry prose field before rende
   for (const chain of chainRegistry.chains) {
     chain.description = canary;
     for (const stage of chain.stages) {
-      for (const step of stage.steps) step.note = body;
+      for (const step of stage.steps) if (step.kind !== "role") step.note = body;
     }
   }
   for (const id of ["daily", "overlord"]) {
@@ -435,6 +562,7 @@ test("helix completions expose only the single-command verb set", () => {
     "runs",
     "models",
     "chains",
+    "workflows",
     "settings",
     "profiles",
     "setup",
@@ -448,6 +576,7 @@ test("helix completions expose only the single-command verb set", () => {
     "profiles create work",
     "profiles switch work",
     "setup work plan=daily",
+    "workflows create my-flow implement-review",
   ]) assert.equal(isHelixMutationRequest(args), true, args);
   assert.equal(isHelixMutationRequest("research why --metric x >= 1 --max 1"), false);
 });
@@ -461,6 +590,7 @@ test("helix completions fail closed when run config completion input is malforme
     "runs",
     "models",
     "chains",
+    "workflows",
     "settings",
     "profiles",
     "setup",

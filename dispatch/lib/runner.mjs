@@ -46,10 +46,11 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { validateRunConfig } from "./run-configs.mjs";
 import { resolveChain } from "./chains.mjs";
+import { objectiveGateSummary, workflowVerdictRole } from "./workflows.mjs";
 import { resolveChainCast } from "./presets.mjs";
 import { runStagedChain, STAGE_VERDICTS, validateMachineResume } from "./stage-machine.mjs";
 import { runDispatch } from "./orchestrate.mjs";
-import { makeFileContainsGate } from "./task-loop.mjs";
+import { makeObjectiveGate } from "./task-loop.mjs";
 import { makeModelRevision } from "./revision-effect.mjs";
 import {
   makeEventLog,
@@ -60,6 +61,7 @@ import {
 import { isRoleValidForStage } from "./role-envelope.mjs";
 import { hashRef, assertPublicSafe, stableStringify } from "./run-record.mjs";
 import { compileStepPrompt } from "./prompt-compiler.mjs";
+import { stageStepSchedule } from "./stage-schedule.mjs";
 import {
   buildHandoffPacket,
   buildTranscriptHandoff,
@@ -71,7 +73,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { MAX_ITERATIONS, MAX_PANEL_MEMBERS } from "./limits.mjs";
 import { HELIX_TOGGLES } from "./settings.mjs";
-import { HELIX_PROVIDERS } from "./providers.mjs";
+import { isHelixProvider } from "./providers.mjs";
 import { ROLES } from "./role-envelope.mjs";
 import { EFFORTS } from "./routes.mjs";
 import { isExecutorRef, isModelId, isPublicCode } from "./public-values.mjs";
@@ -121,6 +123,19 @@ const STEP_EFFECT_FAILURE_CODES = Object.freeze({
   "local-check": "local-check-failed",
   handoff: "handoff-failed",
 });
+const WORKTREE_MUTATING_ROLES = new Set(["planner", "builder", "documenter"]);
+
+function raceRunBoundary(factory, signal) {
+  if (!signal) return Promise.resolve().then(factory);
+  if (signal.aborted) return Promise.reject(new Error("workflow-run-aborted"));
+  return new Promise((resolvePromise, rejectPromise) => {
+    const onAbort = () => rejectPromise(new Error("workflow-run-aborted"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve().then(factory).then(resolvePromise, rejectPromise).finally(() => {
+      signal.removeEventListener("abort", onAbort);
+    });
+  });
+}
 
 function validateResolvedCast(cast) {
   if (!Array.isArray(cast) || cast.length === 0) return false;
@@ -128,7 +143,7 @@ function validateResolvedCast(cast) {
   const validMember = (member, panel = false) => {
     const keys = member && typeof member === "object" && !Array.isArray(member) ? Object.keys(member) : [];
     if (keys.length !== 4 || !["provider", "model", "effort", "instances"].every((key) => keys.includes(key))) return false;
-    if (!HELIX_PROVIDERS.includes(member.provider) || !isModelId(member.model)
+    if (!isHelixProvider(member.provider) || !isModelId(member.model)
       || !EFFORTS.includes(member.effort) || !Number.isSafeInteger(member.instances)
       || member.instances < 1 || (panel && member.instances !== 1)) return false;
     return member.instances <= MAX_PANEL_MEMBERS;
@@ -785,7 +800,7 @@ export function validateRunnerState(state, expected = {}) {
     "worktree_enabled", "worktree_ref", "handoff_source", "disagreement_ref", "pending_event",
     "resolved_cast", "prompt_resources_ref", "initializing", "baseline_ref", "checkpoint_tree_ref",
     "checkpoint_generation", "pass_in_progress",
-    "run_generation", "checkout_state_ref", "worktree_owner_ref",
+    "run_generation", "checkout_state_ref", "worktree_owner_ref", "task_bound", "runtime_limits",
   ]);
   const hash = (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
   const token = isPublicCode;
@@ -818,6 +833,13 @@ export function validateRunnerState(state, expected = {}) {
     && targetKeys.every((key) => key === "repo" || key === "ref")
     && (state.run_target.repo === "self" || state.run_target.repo === "other")
     && (state.run_target.ref === undefined || token(state.run_target.ref));
+  const runtimeLimits = state.runtime_limits;
+  const runtimeLimitsValid = runtimeLimits == null || (typeof runtimeLimits === "object" && !Array.isArray(runtimeLimits)
+    && Object.keys(runtimeLimits).length === 2
+    && Number.isSafeInteger(runtimeLimits.max_runtime_ms) && runtimeLimits.max_runtime_ms >= 1_000
+    && runtimeLimits.max_runtime_ms <= 60 * 60 * 1000
+    && Number.isSafeInteger(runtimeLimits.call_timeout_ms) && runtimeLimits.call_timeout_ms >= 1_000
+    && runtimeLimits.call_timeout_ms <= runtimeLimits.max_runtime_ms);
   const sourceKeys = state.handoff_source && typeof state.handoff_source === "object"
     && !Array.isArray(state.handoff_source) ? Object.keys(state.handoff_source) : [];
   const handoffSourceValid = state.handoff_source === null
@@ -870,6 +892,7 @@ export function validateRunnerState(state, expected = {}) {
     && typeof state.completed === "boolean"
     && (state.stop_reason === undefined || token(state.stop_reason))
     && targetValid && Number.isSafeInteger(state.event_count) && state.event_count >= 0
+    && (state.task_bound == null || typeof state.task_bound === "boolean") && runtimeLimitsValid
     && hash(state.execution_ref) && hash(state.repository_ref) && hash(state.checkout_ref)
     && typeof state.worktree_enabled === "boolean"
     && (state.worktree_ref === null || hash(state.worktree_ref))
@@ -946,45 +969,6 @@ function stepEffect(deps, kind) {
   if (kind === "local-check") return deps.step_effects?.localCheck;
   if (kind === "handoff") return deps.step_effects?.handoff;
   return null;
-}
-
-function stageStepSchedule(stage) {
-  const leading = [];
-  const beforeVerification = [];
-  const trailing = [];
-  let phase = "leading";
-  for (let index = 0; index < stage.steps.length; index += 1) {
-    const step = stage.steps[index];
-    if (step.kind === "handoff") {
-      if (stage.steps.slice(index + 1).some((candidate) => candidate.kind !== "handoff")) return null;
-      continue;
-    }
-    if (step.kind === "role") {
-      if (step.role === "verifier") {
-        if (phase === "trailing" || phase === "verifier") return null;
-        phase = "verifier";
-      } else {
-        if (phase === "middle" || phase === "verifier" || phase === "trailing") return null;
-        phase = "candidates";
-      }
-      continue;
-    }
-    if (step.kind !== "local-check") return null;
-    if (phase === "leading") leading.push(step);
-    else if (phase === "candidates" || phase === "middle") {
-      phase = "middle";
-      beforeVerification.push(step);
-    } else {
-      phase = "trailing";
-      trailing.push(step);
-    }
-  }
-  // Without a verifier there is no meaningful internal hook: checks after the
-  // candidate panel are ordinary trailing checks.
-  if (!stage.steps.some((step) => step.kind === "role" && step.role === "verifier")) {
-    trailing.unshift(...beforeVerification.splice(0));
-  }
-  return { leading, beforeVerification, trailing };
 }
 
 /** Real per-run git worktree effect over the repo at `repoRoot`. */
@@ -1339,6 +1323,15 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
   if (typeof runId !== "string" || !/^[A-Za-z0-9._-]+$/.test(runId) || runId === "." || runId === "..") {
     return fail("unsafe-run-id");
   }
+  const runtimeLimits = deps.runtime_limits ?? null;
+  if (runtimeLimits != null && (!(typeof runtimeLimits === "object" && !Array.isArray(runtimeLimits))
+    || Object.keys(runtimeLimits).length !== 2
+    || !Number.isSafeInteger(runtimeLimits.max_runtime_ms) || runtimeLimits.max_runtime_ms < 1_000
+    || runtimeLimits.max_runtime_ms > 60 * 60 * 1000
+    || !Number.isSafeInteger(runtimeLimits.call_timeout_ms) || runtimeLimits.call_timeout_ms < 1_000
+    || runtimeLimits.call_timeout_ms > runtimeLimits.max_runtime_ms)) {
+    return fail("workflow-runtime-limits-invalid");
+  }
   const isResume = deps.resume_state != null;
   let resumeState = deps.resume_state ?? null;
   if (isResume && !validateRunnerState(resumeState).valid) return fail(RUNNER_CODES.INVALID_STATE);
@@ -1379,11 +1372,12 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       }
     }
   }
-  // Presence is live intent, but this build ships no live transport for the
-  // staged runner. Dependency injection is a test seam, not a transport gate:
-  // a non-mock cast always refuses before any adapter or step effect can run.
+  // Presence is live intent. A real cast is executable only when the injected
+  // adapter explicitly advertises the matching configured-provider boundary;
+  // a mock adapter under real ids still refuses before any effect.
   const nonMock = [...new Set(allCastProviders(castResult.cast))].filter((provider) => provider !== "mock");
-  if (nonMock.length > 0) {
+  if (nonMock.length > 0 && (deps.adapter?.kind !== "helix-pi-agent"
+    || nonMock.some((provider) => deps.adapter.supportsProvider?.(provider) !== true))) {
     return fail(RUNNER_CODES.LIVE_ADAPTER_NOT_WIRED, `cast names non-mock provider(s): ${nonMock.join(", ")}`);
   }
 
@@ -1415,6 +1409,8 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     chain,
     cast: castResult.cast,
     toggles: effectiveToggles,
+    task_ref: hashRef(deps.task_instruction ?? config.description),
+    runtime_limits: runtimeLimits,
     prompt_resources_ref: resourcesRef,
   }));
   const publicRunTarget = {
@@ -1545,6 +1541,8 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
           config_id: config.id,
           chain_id: chain.id,
           run_target: publicRunTarget,
+          task_bound: typeof deps.task_instruction === "string",
+          runtime_limits: runtimeLimits,
           completed: false,
           machine,
           event_count: 0,
@@ -1698,6 +1696,8 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       config_id: config.id,
       chain_id: chain.id,
       run_target: publicRunTarget,
+      task_bound: typeof deps.task_instruction === "string",
+      runtime_limits: runtimeLimits,
       completed,
       ...(stopReason ? { stop_reason: stopReason } : {}),
       machine,
@@ -1733,28 +1733,72 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       chain_id: chain.id,
       config_id: config.id,
       max_iterations: config.max_iterations,
+      ...(deps.workflow_ref ? { workflow_ref: deps.workflow_ref } : {}),
       ...(worktreeEnabled ? {} : { warning: "worktree-off-working-tree" }),
     });
   }
 
   // --- effects -------------------------------------------------------------------
-  const mock = deps.adapter ? null : createStagedMockAdapter();
-  const dispatchAdapter = deps.adapter ?? mock.dispatchAdapter;
-  const revisionModelAdapter = deps.revisionAdapter ?? mock?.revisionAdapter({
+  const mock = createStagedMockAdapter();
+  const liveAdapter = deps.adapter ?? null;
+  const piLiveAdapter = liveAdapter?.kind === "helix-pi-agent" ? liveAdapter : null;
+  const dispatchAdapter = piLiveAdapter ? {
+    kind: "helix-mixed-provider-router",
+    runCandidate(spec, ctx) {
+      return (spec.provider === "mock" ? mock.dispatchAdapter : piLiveAdapter).runCandidate(spec, ctx);
+    },
+    runJudge(input, ctx) {
+      return (ctx.judge?.provider === "mock" ? mock.dispatchAdapter : piLiveAdapter).runJudge(input, ctx);
+    },
+    runSynthesis(input, ctx) {
+      return (ctx.synthesis?.provider === "mock" ? mock.dispatchAdapter : piLiveAdapter).runSynthesis(input, ctx);
+    },
+    runVerifier(input, ctx) {
+      return (ctx.verification?.provider === "mock" ? mock.dispatchAdapter : piLiveAdapter).runVerifier(input, ctx);
+    },
+  } : liveAdapter ?? mock.dispatchAdapter;
+  const mockRevisionModelAdapter = mock.revisionAdapter(config.objective_gate.type === "file-contains" ? {
     [config.objective_gate.path]: `Helix staged proposal\n${config.objective_gate.contains}\n`,
-  }) ?? null;
-  const artifactEffect = deps.artifact_effect ?? ((mock || dispatchAdapter.kind === "helix-staged-mock")
-    ? async (artifact, ctx) => {
-      const path = resolve(ctx.cwd, artifact.path);
-      const existing = existsSync(path) && isContainedRegularFile(ctx.cwd, path) ? readFileSync(path, "utf8") : "";
-      const gateMarker = artifact.path === config.objective_gate.path ? `\n${config.objective_gate.contains}\n` : "";
-      writeTextAtomic(ctx.cwd, artifact.path,
-        `${existing}\nMock ${artifact.kind} artifact pass ${ctx.pass}.${gateMarker}`);
+  } : {});
+  const artifactEffect = deps.artifact_effect ?? (async (artifact, ctx) => {
+    const stageCast = castByStage.get(ctx.stage_id);
+    const mutatingMembers = Object.entries(stageCast?.roles ?? {})
+      .filter(([role]) => WORKTREE_MUTATING_ROLES.has(role))
+      .flatMap(([, members]) => members);
+    if (mutatingMembers.length === 0) {
+      const results = (ctx.stage_result?.candidates ?? [])
+        .filter((candidate) => candidate.disposition === "launched" && candidate.envelope)
+        .map((candidate) => ({
+          role: candidate.role,
+          status: candidate.envelope.status,
+          uncertainty: candidate.envelope.uncertainty,
+          risks: candidate.envelope.risks,
+          recommendation: candidate.envelope.recommendation,
+          proposed_actions: candidate.envelope.proposed_actions,
+          open_questions: candidate.envelope.open_questions,
+        }));
+      if (results.length === 0) return { ok: false };
+      writeTextAtomic(ctx.cwd, artifact.path, stableStringify({
+        schema_version: 1,
+        stage_id: ctx.stage_id,
+        pass: ctx.pass,
+        results,
+      }) + "\n");
       return { ok: true };
     }
-    : null);
+    if (mutatingMembers.length > 0 && mutatingMembers.every((member) => member.provider === "mock")) {
+      const path = resolve(ctx.cwd, artifact.path);
+      const existing = existsSync(path) && isContainedRegularFile(ctx.cwd, path) ? readFileSync(path, "utf8") : "";
+      const gateMarker = config.objective_gate.type === "file-contains"
+        && artifact.path === config.objective_gate.path ? `\n${config.objective_gate.contains}\n` : "";
+      writeTextAtomic(ctx.cwd, artifact.path,
+        `${existing}\nMock ${artifact.kind} artifact pass ${ctx.pass}.${gateMarker}`);
+    }
+    return { ok: true };
+  });
 
-  const gate = makeFileContainsGate(workPath, config.objective_gate);
+  const gate = deps.objective_gate_effect
+    ?? makeObjectiveGate(workPath, config.objective_gate, { signal: deps.signal ?? null });
   let passCounter = 0;
   const seenStages = new Set(
     isResume
@@ -1809,7 +1853,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     currentHandoff = restored.handoff;
     currentHandoffSource = resumeState.handoff_source;
   }
-  const gateSummary = `${config.objective_gate.type}:${config.objective_gate.path}`;
+  const gateSummary = objectiveGateSummary(config.objective_gate);
   let disagreementsPath = isResume && typeof deps.state_dir === "string"
     ? join(deps.state_dir, `${runId}.disagreements.json`)
     : null;
@@ -1845,6 +1889,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
         // A handoff may become an outward mutation (for example opening a PR).
         // The stable key lets that boundary deduplicate a kill-and-resume retry.
         idempotency_key: `${runId}:${chain.id}:${stage.id}:${step.id}`,
+        signal: deps.signal ?? null,
       });
     } catch {
       effectResult = null;
@@ -1922,6 +1967,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     // hashes only. A missing template/brief refuses the stage (structure).
     const stageRolesInCast = Object.keys(cast.roles);
     const prompts = {};
+    const declaredOutput = stage.artifact ?? { path: config.objective_gate.path, kind: "notes" };
     for (const role of stageRolesInCast) {
       const compiled = compileStepPrompt({
         template_id: templateId,
@@ -1933,7 +1979,8 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
           stage_id: stage.id,
           pass: ctx.pass,
           gate_summary: gateSummary,
-          task_instruction: config.description,
+          artifact_summary: `${declaredOutput.kind}:${declaredOutput.path}`,
+          task_instruction: deps.task_instruction ?? config.description,
           handoff: currentHandoff
             ? (currentHandoff.kind === "packet"
               ? currentHandoff.claims.map((c) => `- ${c.text}`).join("\n")
@@ -1958,12 +2005,16 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     // Builder-bearing stages revise the worktree from the second pass on
     // (the builder addressing critique / a failed gate).
     const builderEntries = cast.roles.builder;
+    const revisionModelAdapter = deps.revisionAdapter
+      ?? (builderEntries?.every((member) => member.provider === "mock") ? mockRevisionModelAdapter : null);
     if (builderEntries && ctx.pass > 1 && revisionModelAdapter) {
       const revise = makeModelRevision(
         { cwd: workPath, builder: { provider: builderEntries[0].provider, model: builderEntries[0].model } },
         { modelAdapter: revisionModelAdapter },
       );
-      const revision = await revise(null, { run_id: `${runId}-p${ctx.total_passes}`, iteration: ctx.pass });
+      const revision = await revise(null, {
+        run_id: `${runId}-p${ctx.total_passes}`, iteration: ctx.pass, signal: deps.signal ?? null,
+      });
       log.emit("revision", { stage_id: stage.id, code: revision.code, ...(revision.revision_ref ? { revision_ref: revision.revision_ref } : {}) });
       if (!revision.ok) throw new Error(revision.code);
     }
@@ -1998,20 +2049,36 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
         runCandidate: (spec, dctx) => dispatchAdapter.runCandidate(spec, {
           ...dctx,
           stage_id: stage.id,
-          verdict_role: stage.advance?.verdict_role ?? null,
+          verdict_role: stage.advance?.verdict_role ?? workflowVerdictRole(stage),
           // ADAPTER INPUTS (never persisted): the fresh-context handoff and the
           // compiled role prompt. A live adapter sends these to the provider.
           handoff: currentHandoff,
           prompt: prompts[spec.role]?.prompt ?? null,
+          cwd: workPath,
+          pass: ctx.pass,
+          attempt,
+          signal: deps.signal ?? null,
         }),
         runJudge: dispatchAdapter.runJudge
-          ? (input, dctx) => dispatchAdapter.runJudge(input, { ...dctx, judge: request.judge })
+          ? (input, dctx) => dispatchAdapter.runJudge(input, {
+            ...dctx, judge: request.judge, cwd: workPath, pass: ctx.pass, attempt,
+            task_instruction: deps.task_instruction ?? config.description,
+            signal: deps.signal ?? null,
+          })
           : undefined,
         runSynthesis: dispatchAdapter.runSynthesis
-          ? (input, dctx) => dispatchAdapter.runSynthesis(input, { ...dctx, synthesis: request.synthesis })
+          ? (input, dctx) => dispatchAdapter.runSynthesis(input, {
+            ...dctx, synthesis: request.synthesis, cwd: workPath, pass: ctx.pass, attempt,
+            task_instruction: deps.task_instruction ?? config.description,
+            signal: deps.signal ?? null,
+          })
           : undefined,
         runVerifier: dispatchAdapter.runVerifier
-          ? (input, dctx) => dispatchAdapter.runVerifier(input, { ...dctx, verification: request.verification })
+          ? (input, dctx) => dispatchAdapter.runVerifier(input, {
+            ...dctx, verification: request.verification, cwd: workPath, pass: ctx.pass, attempt,
+            task_instruction: deps.task_instruction ?? config.description,
+            signal: deps.signal ?? null,
+          })
           : undefined,
       },
       now: deps.now,
@@ -2019,6 +2086,9 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       mode: deps.mode ?? "print",
       record_dir: deps.record_dir,
       route: stageRoute(chain, stage, cast),
+      parallel: Object.keys(candidateRoles).some((role) => WORKTREE_MUTATING_ROLES.has(role))
+        ? { max_concurrency: 1 }
+        : config.parallel,
       ...(schedule.beforeVerification.length > 0 ? {
         beforeVerification: async () => {
           try {
@@ -2077,6 +2147,8 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       try {
         produced = await artifactEffect(stage.artifact, {
           run_id: runId, chain_id: chain.id, stage_id: stage.id, pass: ctx.pass, cwd: workPath,
+          stage_result: result,
+          signal: deps.signal ?? null,
         });
       } catch {
         produced = null;
@@ -2118,17 +2190,18 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     currentHandoff = reconstructed.handoff;
 
     let verdict;
-    if (stage.advance) {
+    const verdictRole = stage.advance?.verdict_role ?? workflowVerdictRole(stage);
+    if (verdictRole) {
       verdict = deps.extractVerdict
-        ? deps.extractVerdict(result, stage.advance.verdict_role)
-        : extractStageVerdict(result, stage.advance.verdict_role);
+        ? deps.extractVerdict(result, verdictRole)
+        : extractStageVerdict(result, verdictRole);
       log.emit("verdict", { stage_id: stage.id, verdict: verdict ?? "missing" });
     }
     return { verdict };
   };
 
   const runGate = async (ctx) => {
-    const outcome = gate();
+    const outcome = await gate(ctx);
     log.emit("gate", { stage_id: ctx.stage_id, phase: ctx.phase, result: outcome.result });
     // Handoffs are outward effects, not evidence for convergence. Execute them
     // only after the objective gate has independently passed. On a kill after
@@ -2157,14 +2230,14 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     }
   }
 
-  const machineResult = await runStagedChain({
+  let machineResult = await runStagedChain({
     chain,
     max_iterations: config.max_iterations,
     ...(effectiveToggles ? { toggles: effectiveToggles } : {}),
     ...(resumeMachine ? { resume: resumeMachine } : {}),
   }, {
-    runStage,
-    runGate,
+    runStage: (stage, ctx) => raceRunBoundary(() => runStage(stage, ctx), deps.signal),
+    runGate: (ctx) => raceRunBoundary(() => runGate(ctx), deps.signal),
     onPass: (entry, state) => {
       lastMachineState = state;
       // Commit the handoff source hash + disagreement + machine state first.
@@ -2210,6 +2283,19 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       writeState(state, false);
     },
   });
+
+  const runAbortCode = isPublicCode(deps.signal?.reason)
+    ? deps.signal.reason
+    : deps.run_abort_code?.() ?? null;
+  if (runAbortCode) {
+    machineResult = {
+      ...machineResult,
+      ok: false,
+      converged: false,
+      stop_reason: runAbortCode,
+      code: runAbortCode,
+    };
+  }
 
   for (const warning of machineResult.warnings) warnings.push(warning);
   if (!machineResult.ok && passInProgress) {
@@ -2284,7 +2370,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     disagreements_path: disagreementsPath,
     open_disagreements: disagreements.openCount(),
     warnings: [...new Set(warnings)],
-    calls: mock?.calls ?? null,
+    calls: !liveAdapter || piLiveAdapter ? mock.calls : null,
   };
 }
 
@@ -2301,10 +2387,34 @@ export async function runStagedTaskLoop(config, registries, deps = {}) {
   }
   const lease = acquireResumeLease(deps.cwd, runId);
   if (!lease.ok) return fail(deps.resume_state == null ? RUNNER_CODES.RUN_IN_PROGRESS : lease.code);
+  const runController = new AbortController();
+  let runAbortCode = null;
+  const cancelRun = () => {
+    runAbortCode ??= isPublicCode(deps.signal?.reason)
+      ? deps.signal.reason
+      : "workflow-run-cancelled";
+    runController.abort(runAbortCode);
+  };
+  if (deps.signal?.aborted) cancelRun();
+  else deps.signal?.addEventListener?.("abort", cancelRun, { once: true });
+  const maxRuntimeMs = deps.runtime_limits?.max_runtime_ms;
+  const runTimer = Number.isSafeInteger(maxRuntimeMs) && maxRuntimeMs > 0
+    ? setTimeout(() => {
+      runAbortCode ??= "workflow-run-timeout";
+      runController.abort(runAbortCode);
+    }, maxRuntimeMs)
+    : null;
+  const controlledDeps = {
+    ...deps,
+    signal: runController.signal,
+    run_abort_code: () => runAbortCode,
+  };
   let result;
   let cleanupOk = false;
   try {
-    if (deps.resume_state != null) {
+    if (runAbortCode) {
+      result = fail(runAbortCode);
+    } else if (deps.resume_state != null) {
       if (typeof deps.state_dir !== "string") result = fail(RUNNER_CODES.RESUME_STATE_STALE);
       else {
         const statePath = join(deps.state_dir, `${runId}.state.json`);
@@ -2318,16 +2428,28 @@ export async function runStagedTaskLoop(config, registries, deps = {}) {
           || stableStringify(onDisk) !== stableStringify(deps.resume_state)) {
           result = fail(RUNNER_CODES.RESUME_STATE_STALE);
         } else {
-          result = await runStagedTaskLoopLeased(config, registries, { ...deps, resume_state: onDisk });
+          result = await runStagedTaskLoopLeased(config, registries, { ...controlledDeps, resume_state: onDisk });
         }
       }
     } else {
-      result = await runStagedTaskLoopLeased(config, registries, deps);
+      result = await runStagedTaskLoopLeased(config, registries, controlledDeps);
     }
   } catch {
     result = fail("runner-unexpected-failure");
   } finally {
+    if (runTimer) clearTimeout(runTimer);
+    deps.signal?.removeEventListener?.("abort", cancelRun);
     cleanupOk = releaseResumeLease(lease);
+  }
+  if (runAbortCode && result) {
+    result = {
+      ...result,
+      ok: false,
+      status: "fail-closed",
+      code: runAbortCode,
+      converged: false,
+      stop_reason: runAbortCode,
+    };
   }
   if (!cleanupOk) result = {
     ...result,

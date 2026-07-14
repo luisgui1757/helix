@@ -4,7 +4,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeHelixCommand, getHelixArgumentCompletions } from "../extensions/lib/helix-command-core.mjs";
@@ -204,7 +204,7 @@ test("every /helix mutation requires attended TUI confirmation", () => {
   }
 });
 
-test("setup stores inventory-validated real composite members but run preflight refuses unwired transport", () => {
+test("setup stores inventory-validated real composite members and run preflight uses Pi transport", () => {
   const { root, options } = tempOptions();
   const withInventory = {
     ...options,
@@ -225,8 +225,8 @@ test("setup stores inventory-validated real composite members but run preflight 
     const models = executeHelixCommand("models", { mode: "tui" }, withInventory);
     assert.match(models.text, /openai-codex\/gpt-5x:high x1/);
     const preflight = executeHelixCommand("run mock-core-loop", { mode: "tui" }, withInventory);
-    assert.equal(preflight.ok, false);
-    assert.equal(preflight.code, "live-adapter-not-wired");
+    assert.equal(preflight.ok, true, JSON.stringify(preflight));
+    assert.match(preflight.text, /live via Pi configured providers/);
 
     assert.equal(executeHelixCommand("profiles create absent", { mode: "tui", confirm: true }, options).ok, true);
     const unavailable = executeHelixCommand(
@@ -288,7 +288,7 @@ test("setup with no arguments is the guided view: presets, stages, inventory, an
     assert.equal(view.ok, true);
     assert.deepEqual(view.details.presets, ["daily", "overlord"]);
     assert.deepEqual(view.details.chains["full-cycle"], ["plan", "implement"]);
-    assert.match(view.text, /live-adapter-not-wired/);
+    assert.match(view.text, /Real-provider casts run through Pi's configured ModelRegistry/);
     assert.match(view.text, /available-model inventory: unavailable/);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -390,6 +390,24 @@ test("runs watch/resume scan disk content read-time: a leak-shaped file fails cl
     const bad = executeHelixCommand("runs watch malformed", { mode: "print" }, options);
     assert.equal(bad.code, "helix-config-unreadable");
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runs watch refuses a symlinked event stream before reading its target", () => {
+  const { root, options } = tempOptions();
+  const outside = mkdtempSync(join(tmpdir(), "helix-events-outside-"));
+  try {
+    const runDir = join(options.runsRoot, "linked-events");
+    mkdirSync(runDir, { recursive: true });
+    const target = join(outside, "events.jsonl");
+    writeFileSync(target, "private target must never be parsed\n", "utf8");
+    symlinkSync(target, join(runDir, "linked-events.events.jsonl"));
+    const watch = executeHelixCommand("runs watch linked-events", { mode: "print" }, options);
+    assert.equal(watch.code, "run-record-invalid-or-unsafe");
+    assert.equal(JSON.stringify(watch).includes("private target"), false);
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -574,7 +592,7 @@ test("models shows both presets with members; dashboard shows toggles and profil
 
 test("new verbs appear in completions; rendered surfaces stay public-safe", () => {
   const verbs = getHelixArgumentCompletions("").map((c) => c.value);
-  assert.deepEqual(verbs, ["help", "run", "runs", "models", "chains", "settings", "profiles", "setup", "research"]);
+  assert.deepEqual(verbs, ["help", "run", "runs", "models", "chains", "workflows", "settings", "profiles", "setup", "research"]);
   const runsVerbs = getHelixArgumentCompletions("runs ").map((c) => c.value.trim());
   assert.deepEqual(runsVerbs, ["runs list", "runs status", "runs watch", "runs resume", "runs prune"]);
 

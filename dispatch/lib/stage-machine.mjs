@@ -27,6 +27,10 @@
 // no model narrative ever enters it.
 
 import { MAX_ITERATIONS } from "./limits.mjs";
+import {
+  decideWorkflowTransition,
+  workflowStageUsesGate,
+} from "./workflows.mjs";
 
 export const STAGE_VERDICTS = Object.freeze(["approve", "revise", "revise-jump"]);
 
@@ -59,6 +63,31 @@ export const STAGE_MACHINE_CODES = Object.freeze({
  *            code:string|null, warning?:string }}
  */
 export function decideStageTransition(stage, passCount, outcome, loopsEnabled = true) {
+  if (Array.isArray(stage.transitions)) {
+    const native = decideWorkflowTransition(stage, passCount, outcome, { loops: loopsEnabled });
+    if (native.code === `workflow-stage-max-passes:${stage.id}`) {
+      return { action: "refuse", code: `${STAGE_MACHINE_CODES.MAX_PASSES}:${stage.id}` };
+    }
+    if (native.action === "retry") {
+      return {
+        ...native,
+        action: "stay",
+        code: outcome?.verdict
+          ? `stage-revise:${stage.id}`
+          : `stage-gate-expectation-unmet:${stage.id}`,
+      };
+    }
+    if (native.action === "back") {
+      return { ...native, action: "jump", code: `stage-jump:${stage.id}:${native.target}` };
+    }
+    if (native.warning && outcome?.verdict) {
+      return { ...native, warning: `loops-off-verdict-ignored:${stage.id}:${outcome.verdict}` };
+    }
+    if (native.warning && outcome?.gate_result) {
+      return { ...native, warning: `loops-off-gate-expectation-unmet:${stage.id}` };
+    }
+    return native;
+  }
   // Plain stage: one pass, auto-advance.
   if (!stage.advance && !stage.gate_expectation) {
     return { action: "advance", code: null };
@@ -130,7 +159,8 @@ export function validateMachineResume(chain, maxIterations, toggles, resume) {
   const validCounts = countKeys.length === stages.length
     && stages.every((stage) => Object.hasOwn(counts, stage.id)
       && Number.isSafeInteger(counts[stage.id]) && counts[stage.id] >= 0
-      && (!stage.advance || counts[stage.id] <= stage.advance.max_passes));
+      && (!stage.advance || counts[stage.id] <= stage.advance.max_passes)
+      && (!stage.transitions || counts[stage.id] <= stage.max_passes));
   const countSum = validCounts ? countKeys.reduce((sum, id) => sum + counts[id], 0) : -1;
   const validPhase = resume.phase === "stage" || resume.phase === "conclusion";
   const phasePositionValid = validIndex && validPhase
@@ -273,7 +303,8 @@ export async function runStagedChain(request, deps = {}) {
 
   while (totalPasses < maxIterations) {
     const stage = chain.stages[stageIndex];
-    if (loopsEnabled && stage.advance && passCounts.get(stage.id) >= stage.advance.max_passes) {
+    const stagePassLimit = stage.transitions ? stage.max_passes : stage.advance?.max_passes;
+    if (loopsEnabled && stagePassLimit && passCounts.get(stage.id) >= stagePassLimit) {
       return refuse(`${STAGE_MACHINE_CODES.MAX_PASSES}:${stage.id}`, totalPasses);
     }
     const pass = passCounts.get(stage.id) + 1;
@@ -292,7 +323,7 @@ export async function runStagedChain(request, deps = {}) {
 
     // --- gate-shaped stage criterion needs the gate's CURRENT result --------
     let stageGateResult = null;
-    if (stage.gate_expectation) {
+    if (stage.gate_expectation || workflowStageUsesGate(stage)) {
       let gate;
       try {
         gate = await deps.runGate({ stage_id: stage.id, pass, phase: "stage-expectation" });
@@ -331,6 +362,9 @@ export async function runStagedChain(request, deps = {}) {
 
     if (decision.action === "refuse") {
       return refuse(decision.code, totalPasses);
+    }
+    if (decision.action === "stop") {
+      return finish(true, false, decision.code, null, totalPasses, finalGate);
     }
     if (decision.action === "jump") {
       stageIndex = nextStageIndex;

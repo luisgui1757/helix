@@ -3,10 +3,10 @@
 //
 // Runs a named run config through the STAGED runner: chain stages + casts +
 // per-run worktree + structural events + interrupt-safe resumable state.
-// Default is no-live: a synthetic temp git repo and the mock adapter (the
-// tracked configs are mock skeletons). Presence declares live intent, but this
-// build has no staged live transport: any real-provider cast refuses as
-// live-adapter-not-wired rather than executing the mock adapter under real ids.
+// This standalone developer CLI is intentionally no-live: it wires a synthetic
+// temp git repo and the mock adapter only. Product workflow execution lives in
+// Pi's TUI, where /helix-run reuses Pi's configured ModelRegistry/AuthStorage.
+// A real cast passed here refuses instead of falling back to mock execution.
 //
 //   node tools/loop/helix-task-loop.mjs [--config mock-core-loop] [--run-id ID]
 //        [--repo PATH]      run against PATH (per-run worktree of that repo)

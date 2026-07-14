@@ -24,6 +24,7 @@ function fixtureRoot() {
     "",
   ].join("\n"));
   write(root, "docs/manual.md", HELIX_COMMANDS.join("\n") + "\n");
+  write(root, "docs/workflows.md", "# Workflows\n");
   write(root, "docs/architecture.md", "# Architecture\n");
   return root;
 }

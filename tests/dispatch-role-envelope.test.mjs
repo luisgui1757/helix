@@ -36,7 +36,7 @@ test("isRoleValidForStage matrix", () => {
 });
 
 test("malformed provider is rejected before judge/synthesis", () => {
-  const { valid, errors } = validateRoleEnvelope(makeEnvelope({ provider: "not-a-provider" }));
+  const { valid, errors } = validateRoleEnvelope(makeEnvelope({ provider: "provider/with/path" }));
   assert.equal(valid, false);
   assert.ok(errors.some((e) => e.path === "$.provider"));
 });

@@ -14,7 +14,9 @@
 // an explicit conflict (toggle-disabled:autoresearch). loops toggle OFF
 // degenerates to ONE-SHOT research: one experiment, one measurement, report.
 //
-// Research records are structural: hypothesis/experiment/question hashes, the
+// Every measured outcome routes through the same canonical workflow transition
+// primitive as named workflows; this module owns only research-specific metric
+// state and effects. Research records are structural: hypothesis/experiment/question hashes, the
 // metric, per-iteration measurements and verdicts, the stop reason. The text
 // of hypotheses and experiments stays worktree-local — never persisted here.
 
@@ -28,6 +30,7 @@ import {
 } from "./settings.mjs";
 import { MAX_ITERATIONS } from "./limits.mjs";
 import { writeTextAtomic } from "./persistence.mjs";
+import { decideWorkflowTransition } from "./workflows.mjs";
 
 export const RESEARCH_CODES = Object.freeze({
   INVALID_SPEC: "research-invalid-spec",
@@ -168,8 +171,56 @@ function improved(comparator, prev, next, target) {
   return Math.abs(next - target) < Math.abs(prev - target);
 }
 
+function researchDecisionStage(id, stopReason) {
+  return {
+    id,
+    max_passes: MAX_ITERATIONS,
+    transitions: [
+      { when: { type: "gate", is: "pass" }, action: "stop", reason: stopReason },
+      { when: { type: "gate", is: "fail" }, action: "advance" },
+    ],
+  };
+}
+
 /**
- * Run the research loop.
+ * Route one measured research outcome through canonical workflow blocks.
+ * Specific terminal outcomes retain their historical precedence; the final
+ * retry block owns the finite iteration ceiling and maps its exhaustion to the
+ * research surface's stable `max-iterations` stop reason.
+ */
+export function decideResearchLoopTransition({
+  target_met: targetMet,
+  dead_end: deadEnd,
+  diminishing_returns: diminishingReturns,
+  iteration,
+  max_iterations: maxIterations,
+}) {
+  const terminalChecks = [
+    [researchDecisionStage("research-target", "target-met"), targetMet],
+    [researchDecisionStage("research-dead-end", "dead-end"), deadEnd],
+    [researchDecisionStage("research-plateau", "diminishing-returns"), diminishingReturns],
+  ];
+  for (const [stage, matched] of terminalChecks) {
+    const decision = decideWorkflowTransition(stage, iteration, {
+      gate_result: matched ? "pass" : "fail",
+    });
+    if (decision.action === "stop") return decision;
+  }
+
+  const continuation = decideWorkflowTransition({
+    id: "research-iteration",
+    max_passes: maxIterations,
+    transitions: [{ when: { type: "always" }, action: "retry" }],
+  }, iteration, {});
+  if (continuation.action === "refuse"
+      && continuation.code === "workflow-stage-max-passes:research-iteration") {
+    return { action: "stop", code: "max-iterations" };
+  }
+  return continuation;
+}
+
+/**
+ * Run the research loop, routing each measured outcome through workflow blocks.
  *
  * @param {object} spec see RESEARCH_SPEC_SCHEMA — refuses without metric+stop.
  * @param {object} deps {
@@ -210,29 +261,39 @@ export async function runResearch(spec, deps = {}) {
     }
 
     let verdict;
-    if (metricMet(spec.metric.comparator, measurement, spec.metric.target)) {
+    const targetMet = metricMet(spec.metric.comparator, measurement, spec.metric.target);
+    let deadEnd = false;
+    let diminishingReturns = false;
+    if (targetMet) {
       verdict = "target-met";
-      stopReason = "target-met";
     } else if (outcome.refuted === true && outcome.has_successor !== true) {
       verdict = "refuted";
-      stopReason = "dead-end";
+      deadEnd = true;
     } else {
       const gain = improved(spec.metric.comparator, best, measurement, spec.metric.target);
       verdict = gain ? "improved" : "no-improvement";
       plateau = gain ? 0 : plateau + 1;
       if (gain) best = measurement;
       else if (best == null) best = measurement;
-      if (plateauAfter != null && plateau >= plateauAfter) stopReason = "diminishing-returns";
+      diminishingReturns = plateauAfter != null && plateau >= plateauAfter;
     }
 
     iterations.push({ iteration: i, measurement, verdict });
     if (typeof deps.onEvent === "function") {
       deps.onEvent({ kind: "research-iteration", run_id: spec.run_id, iteration: i, measurement, verdict });
     }
-    if (stopReason) break;
+    const transition = decideResearchLoopTransition({
+      target_met: targetMet,
+      dead_end: deadEnd,
+      diminishing_returns: diminishingReturns,
+      iteration: i,
+      max_iterations: maxIterations,
+    });
+    if (transition.action === "stop") {
+      stopReason = transition.code;
+      break;
+    }
   }
-
-  if (!stopReason) stopReason = "max-iterations";
 
   // --- structural record ---------------------------------------------------------
   const record = {

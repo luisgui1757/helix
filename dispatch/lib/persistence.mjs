@@ -53,10 +53,22 @@ function relativeSegments(relativePath) {
     throw persistenceError(PERSISTENCE_CODES.UNSAFE_PATH);
   }
   const segments = relativePath.split(/[\\/]/);
-  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")
+    || segments[0].toLowerCase() === ".git") {
     throw persistenceError(PERSISTENCE_CODES.UNSAFE_PATH);
   }
   return segments;
+}
+
+/** The one accepted grammar for caller-authored files inside a Git worktree. */
+export function isSafeWorktreeFilePath(relativePath) {
+  if (typeof relativePath !== "string" || !/^[A-Za-z0-9._/-]+$/.test(relativePath)) return false;
+  try {
+    relativeSegments(relativePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function contained(root, candidate) {

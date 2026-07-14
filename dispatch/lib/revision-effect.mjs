@@ -42,7 +42,7 @@ import { readFileSync, rmSync, statSync, lstatSync, realpathSync } from "node:fs
 import { join, dirname, sep, isAbsolute } from "node:path";
 import { createHash } from "node:crypto";
 import { validate } from "./schema.mjs";
-import { HELIX_PROVIDERS } from "./providers.mjs";
+import { PROVIDER_ID_PATTERN } from "./providers.mjs";
 import { EFFORTS } from "./routes.mjs";
 import { hashRef } from "./run-record.mjs";
 import { MODEL_ID_PATTERN } from "./public-values.mjs";
@@ -65,7 +65,7 @@ const BUILDER_SPEC_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model"],
   properties: {
-    provider: { type: "string", enum: HELIX_PROVIDERS },
+    provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     effort: { type: "string", enum: EFFORTS },
   },

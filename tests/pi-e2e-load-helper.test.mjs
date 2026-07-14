@@ -17,12 +17,20 @@ const extensionPaths = [
 const required = [
   "README.md",
   "docs/manual.md",
+  "docs/workflows.md",
   "extensions/helix-fence.ts",
   "extensions/helix-answer.ts",
   "extensions/helix-command.ts",
   "extensions/lib/helix-command-core.mjs",
+  "extensions/lib/helix-onboarding.mjs",
+  "extensions/lib/helix-execution.mjs",
+  "extensions/lib/helix-workflow-test.mjs",
+  "extensions/lib/helix-workflows.mjs",
   "dispatch/config/run-configs.json",
+  "dispatch/lib/pi-agent-adapter.mjs",
   "dispatch/lib/runner.mjs",
+  "dispatch/lib/stage-schedule.mjs",
+  "dispatch/lib/workflows.mjs",
   "tools/loop/helix-task-loop.mjs",
 ];
 

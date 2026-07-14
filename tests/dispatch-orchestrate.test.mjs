@@ -157,9 +157,9 @@ test("seededPermutation is deterministic per seed and varies across seeds", () =
   assert.deepEqual([...seededPermutation(8, 7)].sort((x, y) => x - y), [0, 1, 2, 3, 4, 5, 6, 7]);
 });
 
-test("unknown provider in the request fails closed at the boundary", async () => {
+test("unsafe provider id in the request fails closed at the boundary", async () => {
   const request = baseRequest({
-    candidates: [{ role: "builder", provider: "wat", model: "m" }, { role: "reviewer", provider: "mock", model: "mock-model" }],
+    candidates: [{ role: "builder", provider: "provider/with/path", model: "m" }, { role: "reviewer", provider: "mock", model: "mock-model" }],
   });
   const result = await runDispatch(request, baseDeps());
   assert.equal(result.status, "fail-closed");

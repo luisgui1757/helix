@@ -17,6 +17,7 @@ const expectedPackageFiles = [
   "dispatch/config",
   "dispatch/lib",
   "docs/manual.md",
+  "docs/workflows.md",
   "tools/loop/helix-task-loop.mjs",
   "tools/research/helix-research.mjs",
 ];
@@ -132,7 +133,7 @@ function checkImportClosure() {
 }
 
 function checkPublicSafety() {
-  const roots = ["README.md", "package.json", "extensions", "dispatch/config", "docs/manual.md", "docs/architecture.md"];
+  const roots = ["README.md", "package.json", "extensions", "dispatch/config", "docs/manual.md", "docs/workflows.md", "docs/architecture.md"];
   const patterns = [
     /api[_-]?key\s*[:=]/i,
     /secret\s*[:=]/i,

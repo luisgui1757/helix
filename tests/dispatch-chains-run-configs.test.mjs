@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -16,11 +16,57 @@ import {
   createNoLiveMockAdapter,
   runTaskLoop,
   preflightTaskLoopConfig,
+  decideTaskLoopTransition,
+  makeCommandExitZeroGate,
+  preflightObjectiveGate,
 } from "../dispatch/lib/task-loop.mjs";
 import { MAX_ITERATIONS, MAX_PANEL_MEMBERS } from "../dispatch/lib/limits.mjs";
 
 const root = new URL("..", import.meta.url);
 const NOW = 1_751_731_200;
+
+test("task-loop mode uses canonical workflow retry and loops-off degeneration", () => {
+  assert.deepEqual(decideTaskLoopTransition(true), { action: "retry", code: null });
+  assert.deepEqual(decideTaskLoopTransition(false), {
+    action: "advance",
+    code: null,
+    warning: "loops-off-transition-ignored:task-loop:retry",
+  });
+});
+
+test("command objective gates resolve an executable and use argv without a shell", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "helix-command-gate-"));
+  const passing = {
+    type: "command-exit-zero",
+    command: "node",
+    args: ["-e", "process.exit(0)"],
+    timeout_ms: 5_000,
+  };
+  assert.equal(preflightObjectiveGate(cwd, passing).ok, true);
+  if (process.platform !== "win32") {
+    const local = join(cwd, "helix-local-check");
+    writeFileSync(local, "#!/bin/sh\nexit 0\n", "utf8");
+    chmodSync(local, 0o755);
+    assert.equal(preflightObjectiveGate(cwd, { ...passing, command: "helix-local-check" }, {
+      env: { PATH: "" },
+    }).ok, true, "an empty PATH segment resolves against the run cwd");
+  }
+  assert.deepEqual(await makeCommandExitZeroGate(cwd, passing)(), {
+    command_names: ["command-exit-zero:node"], result: "pass", source: "deterministic-checker",
+  });
+  const failing = { ...passing, args: ["-e", "process.exit(7)"] };
+  assert.equal((await makeCommandExitZeroGate(cwd, failing)()).result, "fail");
+
+  const controller = new AbortController();
+  controller.abort();
+  let spawns = 0;
+  const aborted = await makeCommandExitZeroGate(cwd, passing, {
+    signal: controller.signal,
+    spawnEffect() { spawns += 1; },
+  })();
+  assert.equal(aborted.result, "fail");
+  assert.equal(spawns, 0, "a pre-aborted gate must not create a process");
+});
 
 function readJson(rel) {
   return JSON.parse(readFileSync(new URL(rel, root), "utf8"));

@@ -17,6 +17,12 @@ export const HELIX_PROVIDERS = Object.freeze([
   "mock",
 ]);
 
+// Pi's ModelRegistry is the provider authority. Persist exact, case-preserving
+// Pi ids using a narrow public-safe token grammar; the list above documents
+// known aliases but is not a closed dispatch allowlist.
+export const PROVIDER_ID_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._~-]*$";
+const PROVIDER_ID_RE = new RegExp(PROVIDER_ID_PATTERN);
+
 /**
  * Canonical Helix provider → Pi/runtime source. Descriptive only (no ids, no
  * secrets).
@@ -40,7 +46,7 @@ export const NON_AUTOMATED_PROVIDERS = Object.freeze(["claude-local"]);
 
 /** @param {unknown} provider */
 export function isHelixProvider(provider) {
-  return typeof provider === "string" && HELIX_PROVIDERS.includes(provider);
+  return typeof provider === "string" && PROVIDER_ID_RE.test(provider);
 }
 
 /**
@@ -49,9 +55,9 @@ export function isHelixProvider(provider) {
  * @param {string} provider
  */
 export function piSourceFor(provider) {
-  return Object.prototype.hasOwnProperty.call(PROVIDER_PI_SOURCE, provider)
+  return !isHelixProvider(provider) ? null : Object.prototype.hasOwnProperty.call(PROVIDER_PI_SOURCE, provider)
     ? PROVIDER_PI_SOURCE[provider]
-    : null;
+    : "Pi configured provider from ModelRegistry";
 }
 
 /** Whether a canonical provider is eligible for automated dispatch. */
@@ -77,5 +83,5 @@ export const PROVIDER_FAMILY = Object.freeze({
 
 /** @param {string} provider → its model family, or "unknown" for an unmapped id. */
 export function providerFamily(provider) {
-  return Object.prototype.hasOwnProperty.call(PROVIDER_FAMILY, provider) ? PROVIDER_FAMILY[provider] : "unknown";
+  return Object.prototype.hasOwnProperty.call(PROVIDER_FAMILY, provider) ? PROVIDER_FAMILY[provider] : provider;
 }

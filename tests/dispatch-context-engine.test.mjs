@@ -17,7 +17,7 @@ import {
   makeDisagreementLog,
   validateDisagreementDocument,
 } from "../dispatch/lib/handoff.mjs";
-import { makeEventLog, validateEvent, validateEventHistory } from "../dispatch/lib/events.mjs";
+import { makeEventLog, reduceEventLifecycle, validateEvent, validateEventHistory } from "../dispatch/lib/events.mjs";
 import { runStagedTaskLoop, makeGitWorktreeEffect, createStagedMockAdapter } from "../dispatch/lib/runner.mjs";
 import { loadPresetRegistry } from "../dispatch/lib/presets.mjs";
 
@@ -36,7 +36,7 @@ test("every dispatch role has a tracked brief and compiles through the tracked t
       templates_dir: templatesDir,
       briefs_dir: briefsDir,
       role,
-      fields: { chain_id: "full-cycle", stage_id: "plan", pass: 1, gate_summary: "g", task_instruction: "t", handoff: "h" },
+      fields: { chain_id: "full-cycle", stage_id: "plan", pass: 1, gate_summary: "g", artifact_summary: "plan:PLAN.md", task_instruction: "t", handoff: "h" },
     });
     assert.equal(compiled.ok, true, `${role}: ${JSON.stringify(compiled)}`);
     assert.match(compiled.prompt, new RegExp(role === "redteam" ? "Red Team" : role, "i"));
@@ -50,7 +50,7 @@ test("every dispatch role has a tracked brief and compiles through the tracked t
 test("the compiler fails closed on missing template/brief and unresolved placeholders", () => {
   const args = {
     template_id: "step-prompt-v1", templates_dir: templatesDir, briefs_dir: briefsDir, role: "builder",
-    fields: { chain_id: "c", stage_id: "s", pass: 1, gate_summary: "g", task_instruction: "t", handoff: "h" },
+    fields: { chain_id: "c", stage_id: "s", pass: 1, gate_summary: "g", artifact_summary: "notes:result.md", task_instruction: "t", handoff: "h" },
   };
   assert.equal(compileStepPrompt({ ...args, template_id: "nope" }).code, COMPILER_CODES.TEMPLATE_MISSING);
   assert.equal(compileStepPrompt({ ...args, role: "warlock" }).code, COMPILER_CODES.BRIEF_MISSING);
@@ -66,12 +66,29 @@ test("the compiler fails closed on missing template/brief and unresolved placeho
   }
 });
 
+test("template compilation never reinterprets placeholder-shaped input values", () => {
+  const compiled = compileStepPrompt({
+    template_id: "step-prompt-v1", templates_dir: templatesDir, briefs_dir: briefsDir, role: "builder",
+    fields: {
+      chain_id: "c", stage_id: "s", pass: 1,
+      gate_summary: 'file-contains:proposal.txt contains "{{handoff}} {{unknown}}"',
+      artifact_summary: "notes:proposal.txt",
+      task_instruction: "Keep task text exact: {{gate_summary}}",
+      handoff: "ACTUAL HANDOFF",
+    },
+  });
+  assert.equal(compiled.ok, true, JSON.stringify(compiled));
+  assert.match(compiled.prompt, /contains "\{\{handoff\}\} \{\{unknown\}\}"/);
+  assert.match(compiled.prompt, /Keep task text exact: \{\{gate_summary\}\}/);
+  assert.match(compiled.prompt, /ACTUAL HANDOFF/);
+});
+
 test("compiled prompts remain memory-only even when a caller supplies the removed debug option", () => {
   const dir = mkdtempSync(join(tmpdir(), "helix-dbg-"));
   try {
     const compiled = compileStepPrompt({
       template_id: "step-prompt-v1", templates_dir: templatesDir, briefs_dir: briefsDir, role: "builder",
-      fields: { chain_id: "c", stage_id: "plan", pass: 2, gate_summary: "g", task_instruction: "t", handoff: "h" },
+      fields: { chain_id: "c", stage_id: "plan", pass: 2, gate_summary: "g", artifact_summary: "plan:PLAN.md", task_instruction: "t", handoff: "h" },
       debug_dir: dir,
     });
     assert.equal(compiled.ok, true);
@@ -148,6 +165,58 @@ test("events reject nested payloads, prose codes, and unsafe sequence seeds", ()
     () => makeEventLog({ run_id: "event-boundary", start_seq: Number.MAX_SAFE_INTEGER + 1 }),
     /non-negative safe integer/,
   );
+});
+
+test("event lifecycle accepts native always retry, back, and stop transitions", () => {
+  const stage = (id, action, extra = {}) => ({
+    id,
+    max_passes: 2,
+    transitions: [{ when: { type: "always" }, action, ...extra }],
+  });
+  const emitStart = (log, maxIterations = 5) => {
+    log.emit("run-start", { chain_id: "always-flow", config_id: "always-flow", max_iterations: maxIterations });
+  };
+  const emitPass = (log, id, pass, of) => {
+    if (pass === 1) log.emit("stage-start", { stage_id: id, executor_ref: "composite:daily" });
+    log.emit("pass-start", { stage_id: id, pass, of, attempt: 1, executor_ref: "composite:daily" });
+  };
+
+  const retry = makeEventLog({ run_id: "always-retry" });
+  emitStart(retry, 2);
+  emitPass(retry, "work", 1, 2);
+  emitPass(retry, "work", 2, 2);
+  retry.emit("blocked", { code: "stage-max-passes-exhausted:work", next_action: "revise-cast" });
+  retry.emit("run-end", {
+    converged: false, stop_reason: "stage-max-passes-exhausted:work",
+    code: "stage-max-passes-exhausted:work", open_disagreements: 0,
+  });
+  assert.equal(reduceEventLifecycle(retry.events, {
+    chain: { stages: [stage("work", "retry")] }, max_iterations: 2, toggles: { loops: true }, run_id: "always-retry",
+  }).valid, true);
+
+  const back = makeEventLog({ run_id: "always-back" });
+  emitStart(back);
+  emitPass(back, "plan", 1, 5);
+  back.emit("stage-end", { stage_id: "plan" });
+  emitPass(back, "implement", 1, 5);
+  back.emit("jump-back", { stage_id: "implement", code: "stage-jump:implement:plan" });
+  assert.equal(reduceEventLifecycle(back.events, {
+    chain: { stages: [stage("plan", "advance"), stage("implement", "back", { target: "plan" })] },
+    max_iterations: 5, toggles: { loops: true }, run_id: "always-back",
+  }).valid, true);
+
+  const stop = makeEventLog({ run_id: "always-stop" });
+  emitStart(stop);
+  emitPass(stop, "work", 1, 5);
+  stop.emit("run-end", { converged: false, stop_reason: "manual-stop", open_disagreements: 0 });
+  const stopOptions = {
+    chain: { stages: [stage("work", "stop", { reason: "manual-stop" })] },
+    max_iterations: 5, toggles: { loops: true }, run_id: "always-stop",
+  };
+  assert.equal(reduceEventLifecycle(stop.events, stopOptions).valid, true);
+  const wrongStop = structuredClone(stop.events);
+  wrongStop.at(-1).stop_reason = "wrong-stop";
+  assert.equal(reduceEventLifecycle(wrongStop, stopOptions).valid, false);
 });
 
 test("a converged terminal event must immediately follow its passing conclusion gate", () => {

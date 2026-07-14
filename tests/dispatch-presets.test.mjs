@@ -290,7 +290,7 @@ test("run configs validate assignments semantically (keys, shapes, default)", ()
   const bad = JSON.parse(JSON.stringify(shipped));
   bad.configs[0].assignments["BAD KEY"] = { kind: "composite", preset: "daily" };
   bad.configs[0].assignments.plan = { kind: "composite" };
-  bad.configs[0].default_assignment = { kind: "model", provider: "not-a-provider", model: "x" };
+  bad.configs[0].default_assignment = { kind: "model", provider: "provider/with/path", model: "x" };
   const errors = validateRunConfigRegistry(bad).errors.map((e) => e.path);
   assert.ok(errors.some((p) => p.includes("BAD KEY")));
   assert.ok(errors.some((p) => p.endsWith("assignments.plan")));

@@ -105,8 +105,8 @@ test("a malformed config, bad cwd, or missing adapter fails closed before any mo
     // Missing required builder.
     let r = await makeModelRevision({ cwd }, { modelAdapter: adapter })(null, {});
     assert.equal(r.code, REVISION_CODES.INVALID_CONFIG);
-    // Unknown provider string.
-    r = await makeModelRevision(revisionConfig(cwd, { builder: { provider: "not-a-provider", model: "m" } }), { modelAdapter: adapter })(null, {});
+    // Unsafe provider string.
+    r = await makeModelRevision(revisionConfig(cwd, { builder: { provider: "provider/with/path", model: "m" } }), { modelAdapter: adapter })(null, {});
     assert.equal(r.code, REVISION_CODES.INVALID_CONFIG);
     // URI-shaped model string.
     r = await makeModelRevision(revisionConfig(cwd, { builder: { provider: "mock", model: "https:" + "/example.test/model" } }), { modelAdapter: adapter })(null, {});

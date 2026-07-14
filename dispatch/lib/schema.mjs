@@ -14,8 +14,8 @@
 // Supported JSON-Schema keywords (exactly the subset the envelope/config need):
 //   type: object|array|string|integer|number|boolean|null
 //   object: properties, required, additionalProperties
-//   array:  items, minItems
-//   string: enum, const, minLength, pattern
+//   array:  items, minItems, maxItems
+//   string: enum, const, minLength, maxLength, pattern
 //   number/integer: enum, const, minimum, maximum (integers must be JS-safe)
 //   composite: anyOf (used for nullable and string|number unions)
 
@@ -87,6 +87,9 @@ function collect(schema, value, path, errors) {
       if (typeof schema.minLength === "number" && value.length < schema.minLength) {
         errors.push({ path, message: `must be at least ${schema.minLength} char(s)` });
       }
+      if (typeof schema.maxLength === "number" && value.length > schema.maxLength) {
+        errors.push({ path, message: `must be at most ${schema.maxLength} char(s)` });
+      }
       if (schema.pattern !== undefined) {
         // JSON Schema / TypeBox emit `pattern` as a STRING; a RegExp is accepted
         // as an internal convenience. A string pattern must be enforced too —
@@ -107,6 +110,9 @@ function collect(schema, value, path, errors) {
     case "array":
       if (typeof schema.minItems === "number" && value.length < schema.minItems) {
         errors.push({ path, message: `must have at least ${schema.minItems} item(s)` });
+      }
+      if (typeof schema.maxItems === "number" && value.length > schema.maxItems) {
+        errors.push({ path, message: `must have at most ${schema.maxItems} item(s)` });
       }
       if (schema.items) {
         value.forEach((el, i) => collect(schema.items, el, `${path}[${i}]`, errors));

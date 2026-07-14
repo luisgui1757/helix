@@ -9,7 +9,8 @@
 // converged.
 //
 // This layer is PURE orchestration OVER the dispatch substrate — it composes
-// `runDispatch` and adds no policy of its own. Dependencies flow inward: the
+// `runDispatch`, while the canonical workflow transition primitive owns its
+// stop/retry routing. It adds no policy of its own. Dependencies flow inward: the
 // debate layer calls `runDispatch`; the dispatch core does NOT import this module
 // (a dispatch can never start a debate, and the recursion fence in runDispatch
 // still caps depth at one per cycle).
@@ -49,6 +50,7 @@ import { resolveAdversarialPolicy } from "./adversarial-policy.mjs";
 import { validateRunRecord, assertPublicSafe, stableStringify, REF_PATTERN } from "./run-record.mjs";
 import { MAX_ITERATIONS } from "./limits.mjs";
 import { writeTextAtomic } from "./persistence.mjs";
+import { decideWorkflowTransition } from "./workflows.mjs";
 
 /** run_id / debate_id token shape (same as the dispatch request boundary). */
 const RUN_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -127,6 +129,28 @@ export const DEBATE_SUMMARY_SCHEMA = Object.freeze({
 
 function summaryError(path, message) {
   return { path, message };
+}
+
+/** Route convergence, single-pass, and bounded retry through workflow blocks. */
+export function decideDebateLoopTransition({
+  converged,
+  adversarial,
+  iteration,
+  max_iterations: maxIterations,
+}) {
+  const stage = {
+    id: "debate-iteration",
+    max_passes: maxIterations,
+    transitions: [
+      { when: { type: "gate", is: "pass" }, action: "stop", reason: "converged" },
+      adversarial
+        ? { when: { type: "gate", is: "fail" }, action: "retry" }
+        : { when: { type: "gate", is: "fail" }, action: "stop", reason: "single-pass-not-converged" },
+    ],
+  };
+  return decideWorkflowTransition(stage, iteration, {
+    gate_result: converged ? "pass" : "fail",
+  });
 }
 
 /** Closed validation for persisted debate summaries and run-manager reads. */
@@ -563,14 +587,28 @@ export async function runDebate(request, deps = {}) {
     }));
     for (const w of record.warning_codes) warnings.push(w);
 
-    if (converged) {
+    const transition = decideDebateLoopTransition({
+      converged,
+      adversarial: state.adversarial,
+      iteration: i + 1,
+      max_iterations: request.max_iterations,
+    });
+    if (transition.action === "stop" && transition.code === "converged") {
       return finish(true, true, "converged", null, null, cumulativeTokens);
     }
     // Non-adversarial routes are single-pass: run once, never repeat. If the one
     // pass did not converge, fail closed (a gateless/advisory route can never
     // objective-gate-pass, so it correctly cannot converge).
-    if (!state.adversarial) {
+    if (transition.action === "stop" && transition.code === "single-pass-not-converged") {
       return failClosed("single-pass-not-converged", `single-pass route did not converge (gate ${record.gate.result}/${record.gate.kind}, diff ${diff.stable ? "stable" : "unstable"})`, cumulativeTokens);
+    }
+    if (transition.action === "refuse"
+        && transition.code === "workflow-stage-max-passes:debate-iteration") {
+      return failClosed(
+        "not-converged-within-max-iterations",
+        `${request.max_iterations} iteration(s) without convergence (last gate ${record.gate.result}/${record.gate.kind}, diff ${diff.stable ? "stable" : "unstable"})`,
+        cumulativeTokens,
+      );
     }
 
     // --- revision boundary -----------------------------------------------------
@@ -579,7 +617,7 @@ export async function runDebate(request, deps = {}) {
     // The debate core stays pure; a failed revision stops fail-closed with a stable
     // code and preserves the iteration evidence already appended above. Skipped on
     // the final iteration (no successor iteration would observe it).
-    if (typeof deps.revise === "function" && i + 1 < request.max_iterations) {
+    if (transition.action === "retry" && typeof deps.revise === "function") {
       const reviseCtx = { iteration: i + 1, run_id: iterationRunId, previous_run_id: prevRecord ? prevRecord.run_id : null };
       let rev;
       try {
@@ -612,15 +650,7 @@ export async function runDebate(request, deps = {}) {
     prevRecord = record;
   }
 
-  // Ran the full iteration budget without converging (gate never passed and/or the
-  // diff never stabilized). This is the mandated fail-closed on objective-gate
-  // failure after max_iterations — never a silent success.
-  const last = iterations[iterations.length - 1];
-  return failClosed(
-    "not-converged-within-max-iterations",
-    `${request.max_iterations} iteration(s) without convergence (last gate ${last.gate_result}/${last.gate_kind}, diff ${last.diff_result})`,
-    cumulativeTokens,
-  );
+  return failClosed("debate-transition-invalid", "canonical debate transition did not terminate", cumulativeTokens);
 }
 
 /**

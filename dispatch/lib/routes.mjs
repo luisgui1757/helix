@@ -6,7 +6,7 @@
 // bounded by the backend control instance (billing ceiling), not the harness.
 
 import { validate } from "./schema.mjs";
-import { HELIX_PROVIDERS } from "./providers.mjs";
+import { PROVIDER_ID_PATTERN } from "./providers.mjs";
 import { ROLES } from "./role-envelope.mjs";
 import { MODEL_ID_PATTERN } from "./public-values.mjs";
 
@@ -20,7 +20,7 @@ export const ROLE_MATRIX_ENTRY_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model", "effort", "instances"],
   properties: {
-    provider: { type: "string", enum: HELIX_PROVIDERS },
+    provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     effort: { type: "string", enum: EFFORTS },
     instances: { type: "integer", minimum: 1 },

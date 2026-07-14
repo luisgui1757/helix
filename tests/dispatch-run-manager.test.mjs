@@ -103,6 +103,14 @@ test("prepareRunDirectory reserves ids and never cleans existing evidence", () =
   assert.equal(escape.detail, "run-id-pattern");
 });
 
+test("run listing treats an immutable workflow snapshot as managed companion state", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "helix-runs-workflow-snapshot-"));
+  const prepared = prepareRunDirectory(rootDir, "snapshot-run");
+  assert.equal(prepared.ok, true);
+  writeFileSync(join(prepared.path, "snapshot-run.workflow.json"), "{}\n", "utf8");
+  assert.deepEqual(listRuns(rootDir), []);
+});
+
 test("prepareRunDirectory atomically grants one concurrent reservation", async () => {
   const rootDir = mkdtempSync(join(tmpdir(), "helix-runs-atomic-"));
   const results = await Promise.all([

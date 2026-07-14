@@ -271,6 +271,35 @@ test("semantic guards: verdict role must be in the stage; jumps only to earlier 
   assert.equal(validateChainRegistry(escapingArtifact).valid, false);
 });
 
+test("schema v3 transitions use one verdict role and public stop codes", () => {
+  const base = (transitions) => ({
+    schema_version: 3,
+    chains: [{
+      id: "bad", description: "x", task_class: "routine-code",
+      stages: [{
+        id: "one", max_passes: 2,
+        steps: [
+          { id: "review", kind: "role", role: "reviewer" },
+          { id: "redteam", kind: "role", role: "redteam" },
+        ],
+        transitions,
+      }],
+      requires_objective_gate: true, default_max_iterations: 3,
+    }],
+  });
+
+  const mixedRoles = validateChainRegistry(base([
+    { when: { type: "verdict", role: "reviewer", is: "approve" }, action: "advance" },
+    { when: { type: "verdict", role: "redteam", is: "revise" }, action: "retry" },
+  ]));
+  assert.equal(mixedRoles.valid, false);
+
+  const privateReason = validateChainRegistry(base([
+    { when: { type: "always" }, action: "stop", reason: "../../private/task.txt" },
+  ]));
+  assert.equal(privateReason.valid, false);
+});
+
 // Resume validation regressions that previously had zero coverage.
 
 test("resume continues from a valid persisted state without replaying the completed pass", async () => {
