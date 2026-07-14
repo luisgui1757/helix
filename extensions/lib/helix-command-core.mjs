@@ -66,6 +66,7 @@ const DEFAULT_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 export const HELIX_USAGE = `Usage:
   /helix
   /helix-help
+  /helix-onboarding
   /helix-run [config-id]
   /helix-runs
   /helix-run-status <run-id>
@@ -325,7 +326,9 @@ function renderHelp() {
       "Helix help",
       "Mode: view-only",
       "Install: follow the package command in README.md, then restart Pi.",
-      "Start: /helix shows the dashboard; /helix-settings opens the interactive feature list.",
+      "Start: first configure or sync providers in Pi; Helix uses Pi's available inventory and does not select providers.",
+      "Tour: /helix-onboarding reruns the keyboard-first getting-started guide.",
+      "Dashboard: /helix shows status; /helix-settings opens the interactive feature list.",
       "Run: /helix-run [config-id] shows the preflight, then starts the mock workflow after confirmation.",
       "Runs: /helix-runs, /helix-run-status, /helix-run-watch, /helix-run-resume, /helix-run-prune.",
       "Views: /helix-models, /helix-chains, /helix-profiles.",

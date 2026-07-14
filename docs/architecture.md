@@ -13,7 +13,15 @@ Stable workflow, validation, persistence, and public-safety policy live under
 
 Package resources are immutable after installation. Mutable state is rooted at
 `~/.pi/agent/helix` (or `HELIX_STATE_DIR`) and contains only settings, profiles,
-and structural run data. No command writes into the installed package directory.
+onboarding status, and structural run data. No command writes into the installed
+package directory.
+
+The command extension listens for Pi's `session_start` event and considers only
+the cold `startup` reason in TUI mode. When no valid onboarding marker exists,
+it offers Start, Later, and Don't show again actions. Later writes nothing;
+completion and dismissal use the same root-confined atomic persistence boundary
+as other user-local Helix state. `/helix-onboarding` bypasses the one-time marker
+so the guide always remains discoverable and rerunnable.
 
 Every command output crosses the public-safety renderer before Pi displays it.
 Mutations validate first, write atomically, and require attended confirmation

@@ -6,7 +6,7 @@
  * sessions do not break, but help and completion lead with dedicated commands.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
@@ -15,6 +15,12 @@ import {
   isHelixMutationRequest,
   renderHelixRunCompletion,
 } from "./lib/helix-command-core.mjs";
+import {
+  loadOnboardingState,
+  ONBOARDING_PAGES,
+  saveOnboardingState,
+} from "./lib/helix-onboarding.mjs";
+import { helixStateRoot } from "./lib/helix-paths.mjs";
 
 const RUNNER_ENTRYPOINT = fileURLToPath(new URL("../tools/loop/helix-task-loop.mjs", import.meta.url));
 
@@ -43,6 +49,7 @@ type CommandDefinition = {
   description: string;
   coreArgs: (args: string) => string;
   completions?: (prefix: string) => ReturnType<typeof getHelixArgumentCompletions>;
+  onboardingUi?: boolean;
   settingsUi?: boolean;
 };
 
@@ -76,6 +83,7 @@ const COMMANDS: readonly CommandDefinition[] = Object.freeze([
     completions: (prefix) => getHelixArgumentCompletions(prefix),
   },
   { name: "helix-help", description: "Show Helix commands and first steps", coreArgs: () => "help" },
+  { name: "helix-onboarding", description: "Rerun the Helix getting-started tour", coreArgs: () => "help", onboardingUi: true },
   { name: "helix-run", description: "Preflight and start a Helix workflow", coreArgs: (args) => trimWithPrefix("run", args), completions: runCompletions },
   { name: "helix-runs", description: "List Helix run records", coreArgs: (args) => trimWithPrefix("runs", args || "list") },
   { name: "helix-run-status", description: "Inspect a Helix run", coreArgs: (args) => trimWithPrefix("runs status", args) },
@@ -227,6 +235,105 @@ function wrap(text: string, width: number): string[] {
   return lines;
 }
 
+type OnboardingContext = ExtensionCommandContext | ExtensionContext;
+type OnboardingTourResult = "completed" | "later";
+
+async function showOnboardingTour(ctx: OnboardingContext): Promise<OnboardingTourResult> {
+  return ctx.ui.custom<OnboardingTourResult>((tui, theme, keybindings, done) => {
+    let pageIndex = 0;
+    return {
+      render(width: number) {
+        const contentWidth = Math.max(1, width - 4);
+        const page = ONBOARDING_PAGES[pageIndex];
+        const isLast = pageIndex === ONBOARDING_PAGES.length - 1;
+        const lines = [
+          theme.fg("accent", theme.bold(clip(`Helix onboarding · ${pageIndex + 1}/${ONBOARDING_PAGES.length}`, contentWidth))),
+          "",
+          theme.fg("text", theme.bold(clip(page.title, contentWidth))),
+          "",
+        ];
+        page.body.forEach((paragraph, index) => {
+          lines.push(...wrap(paragraph, contentWidth).map((line) => theme.fg("text", line)));
+          if (index < page.body.length - 1) lines.push("");
+        });
+        lines.push("");
+        lines.push(...wrap(
+          isLast
+            ? "↑ previous · enter finish · esc later"
+            : "↑ previous · ↓/enter next · esc later",
+          contentWidth,
+        ).map((line) => theme.fg("dim", line)));
+        return lines.map((line) => `  ${line}`);
+      },
+      invalidate() {},
+      handleInput(data: string) {
+        if (keybindings.matches(data, "tui.select.up")) {
+          pageIndex = Math.max(0, pageIndex - 1);
+        } else if (keybindings.matches(data, "tui.select.down")) {
+          pageIndex = Math.min(ONBOARDING_PAGES.length - 1, pageIndex + 1);
+        } else if (keybindings.matches(data, "tui.select.confirm")) {
+          if (pageIndex === ONBOARDING_PAGES.length - 1) {
+            done("completed");
+            return;
+          }
+          pageIndex += 1;
+        } else if (keybindings.matches(data, "tui.select.cancel")) {
+          done("later");
+          return;
+        }
+        tui.requestRender();
+      },
+    };
+  });
+}
+
+function persistOnboardingChoice(ctx: OnboardingContext, status: "completed" | "dismissed"): boolean {
+  const saved = saveOnboardingState(helixStateRoot(), status);
+  if (!saved.ok) {
+    ctx.ui.notify("Helix onboarding choice could not be saved; run /helix-onboarding to retry", "warning");
+    return false;
+  }
+  return true;
+}
+
+async function runOnboarding(ctx: OnboardingContext) {
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify("Open Pi in TUI mode to run /helix-onboarding", "warning");
+    return;
+  }
+  const result = await showOnboardingTour(ctx);
+  if (result === "completed" && persistOnboardingChoice(ctx, "completed")) {
+    ctx.ui.notify("Helix onboarding complete · open /helix-help any time", "info");
+  } else if (result === "later") {
+    ctx.ui.notify("Helix onboarding deferred · run /helix-onboarding any time", "info");
+  }
+}
+
+async function maybeShowFirstRunOnboarding(ctx: ExtensionContext) {
+  if (ctx.mode !== "tui") return;
+  const state = loadOnboardingState(helixStateRoot());
+  if (!state.ok) {
+    ctx.ui.notify("Helix onboarding state is unreadable · fix or remove onboarding.json in Helix state, then retry", "warning");
+    return;
+  }
+  if (state.status !== "unseen") return;
+
+  const choice = await ctx.ui.select("Welcome to Helix", [
+    "Start the 4-step tour",
+    "Later",
+    "Don't show again",
+  ]);
+  if (choice === "Start the 4-step tour") {
+    await runOnboarding(ctx);
+  } else if (choice === "Don't show again") {
+    if (persistOnboardingChoice(ctx, "dismissed")) {
+      ctx.ui.notify("Helix onboarding hidden · run /helix-onboarding any time", "info");
+    }
+  } else {
+    ctx.ui.notify("Helix onboarding deferred · it will return on the next Pi startup", "info");
+  }
+}
+
 async function showSettings(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
   const initial = executeHelixCommand("settings", { mode: ctx.mode });
   if (!initial.ok || !initial.details?.toggles) {
@@ -305,11 +412,28 @@ export default function helixCommand(pi: ExtensionAPI) {
     });
   }
 
+  pi.on("session_start", async (event, ctx) => {
+    if (event.reason !== "startup") return;
+    try {
+      await maybeShowFirstRunOnboarding(ctx);
+    } catch {
+      ctx.ui.notify("Helix onboarding could not open · run /helix-onboarding to retry", "warning");
+    }
+  });
+
   for (const command of COMMANDS) {
     pi.registerCommand(command.name, {
       description: command.description,
       ...(command.completions ? { getArgumentCompletions: command.completions } : {}),
       async handler(args: string, ctx: ExtensionCommandContext) {
+        if (command.onboardingUi) {
+          try {
+            await runOnboarding(ctx);
+          } catch {
+            ctx.ui.notify("Helix onboarding could not open · retry /helix-onboarding", "warning");
+          }
+          return;
+        }
         if (command.settingsUi && !args.trim() && ctx.mode === "tui" && typeof ctx.ui?.custom === "function") {
           await showSettings(pi, ctx);
           return;

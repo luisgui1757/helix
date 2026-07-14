@@ -18,6 +18,7 @@ function fixtureRoot() {
     "npm install -g @earendil-works/pi-coding-agent",
     "pi install git:github.com/luisgui1757/helix",
     "/helix-help",
+    "/helix-onboarding",
     "/helix-settings",
     "~/.pi/agent/helix",
     "",
@@ -41,7 +42,7 @@ test("docs truth rejects missing commands, stale stages, and README bloat", () =
   try {
     write(root, "docs/manual.md", HELIX_COMMANDS.filter((command) => command !== "/helix-run").join("\n") + "\nStage 3\n");
     write(root, "README.md", Array.from({ length: MAX_README_LINES + 1 }, (_, index) => index === 0
-      ? "npm install -g @earendil-works/pi-coding-agent pi install git:github.com/luisgui1757/helix /helix-help /helix-settings ~/.pi/agent/helix"
+      ? "npm install -g @earendil-works/pi-coding-agent pi install git:github.com/luisgui1757/helix /helix-help /helix-onboarding /helix-settings ~/.pi/agent/helix"
       : "line").join("\n"));
     const result = checkDocsTruth(root);
     assert.equal(result.ok, false);

@@ -9,6 +9,7 @@ export const MAX_README_LINES = 120;
 export const HELIX_COMMANDS = Object.freeze([
   "/helix",
   "/helix-help",
+  "/helix-onboarding",
   "/helix-run",
   "/helix-runs",
   "/helix-run-status",
@@ -59,6 +60,7 @@ export function checkDocsTruth(root = ROOT) {
     "npm install -g @earendil-works/pi-coding-agent",
     "pi install git:github.com/luisgui1757/helix",
     "/helix-help",
+    "/helix-onboarding",
     "/helix-settings",
     "~/.pi/agent/helix",
   ]) requireSnippet(errors, readme, "README.md", snippet);
