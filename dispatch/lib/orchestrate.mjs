@@ -16,7 +16,7 @@ import { validate } from "./schema.mjs";
 import { MODEL_ID_PATTERN } from "./public-values.mjs";
 import { classify } from "./classify.mjs";
 import { routeForClass, resolvePanel, validateRouteConfig, EFFORTS } from "./routes.mjs";
-import { HELIX_PROVIDERS, providerFamily, isAutomatedDispatchProvider } from "./providers.mjs";
+import { PROVIDER_ID_PATTERN, providerFamily, isAutomatedDispatchProvider } from "./providers.mjs";
 import { ROLES, isRoleValidForStage, validateRoleEnvelope } from "./role-envelope.mjs";
 import { projectCandidatesForJudge, evaluateJudgeSelection } from "./judge.mjs";
 import { detectContradictions, contradictionsDropped, projectForSynthesis } from "./synthesis.mjs";
@@ -32,7 +32,7 @@ const CANDIDATE_SPEC_SCHEMA = Object.freeze({
   required: ["role", "provider", "model"],
   properties: {
     role: { type: "string", enum: ROLES },
-    provider: { type: "string", enum: HELIX_PROVIDERS },
+    provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     effort: { type: "string", enum: EFFORTS },
   },
@@ -44,7 +44,7 @@ const JUDGE_SPEC_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model", "rubric_id"],
   properties: {
-    provider: { type: "string", enum: HELIX_PROVIDERS },
+    provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     rubric_id: { type: "string", minLength: 1 },
     eligible_alternatives: { type: "array", items: { type: "string", minLength: 1 } },
@@ -73,7 +73,7 @@ const SYNTHESIS_SPEC_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model"],
   properties: {
-    provider: { type: "string", enum: HELIX_PROVIDERS },
+    provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     rubric_id: { type: "string", minLength: 1 },
   },
@@ -85,7 +85,7 @@ const VERIFICATION_SPEC_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["provider", "model"],
   properties: {
-    provider: { type: "string", enum: HELIX_PROVIDERS },
+    provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     rubric_id: { type: "string", minLength: 1 },
   },

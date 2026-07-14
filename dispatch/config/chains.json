@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "chains": [
     {
       "id": "full-cycle",
@@ -12,7 +12,12 @@
             { "id": "plan", "kind": "role", "role": "planner" },
             { "id": "plan-review", "kind": "role", "role": "reviewer" }
           ],
-          "advance": { "verdict_role": "reviewer", "max_passes": 3 },
+          "max_passes": 3,
+          "transitions": [
+            { "when": { "type": "verdict", "role": "reviewer", "is": "approve" }, "action": "advance" },
+            { "when": { "type": "verdict", "role": "reviewer", "is": "revise" }, "action": "retry" },
+            { "when": { "type": "verdict", "role": "reviewer", "is": "revise-jump" }, "action": "retry" }
+          ],
           "artifact": { "path": "PLAN.md", "kind": "plan" }
         },
         {
@@ -22,7 +27,12 @@
             { "id": "code-review", "kind": "role", "role": "reviewer" },
             { "id": "redteam", "kind": "role", "role": "redteam" }
           ],
-          "advance": { "verdict_role": "reviewer", "max_passes": 3, "allow_jump_to": "plan" }
+          "max_passes": 3,
+          "transitions": [
+            { "when": { "type": "verdict", "role": "reviewer", "is": "approve" }, "action": "advance" },
+            { "when": { "type": "verdict", "role": "reviewer", "is": "revise" }, "action": "retry" },
+            { "when": { "type": "verdict", "role": "reviewer", "is": "revise-jump" }, "action": "back", "target": "plan" }
+          ]
         }
       ],
       "requires_objective_gate": true,
@@ -38,7 +48,11 @@
           "steps": [
             { "id": "reproduce", "kind": "role", "role": "builder" }
           ],
-          "gate_expectation": "fail"
+          "max_passes": 2,
+          "transitions": [
+            { "when": { "type": "gate", "is": "fail" }, "action": "advance" },
+            { "when": { "type": "gate", "is": "pass" }, "action": "retry" }
+          ]
         },
         {
           "id": "fix",
@@ -46,7 +60,12 @@
             { "id": "fix", "kind": "role", "role": "builder" },
             { "id": "review", "kind": "role", "role": "reviewer" }
           ],
-          "advance": { "verdict_role": "reviewer", "max_passes": 3 }
+          "max_passes": 3,
+          "transitions": [
+            { "when": { "type": "verdict", "role": "reviewer", "is": "approve" }, "action": "advance" },
+            { "when": { "type": "verdict", "role": "reviewer", "is": "revise" }, "action": "retry" },
+            { "when": { "type": "verdict", "role": "reviewer", "is": "revise-jump" }, "action": "retry" }
+          ]
         }
       ],
       "requires_objective_gate": true,
@@ -62,6 +81,10 @@
           "steps": [
             { "id": "scout", "kind": "role", "role": "scout" },
             { "id": "brief", "kind": "role", "role": "planner" }
+          ],
+          "max_passes": 1,
+          "transitions": [
+            { "when": { "type": "always" }, "action": "advance" }
           ],
           "artifact": { "path": "BRIEF.md", "kind": "brief" }
         }
@@ -81,7 +104,12 @@
             { "id": "experiment", "kind": "role", "role": "builder" },
             { "id": "measure", "kind": "role", "role": "reviewer" }
           ],
-          "advance": { "verdict_role": "reviewer", "max_passes": 5 },
+          "max_passes": 5,
+          "transitions": [
+            { "when": { "type": "verdict", "role": "reviewer", "is": "approve" }, "action": "advance" },
+            { "when": { "type": "verdict", "role": "reviewer", "is": "revise" }, "action": "retry" },
+            { "when": { "type": "verdict", "role": "reviewer", "is": "revise-jump" }, "action": "retry" }
+          ],
           "artifact": { "path": "RESEARCH.md", "kind": "notes" }
         }
       ],
@@ -106,6 +134,10 @@
             { "id": "public-safety", "kind": "local-check", "note": "structural public-safety and provenance scans" },
             { "id": "verify", "kind": "role", "role": "verifier" },
             { "id": "pr-handoff", "kind": "handoff", "note": "open PR only; never merge automatically" }
+          ],
+          "max_passes": 1,
+          "transitions": [
+            { "when": { "type": "always" }, "action": "advance" }
           ]
         }
       ],

@@ -36,7 +36,7 @@ test("every dispatch role has a tracked brief and compiles through the tracked t
       templates_dir: templatesDir,
       briefs_dir: briefsDir,
       role,
-      fields: { chain_id: "full-cycle", stage_id: "plan", pass: 1, gate_summary: "g", task_instruction: "t", handoff: "h" },
+      fields: { chain_id: "full-cycle", stage_id: "plan", pass: 1, gate_summary: "g", artifact_summary: "plan:PLAN.md", task_instruction: "t", handoff: "h" },
     });
     assert.equal(compiled.ok, true, `${role}: ${JSON.stringify(compiled)}`);
     assert.match(compiled.prompt, new RegExp(role === "redteam" ? "Red Team" : role, "i"));
@@ -50,7 +50,7 @@ test("every dispatch role has a tracked brief and compiles through the tracked t
 test("the compiler fails closed on missing template/brief and unresolved placeholders", () => {
   const args = {
     template_id: "step-prompt-v1", templates_dir: templatesDir, briefs_dir: briefsDir, role: "builder",
-    fields: { chain_id: "c", stage_id: "s", pass: 1, gate_summary: "g", task_instruction: "t", handoff: "h" },
+    fields: { chain_id: "c", stage_id: "s", pass: 1, gate_summary: "g", artifact_summary: "notes:result.md", task_instruction: "t", handoff: "h" },
   };
   assert.equal(compileStepPrompt({ ...args, template_id: "nope" }).code, COMPILER_CODES.TEMPLATE_MISSING);
   assert.equal(compileStepPrompt({ ...args, role: "warlock" }).code, COMPILER_CODES.BRIEF_MISSING);
@@ -66,12 +66,29 @@ test("the compiler fails closed on missing template/brief and unresolved placeho
   }
 });
 
+test("template compilation never reinterprets placeholder-shaped input values", () => {
+  const compiled = compileStepPrompt({
+    template_id: "step-prompt-v1", templates_dir: templatesDir, briefs_dir: briefsDir, role: "builder",
+    fields: {
+      chain_id: "c", stage_id: "s", pass: 1,
+      gate_summary: 'file-contains:proposal.txt contains "{{handoff}} {{unknown}}"',
+      artifact_summary: "notes:proposal.txt",
+      task_instruction: "Keep task text exact: {{gate_summary}}",
+      handoff: "ACTUAL HANDOFF",
+    },
+  });
+  assert.equal(compiled.ok, true, JSON.stringify(compiled));
+  assert.match(compiled.prompt, /contains "\{\{handoff\}\} \{\{unknown\}\}"/);
+  assert.match(compiled.prompt, /Keep task text exact: \{\{gate_summary\}\}/);
+  assert.match(compiled.prompt, /ACTUAL HANDOFF/);
+});
+
 test("compiled prompts remain memory-only even when a caller supplies the removed debug option", () => {
   const dir = mkdtempSync(join(tmpdir(), "helix-dbg-"));
   try {
     const compiled = compileStepPrompt({
       template_id: "step-prompt-v1", templates_dir: templatesDir, briefs_dir: briefsDir, role: "builder",
-      fields: { chain_id: "c", stage_id: "plan", pass: 2, gate_summary: "g", task_instruction: "t", handoff: "h" },
+      fields: { chain_id: "c", stage_id: "plan", pass: 2, gate_summary: "g", artifact_summary: "plan:PLAN.md", task_instruction: "t", handoff: "h" },
       debug_dir: dir,
     });
     assert.equal(compiled.ok, true);

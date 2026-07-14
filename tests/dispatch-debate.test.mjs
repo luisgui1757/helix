@@ -9,6 +9,7 @@ import {
   routeCallsForAdversarialIteration,
   validateDebateSummary,
   writeDebateSummary,
+  decideDebateLoopTransition,
 } from "../dispatch/lib/debate.mjs";
 import { routeForClass } from "../dispatch/lib/routes.mjs";
 import { stableStringify, hashRef } from "../dispatch/lib/run-record.mjs";
@@ -18,6 +19,22 @@ import { MAX_ITERATIONS } from "../dispatch/lib/limits.mjs";
 
 const NOW = 1_751_731_200; // fixed epoch seconds
 const SEED = 7;
+
+test("debate routes convergence, one-shot stop, retry, and ceiling through workflow actions", () => {
+  const base = { iteration: 1, max_iterations: 3 };
+  assert.deepEqual(decideDebateLoopTransition({ ...base, converged: true, adversarial: true }), {
+    action: "stop", code: "converged",
+  });
+  assert.deepEqual(decideDebateLoopTransition({ ...base, converged: false, adversarial: false }), {
+    action: "stop", code: "single-pass-not-converged",
+  });
+  assert.deepEqual(decideDebateLoopTransition({ ...base, converged: false, adversarial: true }), {
+    action: "retry", code: null,
+  });
+  assert.deepEqual(decideDebateLoopTransition({
+    ...base, iteration: 3, converged: false, adversarial: true,
+  }), { action: "refuse", code: "workflow-stage-max-passes:debate-iteration" });
+});
 
 // --- deterministic diff-stability checkers (boundary effects, like runGate) -----
 // Always report the diff as already stable.

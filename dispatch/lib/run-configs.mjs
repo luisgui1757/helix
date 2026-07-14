@@ -10,6 +10,7 @@ import { validate, SchemaError } from "./schema.mjs";
 import { ASSIGNMENT_SCHEMA, validateAssignment } from "./presets.mjs";
 import { MAX_ITERATIONS, MAX_PANEL_MEMBERS } from "./limits.mjs";
 import { INPUT_REF_VALUE_PATTERNS, REF_PATTERN } from "./public-values.mjs";
+import { isSafeWorktreeFilePath } from "./persistence.mjs";
 
 const CONFIG_ID_PATTERN = "^[a-z0-9][a-z0-9._:-]*$";
 const SAFE_REL_PATH_PATTERN = "^[A-Za-z0-9._/-]+$";
@@ -105,10 +106,6 @@ function errorsToDetail(errors) {
   return errors.map((error) => `${error.path} ${error.message}`).join("; ");
 }
 
-function hasUnsafePathPart(path) {
-  return path.startsWith("/") || path.includes("..") || path.includes("\0");
-}
-
 export function validateRunConfigRegistry(registry) {
   const structural = validate(RUN_CONFIG_REGISTRY_SCHEMA, registry, "$");
   const errors = [...structural.errors];
@@ -121,7 +118,7 @@ export function validateRunConfigRegistry(registry) {
     if (seen.has(config.id)) errors.push(semanticError(`${path}.id`, `duplicate run config id '${config.id}'`));
     seen.add(config.id);
 
-    if (hasUnsafePathPart(config.objective_gate.path)) {
+    if (!isSafeWorktreeFilePath(config.objective_gate.path)) {
       errors.push(semanticError(`${path}.objective_gate.path`, "must be a safe repo-relative path"));
     }
 

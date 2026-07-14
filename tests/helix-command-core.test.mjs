@@ -13,6 +13,9 @@ import {
 } from "../extensions/lib/helix-command-core.mjs";
 import { preflightTaskLoopConfig } from "../dispatch/lib/task-loop.mjs";
 import { PUBLIC_SAFETY_PATTERNS } from "../tools/ci/public-safety-diff-scan.mjs";
+import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
+import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
+import { saveProfile, switchProfile } from "../extensions/lib/helix-local.mjs";
 
 const root = new URL("..", import.meta.url);
 const testStateRoot = mkdtempSync(join(tmpdir(), "helix-command-state-"));
@@ -116,10 +119,67 @@ test("helix run preflight renders the resolved installed-package workflow", () =
   assert.deepEqual(out.details.providers, ["mock"]);
   assert.equal(out.details.live_status, "no-live (mock providers only)");
   assert.deepEqual(out.details.rail, { max_iterations: 5, parallel: { max_concurrency: 2 } });
+  assert.deepEqual(out.details.runtime_limits, { max_runtime_ms: 600_000, call_timeout_ms: 120_000 });
+  assert.match(out.details.execution_binding_ref, /^sha256:[0-9a-f]{64}$/);
   const rendered = JSON.stringify(out.details);
   assert.equal(rendered.includes("profile"), false);
   assert.equal(rendered.includes("write_allowlist"), false);
   assert.equal(rendered.includes("token_budget"), false);
+});
+
+test("named workflows ignore irrelevant global profile stages visibly instead of failing cast resolution", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-cross-workflow-profile-"));
+  const created = createWorkflowFromTemplate({ id: "tdd-user", template: "tdd-fix" });
+  assert.equal(created.ok, true);
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+  assert.equal(saveProfile(stateRoot, {
+    schema_version: 1,
+    profile_id: "full-cycle-cast",
+    overrides: {
+      assignments: {
+        plan: { kind: "composite", preset: "overlord" },
+        implement: { kind: "composite", preset: "daily" },
+      },
+    },
+  }).ok, true);
+  assert.equal(switchProfile(stateRoot, "full-cycle-cast").ok, true);
+
+  const out = executeHelixCommand("run tdd-user", { mode: "print" }, {
+    stateRoot, runsRoot: join(stateRoot, "runs"),
+  });
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.deepEqual(out.details.warnings, ["profile-stage-overrides-ignored:implement+plan"]);
+  assert.match(out.text, /profile-stage-overrides-ignored:implement\+plan/);
+});
+
+test("workflows requiring unavailable host effects are labeled and refused at preflight", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-host-effects-"));
+  const created = createWorkflowFromTemplate({ id: "host-flow" });
+  assert.equal(created.ok, true);
+  created.workflow.stages[0].steps.unshift({
+    id: "check", kind: "local-check", note: "typed host check",
+  });
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+
+  const list = executeHelixCommand("workflows list", { mode: "print" }, { stateRoot });
+  const listed = list.details.workflows.find((workflow) => workflow.id === "host-flow");
+  assert.equal(listed.runnable, false);
+  assert.deepEqual(listed.required_host_effects, ["local-check"]);
+  const preflight = executeHelixCommand("run host-flow", { mode: "print" }, { stateRoot });
+  assert.equal(preflight.code, "workflow-host-effects-unavailable");
+});
+
+test("workflow creation refuses unsafe durable-output and gate paths", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-unsafe-workflow-create-"));
+  for (const [index, path] of [".", "dir/", "a//b", ".git"].entries()) {
+    const out = executeHelixCommand(
+      `workflows create unsafe-${index} implement-review ${path} MARKER 6`,
+      { mode: "tui", confirm: true },
+      { stateRoot },
+    );
+    assert.equal(out.code, "invalid-workflow", path);
+  }
+  assert.equal(existsSync(join(stateRoot, "workflows")), false);
 });
 
 test("native run completion renders only stable structural fields", () => {
@@ -250,7 +310,7 @@ test("helix hashes or omits every schema-valid registry prose field before rende
   for (const chain of chainRegistry.chains) {
     chain.description = canary;
     for (const stage of chain.stages) {
-      for (const step of stage.steps) step.note = body;
+      for (const step of stage.steps) if (step.kind !== "role") step.note = body;
     }
   }
   for (const id of ["daily", "overlord"]) {
@@ -435,6 +495,7 @@ test("helix completions expose only the single-command verb set", () => {
     "runs",
     "models",
     "chains",
+    "workflows",
     "settings",
     "profiles",
     "setup",
@@ -448,6 +509,7 @@ test("helix completions expose only the single-command verb set", () => {
     "profiles create work",
     "profiles switch work",
     "setup work plan=daily",
+    "workflows create my-flow implement-review",
   ]) assert.equal(isHelixMutationRequest(args), true, args);
   assert.equal(isHelixMutationRequest("research why --metric x >= 1 --max 1"), false);
 });
@@ -461,6 +523,7 @@ test("helix completions fail closed when run config completion input is malforme
     "runs",
     "models",
     "chains",
+    "workflows",
     "settings",
     "profiles",
     "setup",

@@ -1,12 +1,13 @@
 // Helix dispatch — bounded task-loop entrypoint.
 //
 // This is the code-level entrypoint for daily-use loop configs. It composes the
-// existing dispatch primitives instead of adding new authority:
+// existing dispatch primitives and canonical workflow transitions instead of
+// adding new authority:
 //   run config -> chain -> route -> role matrix -> runDebate
 // with a real git diff-stability checker, a real model-backed revision effect,
-// and a deterministic no-live adapter for all-mock casts. This build has no
-// live task-loop transport, so every real-provider cast refuses before any
-// injected adapter/revision effect. Objective gates are deterministic checkers;
+// and a deterministic no-live adapter for all-mock casts. This legacy engine is
+// intentionally not the Pi-native provider path, so every real-provider cast
+// refuses before any injected adapter/revision effect. Objective gates are deterministic checkers;
 // model/judge/verifier output never decides convergence.
 
 import { readFileSync, statSync, realpathSync, lstatSync } from "node:fs";
@@ -18,11 +19,21 @@ import { routeForClass } from "./routes.mjs";
 import { runDebate } from "./debate.mjs";
 import { makeGitDiffStability } from "./git-diff-surface.mjs";
 import { makeModelRevision } from "./revision-effect.mjs";
+import { decideWorkflowTransition } from "./workflows.mjs";
 
 export const TASK_LOOP_CODES = Object.freeze({
   UNSAFE_GATE_PATH: "unsafe-gate-path",
   CHAIN_NOT_LOOP_RUNNABLE: "chain-not-loop-runnable",
 });
+
+/** Resolve multi-pass versus one-shot execution through the workflow loop rule. */
+export function decideTaskLoopTransition(loopsEnabled) {
+  return decideWorkflowTransition({
+    id: "task-loop",
+    max_passes: 1,
+    transitions: [{ when: { type: "always" }, action: "retry" }],
+  }, 0, {}, { loops: loopsEnabled });
+}
 
 function failClosed(code, detail = null, extra = {}) {
   return { ok: false, status: "fail-closed", code, detail, ...extra };
@@ -289,7 +300,8 @@ export async function runTaskLoop(config, registries, deps = {}) {
   // report. This is degeneration, never an error.
   const toggles = deps.toggles ?? null;
   const loopsEnabled = !toggles || toggles.loops !== false;
-  const effectiveMaxIterations = loopsEnabled ? config.max_iterations : 1;
+  const loopTransition = decideTaskLoopTransition(loopsEnabled);
+  const effectiveMaxIterations = loopTransition.action === "retry" ? config.max_iterations : 1;
 
   const debate = await runDebate({
     run_id: runId,

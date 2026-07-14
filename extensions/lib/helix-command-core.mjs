@@ -17,6 +17,14 @@ import { assertPublicSafe, hashRef, stableStringify } from "../../dispatch/lib/r
 import { isModelId, isPublicCode } from "../../dispatch/lib/public-values.mjs";
 import { validateDisagreementDocument } from "../../dispatch/lib/handoff.mjs";
 import { resolveChain, validateChainRegistry } from "../../dispatch/lib/chains.mjs";
+import {
+  WORKFLOW_TEMPLATES,
+  createWorkflowFromTemplate,
+  testWorkflow,
+  workflowExecutionBindingRef,
+  workflowRequiredHostEffects,
+  workflowToExecution,
+} from "../../dispatch/lib/workflows.mjs";
 import { resolveChainCast } from "../../dispatch/lib/presets.mjs";
 import { validateRoleMatrixConfig } from "../../dispatch/lib/role-matrix.mjs";
 import { validateMachineResume } from "../../dispatch/lib/stage-machine.mjs";
@@ -60,6 +68,12 @@ import {
   applyProfileToPresets,
 } from "./helix-local.mjs";
 import { helixStateRoot as defaultHelixStateRoot } from "./helix-paths.mjs";
+import {
+  builtInWorkflows,
+  resolveWorkflow,
+  saveUserWorkflow,
+  workflowCatalog,
+} from "./helix-workflows.mjs";
 
 const DEFAULT_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -67,7 +81,7 @@ export const HELIX_USAGE = `Usage:
   /helix
   /helix-help
   /helix-onboarding
-  /helix-run [config-id]
+  /helix-run [workflow-id] [-- <task>]
   /helix-runs
   /helix-run-status <run-id>
   /helix-run-watch <run-id>
@@ -75,16 +89,18 @@ export const HELIX_USAGE = `Usage:
   /helix-run-prune <run-id>
   /helix-models
   /helix-chains
+  /helix-workflows [list | show <id> | test <id>]
+  /helix-workflow-create <id> [implement-review|plan-implement|tdd-fix]
   /helix-settings [<toggle> on|off]
   /helix-profiles [show <id> | switch <id> | create <id>]
   /helix-setup [<existing-profile-id> <stage>=<preset | provider/model[:effort]> ...]
                [<preset>.<role>=<provider/model[:effort][*instances]>[, ...] ...]
   /helix-research <question> --metric <name> <cmp> <target> --max <n> [--plateau <n>]
 
-Most commands are preflight/view/state operations. The packaged runner executes
-mock casts; a cast naming any real provider refuses as live-adapter-not-wired
-until a live transport is implemented and verified. In Pi's TUI, /helix-run
-starts the resolved mock cast only after an attended confirmation.`;
+Most commands are preflight/view/state operations. In Pi's TUI, /helix-run
+executes a named workflow in-process after an attended confirmation. Mock casts
+stay deterministic; real casts use the exact providers and models already
+configured and available in Pi. Helix never configures provider credentials.`;
 
 const TOP_LEVEL_COMPLETIONS = Object.freeze([
   { value: "help", label: "help", description: "Show the public-safe Helix cheat sheet" },
@@ -92,6 +108,7 @@ const TOP_LEVEL_COMPLETIONS = Object.freeze([
   { value: "runs", label: "runs", description: "List, inspect, or prune structural run records" },
   { value: "models", label: "models", description: "View composite presets and the default role matrix" },
   { value: "chains", label: "chains", description: "View the staged chain catalog" },
+  { value: "workflows", label: "workflows", description: "Create, inspect, and simulate named workflows" },
   { value: "settings", label: "settings", description: "View or toggle the six Helix feature switches" },
   { value: "profiles", label: "profiles", description: "List, inspect, switch, or create saved casts" },
   { value: "setup", label: "setup", description: "Assemble a profile's per-stage cast" },
@@ -158,8 +175,8 @@ const REFUSAL_GUIDANCE = Object.freeze({
     next: "Retry and confirm only if the displayed mutation is intended.",
   },
   "live-adapter-not-wired": {
-    reason: "This cast names a real provider, but the staged runner has no approved live transport in this build.",
-    next: "Use the tracked mock cast for no-live proof, or wait for the separately approved live-adapter track.",
+    reason: "This real cast was started outside the Pi-native configured-provider adapter.",
+    next: "Start it with /helix-run in an attended Pi TUI, or use the standalone mock config for local proof.",
   },
   "helix-model-inventory-unavailable": {
     reason: "Pi's available-model inventory was unavailable, so Helix cannot validate a real member.",
@@ -172,6 +189,22 @@ const REFUSAL_GUIDANCE = Object.freeze({
   "helix-runner-result-invalid": {
     reason: "The packaged runner returned an incomplete or unsafe structural result.",
     next: "Inspect the run with /helix-runs; Helix did not render raw runner output.",
+  },
+  "unknown-workflow": {
+    reason: "The requested named workflow does not exist.",
+    next: "Run /helix-workflows, or create one with /helix-workflow-create.",
+  },
+  "invalid-workflow": {
+    reason: "The workflow does not satisfy the bounded workflow schema.",
+    next: "Inspect /helix-workflows show <id>, then fix the named stage or transition.",
+  },
+  "workflow-resume-unsupported": {
+    reason: "This run is bound to an exact in-memory workflow task, but task-aware in-process resume is not shipped yet.",
+    next: "Inspect the interrupted run, then start a fresh attended run with the same workflow and task.",
+  },
+  "workflow-host-effects-unavailable": {
+    reason: "This workflow needs typed host effects that the Pi workflow runner does not provide.",
+    next: "Inspect /helix-workflows show <id>; use a runnable workflow until those effects are wired.",
   },
 });
 
@@ -329,13 +362,14 @@ function renderHelp() {
       "Start: first configure or sync providers in Pi; Helix uses Pi's available inventory and does not select providers.",
       "Tour: /helix-onboarding reruns the keyboard-first getting-started guide.",
       "Dashboard: /helix shows status; /helix-settings opens the interactive feature list.",
-      "Run: /helix-run [config-id] shows the preflight, then starts the mock workflow after confirmation.",
+      "Run: /helix-run [workflow-id] shows the cast, rails, repository, and task, then starts after confirmation.",
+      "Build: /helix-workflow-create starts from a template and edits stages, panels, transitions, deployment, and stop rails.",
       "Runs: /helix-runs, /helix-run-status, /helix-run-watch, /helix-run-resume, /helix-run-prune.",
       "Views: /helix-models, /helix-chains, /helix-profiles.",
       "Casts: /helix-setup saves stage assignments and composite member lineups from Pi's available-model inventory.",
       "Research: /helix-research validates the mandatory metric and stop condition, then prints the packaged research invocation.",
       "Attendance: run launch and profile/setup/prune changes are confirmed; settings toggles save immediately because they are reversible.",
-      "Live: presence declares live intent, but this build refuses real-provider casts as live-adapter-not-wired. The default mock config is no-live.",
+      "Providers: configure/login in Pi first. Helix consumes the exact available provider/model ids and never owns credentials.",
       "Refusals: every refusal shows a stable code, reason, and next safe action.",
       "Manual: docs/manual.md.",
     ],
@@ -344,7 +378,7 @@ function renderHelp() {
       public_safe: true,
       launches_loop: false,
       live_calls: false,
-      paid_calls: false,
+      provider_calls: false,
       manual: "docs/manual.md",
     },
   });
@@ -396,6 +430,13 @@ function summarizeChain(chain) {
         }
         : null,
       gate_expectation: stage.gate_expectation ?? null,
+      max_passes: stage.max_passes ?? stage.advance?.max_passes ?? 1,
+      transitions: (stage.transitions ?? []).map((transition) => ({
+        when: { ...transition.when },
+        action: transition.action,
+        target: transition.target ?? null,
+        reason: transition.reason ?? null,
+      })),
       artifact: stage.artifact ? { ...stage.artifact } : null,
     })),
   };
@@ -458,7 +499,7 @@ function castProviders(cast) {
 function castLiveStatus(cast) {
   const providers = castProviders(cast);
   const allMock = providers.length > 0 && providers.every((p) => p === "mock");
-  return allMock ? "no-live (mock providers only)" : "live intent (transport unavailable)";
+  return allMock ? "no-live (mock providers only)" : "live via Pi configured providers";
 }
 
 function inventoryAvailability(deps) {
@@ -483,27 +524,62 @@ function publicModelInventory(deps) {
 }
 
 function buildPreflight(configId, deps) {
-  const resolved = resolveRunConfig(deps.runRegistry, configId);
-  if (!resolved.ok) return { ok: false, code: resolved.code, detail: resolved.detail };
+  let resolved = resolveRunConfig(deps.runRegistry, configId);
+  let workflow = null;
+  let workflowChain = null;
+  if (!resolved.ok && resolved.code !== "unknown-run-config") return resolved;
+  if (resolved.ok) {
+    workflow = builtInWorkflows(deps.chainRegistry, deps.runRegistry)
+      .find((candidate) => candidate.id === configId) ?? null;
+    if (workflow) {
+      const execution = workflowToExecution(workflow);
+      if (!execution.ok) return { ok: false, code: execution.code, detail: execution.detail };
+      workflowChain = execution.chain;
+      resolved = { ok: true, config: execution.config };
+    }
+  } else {
+    const named = resolveWorkflow(deps.stateRoot, configId, deps.chainRegistry, deps.runRegistry);
+    if (!named.ok) return resolved;
+    const execution = workflowToExecution(named.workflow);
+    if (!execution.ok) return { ok: false, code: execution.code, detail: execution.detail };
+    workflow = named.workflow;
+    workflowChain = execution.chain;
+    resolved = { ok: true, config: execution.config };
+  }
 
   // The ACTIVE profile's saved cast overlays the tracked config (assignments and
   // default assignment only - never chain/gate/run_target, by schema).
   let config = resolved.config;
   let profileApplied = null;
+  const warnings = [];
   const active = resolveActiveProfile(deps.stateRoot);
   if (!active.ok) return { ok: false, code: active.code, detail: active.detail };
   if (active.profile) {
-    const applied = applyProfileToConfig(config, active.profile);
+    const applied = applyProfileToConfig(config, active.profile, workflowChain ? {
+      stageIds: workflowChain.stages.map((stage) => stage.id),
+    } : {});
     config = applied.config;
     if (applied.overridden.length) profileApplied = { profile_id: active.profile_id, overridden: [...applied.overridden] };
+    if (applied.ignored_assignments.length > 0) {
+      warnings.push(`profile-stage-overrides-ignored:${applied.ignored_assignments.join("+")}`);
+    }
   }
 
   // Preflight mirrors the STAGED runner (the engine that actually executes),
   // not the legacy task-loop: resolve the chain and the per-stage cast so the
   // Live signal, providers, and staged-runnability reflect what will run.
-  const chainResult = resolveChain(deps.chainRegistry, config.chain);
+  const chainResult = workflowChain
+    ? { ok: true, chain: workflowChain }
+    : resolveChain(deps.chainRegistry, config.chain);
   if (!chainResult.ok) return { ok: false, code: chainResult.code, detail: chainResult.detail, config, profile_applied: profileApplied };
   const chain = chainResult.chain;
+  const hostEffects = workflowRequiredHostEffects(workflow ?? { stages: chain.stages });
+  if (hostEffects.length > 0) {
+    return {
+      ok: false, code: "workflow-host-effects-unavailable", detail: hostEffects.join("+"),
+      config, chain, profile_applied: profileApplied,
+    };
+  }
   const presetsResult = loadPresets(deps);
   if (!presetsResult.ok) return { ok: false, code: presetsResult.code, detail: presetsResult.detail, config, profile_applied: profileApplied };
   const profiledPresets = applyProfileToPresets(presetsResult.presets, active.profile);
@@ -514,27 +590,28 @@ function buildPreflight(configId, deps) {
   }
   const loadedSettings = loadUserSettings(deps);
   if (!loadedSettings.ok) return { ok: false, code: loadedSettings.code, detail: loadedSettings.detail, config, profile_applied: profileApplied };
+  const effectiveToggles = deps.toggles ?? loadedSettings.settings.toggles;
   const castResult = resolveChainCast({
     chain,
     assignments: config.assignments ?? {},
     defaults: config.default_assignment ?? null,
     presets: profiledPresets.presets,
-    toggles: deps.toggles ?? loadedSettings.settings.toggles,
+    toggles: effectiveToggles,
     availability: inventoryAvailability(deps),
   });
   if (!castResult.ok) return { ok: false, code: castResult.code, detail: castResult.detail, config, profile_applied: profileApplied };
 
   const providers = castProviders(castResult.cast);
-  if (providers.some((provider) => provider !== "mock")) {
-    return {
-      ok: false,
-      code: "live-adapter-not-wired",
-      detail: providers.find((provider) => provider !== "mock"),
-      config,
-      chain,
-      cast: castResult.cast,
-      profile_applied: profileApplied,
-    };
+  const executionBindingRef = workflow
+    ? workflowExecutionBindingRef({
+      workflow,
+      profile: active.profile,
+      toggles: effectiveToggles,
+      presets: profiledPresets.presets,
+    })
+    : null;
+  if (workflow && !executionBindingRef) {
+    return { ok: false, code: "workflow-execution-binding-failed", detail: "confirmed-sources-invalid" };
   }
 
   return {
@@ -544,8 +621,14 @@ function buildPreflight(configId, deps) {
     cast: castResult.cast,
     cast_providers: providers,
     live_status: castLiveStatus(castResult.cast),
-    warnings: [],
+    warnings,
     profile_applied: profileApplied,
+    workflow,
+    execution_binding_ref: executionBindingRef,
+    runtime_limits: workflow
+      ? { max_runtime_ms: workflow.stop.max_runtime_ms, call_timeout_ms: workflow.deployment.call_timeout_ms }
+      : { max_runtime_ms: 10 * 60 * 1000, call_timeout_ms: 2 * 60 * 1000 },
+    toggles: effectiveToggles,
   };
 }
 
@@ -567,12 +650,13 @@ function renderPreflight(preflight, requestedId) {
       `Live: ${preflight.live_status}`,
       `Objective gate: ${config.objective_gate.type}:${config.objective_gate.path}`,
       `Rail: max_iterations=${config.max_iterations}`,
+      `Runtime: ${preflight.runtime_limits.max_runtime_ms}ms total; ${preflight.runtime_limits.call_timeout_ms}ms per provider call`,
       config.parallel
         ? `Parallel: max_concurrency=${config.parallel.max_concurrency}`
         : "Parallel: none",
       `Warnings: ${warnings.length ? warnings.join(", ") : "none"}`,
       "",
-      "In Pi's TUI, confirm this preflight to start the packaged mock workflow.",
+      "In Pi's TUI, confirm this preflight and the exact task to start the workflow.",
     ],
     details: {
       requested_config_id: requestedId,
@@ -585,33 +669,38 @@ function renderPreflight(preflight, requestedId) {
         max_iterations: config.max_iterations,
         parallel: config.parallel ? { ...config.parallel } : null,
       },
+      runtime_limits: { ...preflight.runtime_limits },
+      execution_binding_ref: preflight.execution_binding_ref,
       live_status: preflight.live_status,
       warnings,
+      worktree_enabled: preflight.toggles.worktree !== false,
       launches_loop: false,
     },
   });
 }
 
-export function renderHelixRunCompletion({ runId, configId, exitCode, converged = false, stopReason = null }) {
+export function renderHelixRunCompletion({ runId, configId, exitCode, converged = false, stopReason = null, failureCode = null }) {
   if (!validateRunId(runId).ok
     || !isPublicCode(configId)
     || !Number.isSafeInteger(exitCode)
     || exitCode < 0
     || exitCode > 255
     || typeof converged !== "boolean"
+    || (failureCode != null && !isPublicCode(failureCode))
     || (exitCode === 0 && !isPublicCode(stopReason))) {
     return fail("helix-runner-result-invalid", null, "Helix run result refused");
   }
   const safeStopReason = isPublicCode(stopReason) ? stopReason : "unknown";
   if (exitCode !== 0) {
+    const safeFailure = failureCode ?? "helix-runner-failed";
     return result({
       ok: false,
       status: "fail-closed",
-      code: "helix-runner-failed",
+      code: safeFailure,
       title: "Helix run failed",
       lines: [
-        "Helix refusal: helix-runner-failed",
-        "Reason: the packaged mock runner exited without a successful result.",
+        `Helix refusal: ${safeFailure}`,
+        "Reason: workflow execution stopped at a stable fail-closed boundary.",
         `Run: ${runId}`,
         `Next safe action: inspect /helix-run-status ${runId}; no raw runner output was rendered.`,
       ],
@@ -760,6 +849,150 @@ function renderChains(deps) {
       chains,
     },
   });
+}
+
+function workflowLines(workflow) {
+  return workflow.stages.flatMap((stage, index) => [
+    `${index + 1}. ${stage.id} (max ${stage.max_passes} pass${stage.max_passes === 1 ? "" : "es"})`,
+    `   roles: ${stage.steps.filter((step) => step.kind === "role").map((step) => step.role).join(" -> ") || "none"}`,
+    `   output: ${stage.artifact.path} (${stage.artifact.kind})`,
+    ...stage.transitions.map((transition) => {
+      const condition = transition.when.type === "always"
+        ? "always"
+        : transition.when.type === "gate"
+          ? `gate is ${transition.when.is}`
+          : `${transition.when.role} says ${transition.when.is}`;
+      return `   ${condition} -> ${transition.action}${transition.target ? ` ${transition.target}` : ""}`;
+    }),
+  ]);
+}
+
+function structuralWorkflow(workflow) {
+  const requiredHostEffects = workflowRequiredHostEffects(workflow);
+  return {
+    id: workflow.id,
+    source: workflow.source,
+    description_ref: hashRef(workflow.description),
+    task_class: workflow.task_class,
+    runnable: requiredHostEffects.length === 0,
+    required_host_effects: requiredHostEffects,
+    stop: {
+      max_iterations: workflow.stop.max_iterations,
+      max_runtime_ms: workflow.stop.max_runtime_ms,
+      objective_gate: structuralObjectiveGate(workflow.stop.objective_gate),
+    },
+    deployment: { call_timeout_ms: workflow.deployment.call_timeout_ms },
+    stages: workflow.stages.map((stage) => ({
+      id: stage.id,
+      max_passes: stage.max_passes,
+      artifact: { ...stage.artifact },
+      roles: stage.steps.filter((step) => step.kind === "role").map((step) => step.role),
+      transitions: stage.transitions.map((transition) => ({
+        when: { ...transition.when },
+        action: transition.action,
+        target: transition.target ?? null,
+        reason: transition.reason ?? null,
+      })),
+    })),
+  };
+}
+
+function renderWorkflows(deps, tokens) {
+  const sub = tokens[1] ?? "list";
+  if (sub === "create") {
+    const id = tokens[2];
+    const template = tokens[3] ?? "implement-review";
+    const gatePath = tokens[4] ?? "proposal.txt";
+    const gateContains = tokens[5] ?? "HELIX_WORKFLOW_PASS";
+    const maxIterations = tokens[6] == null ? 6 : Number(tokens[6]);
+    if (!id || tokens.length > 7 || !Number.isSafeInteger(maxIterations)) return usage(tokens.join(" "));
+    const created = createWorkflowFromTemplate({
+      id, template, gate_path: gatePath, gate_contains: gateContains, max_iterations: maxIterations,
+    });
+    if (!created.ok) return fail(created.code, created.detail, "Helix workflow create refused");
+    const builtInIds = builtInWorkflows(deps.chainRegistry, deps.runRegistry).map((workflow) => workflow.id);
+    const saved = saveUserWorkflow(deps.stateRoot, created.workflow, { builtInIds });
+    if (!saved.ok) return fail(saved.code, saved.detail, "Helix workflow create refused");
+    return result({
+      title: "Helix workflow created",
+      lines: [
+        `Workflow: ${id}`,
+        `Template: ${template}`,
+        ...workflowLines(created.workflow),
+        `Stop: objective gate passes, max_iterations=${created.workflow.stop.max_iterations}, or ${created.workflow.stop.max_runtime_ms}ms`,
+        "Test: /helix-workflows test " + id,
+        "Run: /helix-run " + id,
+      ],
+      details: { workflow: structuralWorkflow(created.workflow), mutating: true },
+      mutating: true,
+    });
+  }
+  const catalog = workflowCatalog(deps.stateRoot, deps.chainRegistry, deps.runRegistry);
+  if (!catalog.ok) return fail(catalog.code, catalog.detail, "Helix workflows refused");
+  if (sub === "list") {
+    return result({
+      title: "Helix workflows",
+      lines: [
+        "Named workflows:",
+        ...catalog.workflows.map((workflow) =>
+          `  ${workflow.id} [${workflow.source}]: ${workflow.stages.map((stage) => stage.id).join(" -> ")} · max ${workflow.stop.max_iterations} · ${workflowRequiredHostEffects(workflow).length ? `requires host effects: ${workflowRequiredHostEffects(workflow).join(", ")}` : "ready to run"}`),
+        "",
+        "Create: /helix-workflow-create",
+        "Inspect: /helix-workflows show <id>",
+        "Test without providers: /helix-workflows test <id>",
+      ],
+      details: { workflows: catalog.workflows.map(structuralWorkflow), view_only: true },
+    });
+  }
+  const id = tokens[2];
+  const resolved = resolveWorkflow(deps.stateRoot, id, deps.chainRegistry, deps.runRegistry);
+  if (!resolved.ok) return fail(resolved.code, resolved.detail, "Helix workflows refused");
+  if (sub === "show") {
+    return result({
+      title: "Helix workflow",
+      lines: [
+        `Workflow: ${resolved.workflow.id} [${resolved.workflow.source}]`,
+        ...workflowLines(resolved.workflow),
+        `Stop: objective gate passes, max_iterations=${resolved.workflow.stop.max_iterations}, or ${resolved.workflow.stop.max_runtime_ms}ms`,
+        `Provider call timeout: ${resolved.workflow.deployment.call_timeout_ms}ms`,
+        workflowRequiredHostEffects(resolved.workflow).length
+          ? `Deployability: requires host effects (${workflowRequiredHostEffects(resolved.workflow).join(", ")})`
+          : "Deployability: ready to run",
+      ],
+      details: { workflow: structuralWorkflow(resolved.workflow), view_only: true },
+    });
+  }
+  if (sub === "test") {
+    const tested = testWorkflow(resolved.workflow);
+    if (!tested.ok) return fail(tested.code, id, "Helix workflow test failed");
+    const simulated = tested.simulation;
+    return result({
+      title: "Helix workflow test passed",
+      lines: [
+        `Workflow: ${id}`,
+        "Provider calls: 0 (deterministic simulation)",
+        `Transitions tested: ${tested.transitions_tested}/${tested.transitions_total}`,
+        `Stage ceilings tested: ${tested.ceilings_tested}`,
+        `Durable output contracts: ${tested.artifacts_tested}/${tested.artifacts_tested}`,
+        ...simulated.trace.map((entry) => `${entry.stage_id} pass ${entry.pass} -> ${entry.action}${entry.target ? ` ${entry.target}` : ""}`),
+        `Stop: ${simulated.stop_reason}`,
+      ],
+      details: {
+        workflow_id: id,
+        provider_calls: 0,
+        transitions_tested: tested.transitions_tested,
+        transitions_total: tested.transitions_total,
+        ceilings_tested: tested.ceilings_tested,
+        artifacts_tested: tested.artifacts_tested,
+        deployment_tested: tested.deployment_tested,
+        converged: simulated.converged,
+        stop_reason: simulated.stop_reason,
+        trace: simulated.trace,
+        view_only: true,
+      },
+    });
+  }
+  return usage(tokens.join(" "));
 }
 
 function renderSettings(deps, tokens) {
@@ -942,7 +1175,7 @@ function renderSetup(deps, tokens) {
         "",
         inventory === null ? "Pi available-model inventory: unavailable outside the extension TUI" : `Pi available-model inventory: ${inventory.length}`,
         ...(inventory ?? []).map((model) => `  ${model.provider}/${model.model}${model.reasoning ? " (reasoning)" : ""}`),
-        "Real-provider casts declare live intent but refuse as live-adapter-not-wired in this build.",
+        "Real-provider casts run through Pi's configured ModelRegistry after the attended /helix-run preflight.",
       ],
       details: {
         presets: [...presets.keys()],
@@ -1174,7 +1407,23 @@ function renderRunsResume(runId, deps) {
   if (scanned.leak) return scanned.leak;
   const stateShape = validateRunnerState(state, { runId });
   if (!stateShape.valid) return fail("invalid-resume-state", "state-structure", "Helix run resume refused");
+  // Pi-started named workflows bind an exact in-memory task into execution_ref.
+  // Until in-process resume can restore that task and provider adapter, never
+  // print the legacy config-only CLI: it would deterministically mismatch.
+  if (state.task_bound === true) {
+    return fail("workflow-resume-unsupported", state.config_id, "Helix workflow resume refused");
+  }
   const resolvedConfig = resolveRunConfig(deps.runRegistry, state.config_id);
+  if (!resolvedConfig.ok) {
+    const named = resolveWorkflow(deps.stateRoot, state.config_id, deps.chainRegistry, deps.runRegistry);
+    if (named.ok && named.workflow.source === "user") {
+      return fail(
+        "workflow-resume-unsupported",
+        state.config_id,
+        "Helix workflow resume refused",
+      );
+    }
+  }
   const resolvedChain = resolveChain(deps.chainRegistry, state.chain_id);
   if (!resolvedConfig.ok || !resolvedChain.ok
     || resolvedConfig.config.chain !== state.chain_id
@@ -1322,6 +1571,7 @@ function mutationKind(tokens) {
   if (tokens[0] === "settings" && tokens[1] === "set") return "settings";
   if (tokens[0] === "profiles" && ["create", "switch"].includes(tokens[1])) return "profiles";
   if (tokens[0] === "setup" && tokens.length > 1) return "setup";
+  if (tokens[0] === "workflows" && tokens[1] === "create") return "workflow";
   return null;
 }
 
@@ -1375,6 +1625,15 @@ export function getHelixArgumentCompletions(argumentPrefix = "", options = {}) {
     const query = prefix.slice("runs ".length);
     return RUNS_COMPLETIONS.filter((item) => item.value.slice("runs ".length).startsWith(query));
   }
+  if (prefix.startsWith("workflows ")) {
+    const query = prefix.slice("workflows ".length);
+    return [
+      { value: "workflows list", label: "list", description: "List built-in and user workflows" },
+      { value: "workflows show ", label: "show", description: "Inspect stages and transitions" },
+      { value: "workflows test ", label: "test", description: "Simulate without provider calls" },
+      { value: "workflows create ", label: "create", description: "Create a workflow from a guided template" },
+    ].filter((item) => item.value.slice("workflows ".length).startsWith(query));
+  }
   return null;
 }
 
@@ -1418,6 +1677,7 @@ export function executeHelixCommand(args = "", ctx = {}, options = {}) {
   if (verb === "help") return renderHelp();
   if (verb === "models") return renderModels(deps);
   if (verb === "chains") return renderChains(deps);
+  if (verb === "workflows") return renderWorkflows(deps, tokens);
   if (verb === "settings") return renderSettings(deps, tokens);
   if (verb === "profiles") return renderProfiles(deps, tokens);
   if (verb === "setup") return renderSetup(deps, tokens);

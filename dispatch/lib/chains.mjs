@@ -16,8 +16,11 @@
 // casts and panel sizes are configuration, not new chains.
 
 import { validate, SchemaError } from "./schema.mjs";
-import { ROLES } from "./role-envelope.mjs";
+import { ROLES, STAGE_ROLES } from "./role-envelope.mjs";
 import { MAX_ITERATIONS } from "./limits.mjs";
+import { isPublicCode } from "./public-values.mjs";
+import { stageStepSchedule } from "./stage-schedule.mjs";
+import { isSafeWorktreeFilePath } from "./persistence.mjs";
 
 const CHAIN_ID_PATTERN = "^[a-z0-9][a-z0-9._:-]*$";
 const STAGE_ID_PATTERN = "^[a-z][a-z0-9-]*$";
@@ -47,6 +50,29 @@ const STEP_SCHEMA = Object.freeze({
   },
 });
 
+const CONDITION_SCHEMA = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["type"],
+  properties: {
+    type: { type: "string", enum: ["always", "verdict", "gate"] },
+    role: { type: "string", enum: ROLES },
+    is: { type: "string", enum: ["approve", "revise", "revise-jump", "pass", "fail"] },
+  },
+});
+
+const TRANSITION_SCHEMA = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["when", "action"],
+  properties: {
+    when: CONDITION_SCHEMA,
+    action: { type: "string", enum: ["advance", "retry", "back", "stop"] },
+    target: { type: "string", pattern: STAGE_ID_PATTERN },
+    reason: { type: "string", minLength: 1 },
+  },
+});
+
 const STAGE_SCHEMA = Object.freeze({
   type: "object",
   additionalProperties: false,
@@ -54,6 +80,8 @@ const STAGE_SCHEMA = Object.freeze({
   properties: {
     id: { type: "string", pattern: STAGE_ID_PATTERN },
     steps: { type: "array", minItems: 1, items: STEP_SCHEMA },
+    max_passes: { type: "integer", minimum: 1 },
+    transitions: { type: "array", minItems: 1, items: TRANSITION_SCHEMA },
     // The stage mini-loop. Absent ⇒ single pass, auto-advance (no verdict).
     advance: {
       type: "object",
@@ -112,7 +140,7 @@ export const CHAIN_REGISTRY_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["schema_version", "chains"],
   properties: {
-    schema_version: { const: 2 },
+    schema_version: { type: "integer", enum: [2, 3] },
     chains: { type: "array", minItems: 1, items: CHAIN_SCHEMA },
   },
 });
@@ -162,8 +190,20 @@ export function validateChainRegistry(registry) {
         if (step.kind !== "role" && step.role) {
           errors.push(semanticError(`${stepPath}.role`, "non-role steps must not declare a role"));
         }
-        if (step.kind === "role" && step.role) roleSteps.push(step.role);
+        if (step.kind === "role" && step.note != null) {
+          errors.push(semanticError(`${stepPath}.note`, "role steps must not declare a note"));
+        }
+        if (step.kind !== "role" && !step.note) {
+          errors.push(semanticError(`${stepPath}.note`, "non-role steps must declare a note"));
+        }
+        if (step.kind === "role" && step.role) {
+          if (roleSteps.includes(step.role)) errors.push(semanticError(`${stepPath}.role`, `duplicate stage role '${step.role}'`));
+          roleSteps.push(step.role);
+        }
       });
+      if (stageStepSchedule(stage) == null) {
+        errors.push(semanticError(`${stagePath}.steps`, "must use executable candidate/check/verifier/handoff ordering"));
+      }
 
       if (stage.advance) {
         if (!Number.isSafeInteger(stage.advance.max_passes)
@@ -184,14 +224,78 @@ export function validateChainRegistry(registry) {
             `jump target '${target}' is not an earlier stage of chain '${chain.id}'`));
         }
       }
+      if (registry.schema_version === 3) {
+        if (stage.advance || stage.gate_expectation) {
+          errors.push(semanticError(stagePath, "schema v3 stages use transitions, not legacy advance/gate_expectation"));
+        }
+        if (!Number.isSafeInteger(stage.max_passes) || stage.max_passes < 1 || stage.max_passes > MAX_ITERATIONS) {
+          errors.push(semanticError(`${stagePath}.max_passes`, `must be between 1 and ${MAX_ITERATIONS}`));
+        }
+        if (!Array.isArray(stage.transitions) || stage.transitions.length === 0) {
+          errors.push(semanticError(`${stagePath}.transitions`, "must not be empty"));
+        }
+        let alwaysSeen = false;
+        let verdictRole = null;
+        const seenConditions = new Set();
+        for (let transitionIndex = 0; transitionIndex < (stage.transitions ?? []).length; transitionIndex += 1) {
+          const transition = stage.transitions[transitionIndex];
+          const transitionPath = `${stagePath}.transitions[${transitionIndex}]`;
+          const condition = transition.when;
+          if (alwaysSeen) errors.push(semanticError(transitionPath, "is unreachable after an always condition"));
+          if (condition.type === "always") {
+            alwaysSeen = true;
+            if (condition.role != null || condition.is != null) errors.push(semanticError(`${transitionPath}.when`, "always has no role or value"));
+          } else if (condition.type === "verdict") {
+            if (!roleSteps.includes(condition.role) || !STAGE_ROLES.candidate.includes(condition.role)
+              || !["approve", "revise", "revise-jump"].includes(condition.is)) {
+              errors.push(semanticError(`${transitionPath}.when`, "verdict requires a participating role and verdict value"));
+            }
+            if (ROLES.includes(condition.role)) {
+              if (verdictRole == null) verdictRole = condition.role;
+              else if (condition.role !== verdictRole) {
+                errors.push(semanticError(`${transitionPath}.when.role`, `all verdict transitions must use role '${verdictRole}'`));
+              }
+            }
+          } else if (condition.type === "gate") {
+            if (condition.role != null || !["pass", "fail"].includes(condition.is)) {
+              errors.push(semanticError(`${transitionPath}.when`, "gate requires is=pass|fail and no role"));
+            }
+          }
+          const conditionKey = JSON.stringify(condition);
+          if (seenConditions.has(conditionKey)) errors.push(semanticError(`${transitionPath}.when`, "duplicates an earlier condition"));
+          seenConditions.add(conditionKey);
+          if (transition.action === "back") {
+            if (!stageIds.includes(transition.target)) errors.push(semanticError(`${transitionPath}.target`, "must name an earlier stage"));
+          } else if (transition.target != null) {
+            errors.push(semanticError(`${transitionPath}.target`, "is allowed only for back"));
+          }
+          if (transition.action === "stop") {
+            if (!isPublicCode(transition.reason)) errors.push(semanticError(`${transitionPath}.reason`, "must be a stable public code"));
+          } else if (transition.reason != null) {
+            errors.push(semanticError(`${transitionPath}.reason`, "is allowed only for stop"));
+          }
+        }
+        const verdicts = new Set((stage.transitions ?? []).filter((entry) => entry.when.type === "verdict").map((entry) => entry.when.is));
+        const gates = new Set((stage.transitions ?? []).filter((entry) => entry.when.type === "gate").map((entry) => entry.when.is));
+        if (verdicts.size > 0 && gates.size > 0) {
+          errors.push(semanticError(`${stagePath}.transitions`, "must use one condition family per stage"));
+        }
+        if (!alwaysSeen) {
+          if (verdicts.size > 0 && ["approve", "revise", "revise-jump"].some((value) => !verdicts.has(value))) {
+            errors.push(semanticError(`${stagePath}.transitions`, "must cover every verdict or end with always"));
+          }
+          if (gates.size > 0 && ["pass", "fail"].some((value) => !gates.has(value))) {
+            errors.push(semanticError(`${stagePath}.transitions`, "must cover both gate results or end with always"));
+          }
+        }
+      } else if (stage.transitions || stage.max_passes) {
+        errors.push(semanticError(stagePath, "schema v2 stages cannot use workflow transitions"));
+      }
       if (stage.advance && stage.gate_expectation) {
         errors.push(semanticError(`${stagePath}`,
           "a stage advances by verdict OR by gate_expectation, not both"));
       }
-      if (stage.artifact
-        && (stage.artifact.path.startsWith("/")
-          || stage.artifact.path.split("/").includes("..")
-          || stage.artifact.path.includes("\0"))) {
+      if (stage.artifact && !isSafeWorktreeFilePath(stage.artifact.path)) {
         errors.push(semanticError(`${stagePath}.artifact.path`, "must be a contained repo-relative path"));
       }
 
@@ -222,7 +326,25 @@ export function resolveChain(registry, id) {
       stages: chain.stages.map((stage) => Object.freeze({
         ...stage,
         steps: stage.steps.map((step) => Object.freeze({ ...step })),
+        ...(stage.transitions?.some((transition) => transition.when.type === "verdict") ? {
+          // Read-only v2 projection for old callers. V3 transitions remain the
+          // authored/runtime authority and are evaluated first by the machine.
+          advance: Object.freeze({
+            verdict_role: stage.transitions.find((transition) => transition.when.type === "verdict").when.role,
+            max_passes: stage.max_passes,
+            ...(stage.transitions.find((transition) => transition.action === "back")?.target
+              ? { allow_jump_to: stage.transitions.find((transition) => transition.action === "back").target }
+              : {}),
+          }),
+        } : {}),
+        ...(stage.transitions?.find((transition) => transition.when.type === "gate" && transition.action === "advance") ? {
+          gate_expectation: stage.transitions.find((transition) => transition.when.type === "gate" && transition.action === "advance").when.is,
+        } : {}),
         ...(stage.advance ? { advance: Object.freeze({ ...stage.advance }) } : {}),
+        ...(stage.transitions ? { transitions: Object.freeze(stage.transitions.map((transition) => Object.freeze({
+          ...transition,
+          when: Object.freeze({ ...transition.when }),
+        }))) } : {}),
         ...(stage.artifact ? { artifact: Object.freeze({ ...stage.artifact }) } : {}),
       })),
     }),

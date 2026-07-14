@@ -18,6 +18,8 @@ export const HELIX_COMMANDS = Object.freeze([
   "/helix-run-prune",
   "/helix-models",
   "/helix-chains",
+  "/helix-workflows",
+  "/helix-workflow-create",
   "/helix-settings",
   "/helix-profiles",
   "/helix-setup",

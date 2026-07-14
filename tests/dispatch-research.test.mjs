@@ -11,6 +11,7 @@ import {
   RESEARCH_CODES,
   RESEARCH_STOP_REASONS,
   parseStrictNumberToken,
+  decideResearchLoopTransition,
 } from "../dispatch/lib/research.mjs";
 import { toggleVector, defaultSettings } from "../dispatch/lib/settings.mjs";
 import { MAX_ITERATIONS } from "../dispatch/lib/limits.mjs";
@@ -32,6 +33,25 @@ function spec(overrides = {}) {
 function measurements(values, extras = {}) {
   return async (i) => ({ measurement: values[i - 1], ...(extras[i] ?? {}) });
 }
+
+test("research routes every loop outcome through canonical workflow actions", () => {
+  const base = { iteration: 1, max_iterations: 3 };
+  assert.deepEqual(decideResearchLoopTransition({
+    ...base, target_met: true, dead_end: false, diminishing_returns: false,
+  }), { action: "stop", code: "target-met" });
+  assert.deepEqual(decideResearchLoopTransition({
+    ...base, target_met: false, dead_end: true, diminishing_returns: false,
+  }), { action: "stop", code: "dead-end" });
+  assert.deepEqual(decideResearchLoopTransition({
+    ...base, target_met: false, dead_end: false, diminishing_returns: true,
+  }), { action: "stop", code: "diminishing-returns" });
+  assert.deepEqual(decideResearchLoopTransition({
+    ...base, target_met: false, dead_end: false, diminishing_returns: false,
+  }), { action: "retry", code: null });
+  assert.deepEqual(decideResearchLoopTransition({
+    ...base, iteration: 3, target_met: false, dead_end: false, diminishing_returns: false,
+  }), { action: "stop", code: "max-iterations" });
+});
 
 test("strict numeric tokens accept complete decimal/scientific forms only", () => {
   assert.deepEqual(parseStrictNumberToken("1e3"), { ok: true, value: 1000 });

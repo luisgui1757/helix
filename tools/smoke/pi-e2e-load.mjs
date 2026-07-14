@@ -21,6 +21,8 @@ export const EXPECTED_HELIX_COMMANDS = Object.freeze([
   "helix-run-prune",
   "helix-models",
   "helix-chains",
+  "helix-workflows",
+  "helix-workflow-create",
   "helix-settings",
   "helix-profiles",
   "helix-setup",
@@ -38,8 +40,14 @@ const REQUIRED_PACKAGE_FILES = Object.freeze([
   "extensions/helix-answer.ts",
   "extensions/helix-command.ts",
   "extensions/lib/helix-command-core.mjs",
+  "extensions/lib/helix-onboarding.mjs",
+  "extensions/lib/helix-execution.mjs",
+  "extensions/lib/helix-workflows.mjs",
   "dispatch/config/run-configs.json",
+  "dispatch/lib/pi-agent-adapter.mjs",
   "dispatch/lib/runner.mjs",
+  "dispatch/lib/stage-schedule.mjs",
+  "dispatch/lib/workflows.mjs",
   "tools/loop/helix-task-loop.mjs",
 ]);
 
@@ -164,7 +172,7 @@ export function runPiE2ELoad({ root = DEFAULT_ROOT, runtimeRpc = false, piBin = 
         ? "Pi received only offline get_commands RPC with isolated config directories"
         : "static mode read local package metadata only",
     ),
-    gate("live-provider-proof", "live-provider proof", "skipped", "requires explicit paid-provider approval"),
+    gate("live-provider-proof", "live-provider proof", "skipped", "requires explicit out-of-band live-provider approval"),
   ];
   return { ok: gates.every((entry) => entry.status !== "fail"), mode: runtimeRpc ? "runtime-rpc-no-live" : "static-no-live", gates };
 }

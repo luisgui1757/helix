@@ -13,7 +13,7 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { validate, assertValid, SchemaError } from "./schema.mjs";
-import { HELIX_PROVIDERS } from "./providers.mjs";
+import { PROVIDER_ID_PATTERN } from "./providers.mjs";
 import { ROLES } from "./role-envelope.mjs";
 import { HELIX_TOGGLES } from "./settings.mjs";
 import {
@@ -79,7 +79,7 @@ export const RUN_RECORD_SCHEMA = Object.freeze({
     task_class: { type: "string", pattern: PUBLIC_CODE_PATTERN },
     route_id: { type: "string", pattern: PUBLIC_CODE_PATTERN },
     role_ids: { type: "array", items: { type: "string", enum: ROLES } },
-    provider_ids: { type: "array", items: { type: "string", enum: HELIX_PROVIDERS } },
+    provider_ids: { type: "array", items: { type: "string", pattern: PROVIDER_ID_PATTERN } },
     model_ids: { type: "array", items: { type: "string", pattern: MODEL_ID_PATTERN } },
     // Token counts are capacity telemetry only — Helix does no cost accounting.
     usage_rollup: {

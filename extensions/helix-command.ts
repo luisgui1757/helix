@@ -8,6 +8,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   executeHelixCommand,
@@ -20,9 +21,23 @@ import {
   ONBOARDING_PAGES,
   saveOnboardingState,
 } from "./lib/helix-onboarding.mjs";
+import { createPiAgentAdapter } from "../dispatch/lib/pi-agent-adapter.mjs";
+import {
+  WORKFLOW_MUTATING_ROLES,
+  WORKFLOW_ROLE_BLOCKS,
+  WORKFLOW_TEMPLATES,
+  createWorkflowFromTemplate,
+  isSafeWorkflowPath,
+  testWorkflow,
+  validateWorkflow,
+} from "../dispatch/lib/workflows.mjs";
+import { executeNamedWorkflow } from "./lib/helix-execution.mjs";
 import { helixStateRoot } from "./lib/helix-paths.mjs";
+import { builtInWorkflows, saveUserWorkflow } from "./lib/helix-workflows.mjs";
+import { isHelixProvider } from "../dispatch/lib/providers.mjs";
+import { isPublicCode } from "../dispatch/lib/public-values.mjs";
 
-const RUNNER_ENTRYPOINT = fileURLToPath(new URL("../tools/loop/helix-task-loop.mjs", import.meta.url));
+const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
 
 const PROVIDER_TO_HELIX: Record<string, string> = {
   "openai-codex": "openai-codex",
@@ -51,6 +66,7 @@ type CommandDefinition = {
   completions?: (prefix: string) => ReturnType<typeof getHelixArgumentCompletions>;
   onboardingUi?: boolean;
   settingsUi?: boolean;
+  workflowCreatorUi?: boolean;
 };
 
 function trimWithPrefix(prefix: string, args: string): string {
@@ -92,6 +108,13 @@ const COMMANDS: readonly CommandDefinition[] = Object.freeze([
   { name: "helix-run-prune", description: "Delete one run record", coreArgs: (args) => trimWithPrefix("runs prune", args) },
   { name: "helix-models", description: "Show casts and available models", coreArgs: () => "models" },
   { name: "helix-chains", description: "Show workflow chains", coreArgs: () => "chains" },
+  { name: "helix-workflows", description: "List, inspect, and test named workflows", coreArgs: (args) => trimWithPrefix("workflows", args || "list") },
+  {
+    name: "helix-workflow-create",
+    description: "Create a named workflow with a guided builder",
+    coreArgs: (args) => trimWithPrefix("workflows create", args),
+    workflowCreatorUi: true,
+  },
   {
     name: "helix-settings",
     description: "Toggle Helix features",
@@ -116,7 +139,8 @@ async function availableModelInventory(args: string, ctx: ExtensionCommandContex
     if (!Array.isArray(available)) return null;
     return available.flatMap((entry: any) => {
       const model = entry?.model && typeof entry.model === "object" ? entry.model : entry;
-      const provider = PROVIDER_TO_HELIX[String(model?.provider ?? "")];
+      const rawProvider = String(model?.provider ?? "");
+      const provider = PROVIDER_TO_HELIX[rawProvider] ?? (isHelixProvider(rawProvider) ? rawProvider : null);
       if (!provider || typeof model?.id !== "string") return [];
       return [{ provider, model: model.id, reasoning: model.reasoning === true }];
     });
@@ -155,27 +179,456 @@ function nextRunId(): string {
   return `helix-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
 }
 
-function runSummary(stdout: string): { converged: boolean; stopReason: string | null } {
-  const start = stdout.indexOf("{");
-  if (start === -1) return { converged: false, stopReason: null };
-  try {
-    const parsed = JSON.parse(stdout.slice(start));
-    return {
-      converged: parsed?.converged === true,
-      stopReason: typeof parsed?.stop_reason === "string" ? parsed.stop_reason : null,
-    };
-  } catch {
-    return { converged: false, stopReason: null };
+function readRegistry(path: string) {
+  return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
+}
+
+const WORKFLOW_PANEL_ROLES = [...WORKFLOW_ROLE_BLOCKS];
+const SAFE_STAGE_ID = /^[a-z][a-z0-9-]*$/;
+
+function stageHasProducer(stage: any) {
+  return stage.steps.some((step: any) => step.kind === "role" && WORKFLOW_MUTATING_ROLES.includes(step.role));
+}
+
+function transitionSummary(rule: any) {
+  const when = rule.when.type === "always"
+    ? "always"
+    : rule.when.type === "gate"
+      ? `gate=${rule.when.is}`
+      : `${rule.when.role}=${rule.when.is}`;
+  return `${when} → ${rule.action}${rule.target ? ` ${rule.target}` : ""}`;
+}
+
+async function chooseTransitionAction(workflow: any, stage: any, rule: any, ctx: any) {
+  const earlier = workflow.stages.slice(0, workflow.stages.indexOf(stage));
+  const choices = ["Advance", "Retry this stage", ...earlier.map((entry: any) => `Go back to ${entry.id}`), "Stop"];
+  const selected = await ctx.ui.select("Choose the transition action", choices);
+  if (!selected) return false;
+  delete rule.target;
+  delete rule.reason;
+  if (selected === "Advance") rule.action = "advance";
+  else if (selected === "Retry this stage") rule.action = "retry";
+  else if (selected === "Stop") {
+    const fallback = `stopped-by-${stage.id}`;
+    const reason = (await ctx.ui.input(`Stable stop code (for example ${fallback})`))?.trim() || fallback;
+    if (!isPublicCode(reason)) {
+      ctx.ui.notify("Stop codes use letters, numbers, dot, underscore, colon, slash, or dash", "warning");
+      return false;
+    }
+    rule.action = "stop";
+    rule.reason = reason;
+  } else {
+    rule.action = "back";
+    rule.target = selected.slice("Go back to ".length);
+  }
+  return true;
+}
+
+async function addStage(workflow: any, ctx: any) {
+  const id = (await ctx.ui.input("New stage id (lowercase, hyphens allowed)"))?.trim() ?? "";
+  if (!SAFE_STAGE_ID.test(id) || workflow.stages.some((stage: any) => stage.id === id)) {
+    ctx.ui.notify("Stage id is invalid or already used", "warning");
+    return;
+  }
+  const roles: string[] = [];
+  while (true) {
+    const available = (roles.length ? WORKFLOW_PANEL_ROLES : WORKFLOW_MUTATING_ROLES)
+      .filter((role) => !roles.includes(role));
+    const selected = await ctx.ui.select(
+      roles.length ? "Add another panel role (roles may run concurrently)" : "Choose the first panel role",
+      [...(roles.length ? ["Done adding roles"] : []), ...available],
+    );
+    if (!selected) return;
+    if (selected === "Done adding roles") break;
+    roles.push(selected);
+    if (available.length === 1) break;
+  }
+  const outputPath = (await ctx.ui.input("Durable output file for this stage", `${id}.md`))?.trim() ?? "";
+  if (!isSafeWorkflowPath(outputPath)) {
+    ctx.ui.notify("Output must be a safe repository-relative file path", "warning");
+    return;
+  }
+  const outputKind = await ctx.ui.select("Durable output kind", ["plan", "brief", "notes"]);
+  if (!outputKind) return;
+  const maxChoice = await ctx.ui.select("Maximum passes for this stage", ["1", "2", "3 (recommended)", "5"]);
+  if (!maxChoice) return;
+  const family = await ctx.ui.select("What decides the next state?", [
+    "Verdict from a panel role", "Objective gate result", "Always advance",
+  ]);
+  if (!family) return;
+  let transitions: any[];
+  if (family === "Verdict from a panel role") {
+    const role = await ctx.ui.select("Which role routes the stage?", roles.filter((candidate) => candidate !== "verifier"));
+    if (!role) return;
+    transitions = [
+      { when: { type: "verdict", role, is: "approve" }, action: "advance" },
+      { when: { type: "verdict", role, is: "revise" }, action: "retry" },
+      { when: { type: "verdict", role, is: "revise-jump" }, action: "retry" },
+    ];
+  } else if (family === "Objective gate result") {
+    transitions = [
+      { when: { type: "gate", is: "pass" }, action: "advance" },
+      { when: { type: "gate", is: "fail" }, action: "retry" },
+    ];
+  } else {
+    transitions = [{ when: { type: "always" }, action: "advance" }];
+  }
+  workflow.stages.push({
+    id, label: id.replaceAll("-", " "), max_passes: Number(maxChoice.split(" ")[0]),
+    steps: roles.map((role) => ({ id: role, kind: "role", role })), transitions,
+    artifact: { path: outputPath, kind: outputKind },
+  });
+}
+
+async function editStageRoles(workflow: any, ctx: any) {
+  const id = await ctx.ui.select("Choose a stage panel", workflow.stages.map((stage: any) => stage.id));
+  const stage = workflow.stages.find((entry: any) => entry.id === id);
+  if (!stage) return;
+  const action = await ctx.ui.select("Edit panel roles (candidate roles may run concurrently)", ["Add role", "Remove role"]);
+  const roleSteps = stage.steps.filter((step: any) => step.kind === "role");
+  if (action === "Add role") {
+    const available = WORKFLOW_PANEL_ROLES.filter((role) => !roleSteps.some((step: any) => step.role === role));
+    const role = await ctx.ui.select("Role to add", available);
+    if (!role) return;
+    const step = { id: role, kind: "role", role };
+    const verifier = stage.steps.findIndex((candidate: any) => candidate.role === "verifier");
+    if (role === "verifier" || verifier === -1) stage.steps.push(step);
+    else stage.steps.splice(verifier, 0, step);
+  } else if (action === "Remove role") {
+    const candidateSteps = roleSteps.filter((step: any) => step.role !== "verifier");
+    const role = await ctx.ui.select("Role to remove", roleSteps.map((step: any) => step.role));
+    if (!role) return;
+    if (WORKFLOW_MUTATING_ROLES.includes(role)
+      && !roleSteps.some((step: any) => step.role !== role && WORKFLOW_MUTATING_ROLES.includes(step.role))) {
+      ctx.ui.notify("Every stage needs a planner or builder to produce its durable output", "warning");
+      return;
+    }
+    if (role !== "verifier" && candidateSteps.length <= 1) {
+      ctx.ui.notify("A runnable stage needs at least one candidate panel role", "warning");
+      return;
+    }
+    if (stage.transitions.some((rule: any) => rule.when.role === role)) {
+      ctx.ui.notify("Change the verdict routing before removing that role", "warning");
+      return;
+    }
+    stage.steps = stage.steps.filter((step: any) => step.role !== role);
   }
 }
 
-async function runMockWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, preflight: CoreResult) {
+async function editStageOutput(workflow: any, ctx: any) {
+  const id = await ctx.ui.select("Choose a stage", workflow.stages.map((stage: any) => stage.id));
+  const stage = workflow.stages.find((entry: any) => entry.id === id);
+  if (!stage) return;
+  const outputPath = (await ctx.ui.input("Durable output file", stage.artifact.path))?.trim() ?? "";
+  if (!isSafeWorkflowPath(outputPath)) {
+    ctx.ui.notify("Output must be a safe repository-relative file path", "warning");
+    return;
+  }
+  const isOnlyGateOutput = stage.artifact.path === workflow.stop.objective_gate.path
+    && workflow.stages.filter((entry: any) => entry.artifact.path === workflow.stop.objective_gate.path).length === 1;
+  if (isOnlyGateOutput && outputPath !== workflow.stop.objective_gate.path) {
+    ctx.ui.notify("At least one stage output must remain the objective gate file", "warning");
+    return;
+  }
+  const outputKind = await ctx.ui.select("Durable output kind", ["plan", "brief", "notes"]);
+  if (outputKind) stage.artifact = { path: outputPath, kind: outputKind };
+}
+
+async function editStageTransitions(workflow: any, ctx: any) {
+  const id = await ctx.ui.select("Choose a stage", workflow.stages.map((stage: any) => stage.id));
+  const stage = workflow.stages.find((entry: any) => entry.id === id);
+  if (!stage) return;
+  const action = await ctx.ui.select("Edit transition blocks", [
+    "Change action", "Replace condition family", "Add condition", "Remove condition",
+  ]);
+  if (action === "Replace condition family") {
+    const family = await ctx.ui.select("New condition family", [
+      "Verdict from a panel role", "Objective gate result", "Always",
+    ]);
+    if (family === "Verdict from a panel role") {
+      const roles = stage.steps.filter((step: any) => step.kind === "role" && step.role !== "verifier")
+        .map((step: any) => step.role);
+      const role = await ctx.ui.select("Routing role", roles);
+      if (!role) return;
+      stage.transitions = [
+        { when: { type: "verdict", role, is: "approve" }, action: "advance" },
+        { when: { type: "verdict", role, is: "revise" }, action: "retry" },
+        { when: { type: "verdict", role, is: "revise-jump" }, action: "retry" },
+      ];
+    } else if (family === "Objective gate result") {
+      stage.transitions = [
+        { when: { type: "gate", is: "pass" }, action: "advance" },
+        { when: { type: "gate", is: "fail" }, action: "retry" },
+      ];
+    } else if (family === "Always") {
+      stage.transitions = [{ when: { type: "always" }, action: "advance" }];
+    }
+    return;
+  }
+  if (action === "Change action") {
+    const label = await ctx.ui.select("Choose a condition", stage.transitions.map(transitionSummary));
+    const rule = stage.transitions.find((candidate: any) => transitionSummary(candidate) === label);
+    if (rule) await chooseTransitionAction(workflow, stage, rule, ctx);
+    return;
+  }
+  if (action === "Remove condition") {
+    if (stage.transitions.length <= 1) {
+      ctx.ui.notify("A stage needs at least one transition", "warning");
+      return;
+    }
+    const label = await ctx.ui.select("Condition to remove", stage.transitions.map(transitionSummary));
+    stage.transitions = stage.transitions.filter((candidate: any) => transitionSummary(candidate) !== label);
+    return;
+  }
+  const family = stage.transitions.find((rule: any) => rule.when.type !== "always")?.when.type ?? null;
+  const choices = family === "verdict"
+    ? ["approve", "revise", "revise-jump"]
+    : family === "gate"
+      ? ["pass", "fail"]
+      : ["always"];
+  const value = await ctx.ui.select("Condition to add", choices);
+  if (!value) return;
+  const routingRole = family === "verdict"
+    ? stage.transitions.find((rule: any) => rule.when.type === "verdict")?.when.role
+    : null;
+  const rule: any = value === "always"
+    ? { when: { type: "always" }, action: "advance" }
+    : family === "verdict"
+      ? { when: { type: "verdict", role: routingRole, is: value }, action: "advance" }
+      : { when: { type: "gate", is: value }, action: "advance" };
+  if (stage.transitions.some((candidate: any) => JSON.stringify(candidate.when) === JSON.stringify(rule.when))) {
+    ctx.ui.notify("That condition already exists", "warning");
+    return;
+  }
+  if (await chooseTransitionAction(workflow, stage, rule, ctx)) stage.transitions.push(rule);
+}
+
+async function editDeployment(workflow: any, ctx: any) {
+  const action = await ctx.ui.select("Deployment settings", [
+    "Default cast preset", "Stage cast preset", "Clear stage cast", "Maximum concurrency",
+  ]);
+  if (action === "Default cast preset") {
+    const preset = await ctx.ui.select("Default preset", ["daily", "overlord"]);
+    if (preset) workflow.deployment.default_assignment = { kind: "composite", preset };
+  } else if (action === "Stage cast preset") {
+    const stage = await ctx.ui.select("Stage", workflow.stages.map((entry: any) => entry.id));
+    const preset = stage ? await ctx.ui.select("Preset", ["daily", "overlord"]) : null;
+    if (stage && preset) workflow.deployment.assignments[stage] = { kind: "composite", preset };
+  } else if (action === "Clear stage cast") {
+    const stage = await ctx.ui.select("Stage override to clear", Object.keys(workflow.deployment.assignments));
+    if (stage) delete workflow.deployment.assignments[stage];
+  } else if (action === "Maximum concurrency") {
+    const value = await ctx.ui.select("Maximum concurrent model calls", ["1", "2 (recommended)", "3", "4"]);
+    if (value) workflow.deployment.parallel.max_concurrency = Number(value.split(" ")[0]);
+  }
+}
+
+async function customizeWorkflow(workflow: any, ctx: any) {
+  const backTargetsValid = (stages: any[]) => stages.every((stage, index) =>
+    stage.transitions.every((rule: any) => rule.action !== "back"
+      || stages.slice(0, index).some((candidate) => candidate.id === rule.target)));
+  while (true) {
+    const action = await ctx.ui.select("Workflow building blocks", [
+      "Finish building", "Add stage", "Remove stage", "Move stage earlier", "Move stage later",
+      "Edit stage panel roles", "Edit stage durable output", "Edit stage transitions", "Edit deployment", "Edit duration limits",
+    ]);
+    if (!action) return false;
+    if (action === "Finish building") return true;
+    if (action === "Add stage") await addStage(workflow, ctx);
+    else if (action === "Remove stage") {
+      if (workflow.stages.length <= 1) ctx.ui.notify("A workflow needs at least one stage", "warning");
+      else {
+        const id = await ctx.ui.select("Stage to remove", workflow.stages.map((stage: any) => stage.id));
+        if (id) {
+          if (workflow.stages.some((stage: any) => stage.transitions.some((rule: any) => rule.target === id))) {
+            ctx.ui.notify("That stage is a back target; change the transition before removing it", "warning");
+            continue;
+          }
+          const remaining = workflow.stages.filter((stage: any) => stage.id !== id);
+          if (!remaining.every(stageHasProducer)) {
+            ctx.ui.notify("That removal would leave a stage without a planner or builder", "warning");
+            continue;
+          }
+          if (!remaining.some((stage: any) => stage.artifact.path === workflow.stop.objective_gate.path)) {
+            ctx.ui.notify("At least one stage output must remain the objective gate file", "warning");
+            continue;
+          }
+          workflow.stages = remaining;
+          delete workflow.deployment.assignments[id];
+        }
+      }
+    } else if (action === "Move stage earlier" || action === "Move stage later") {
+      const id = await ctx.ui.select("Stage to move", workflow.stages.map((stage: any) => stage.id));
+      const index = workflow.stages.findIndex((stage: any) => stage.id === id);
+      const target = action === "Move stage earlier" ? index - 1 : index + 1;
+      if (index >= 0 && target >= 0 && target < workflow.stages.length) {
+        const reordered = [...workflow.stages];
+        [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+        if (!reordered.every(stageHasProducer)) {
+          ctx.ui.notify("Every stage needs a planner or builder to produce its durable output", "warning");
+        } else if (!backTargetsValid(reordered)) {
+          ctx.ui.notify("That move would put a back target after its transition stage", "warning");
+        } else workflow.stages = reordered;
+      }
+    } else if (action === "Edit stage panel roles") await editStageRoles(workflow, ctx);
+    else if (action === "Edit stage durable output") await editStageOutput(workflow, ctx);
+    else if (action === "Edit stage transitions") await editStageTransitions(workflow, ctx);
+    else if (action === "Edit deployment") await editDeployment(workflow, ctx);
+    else if (action === "Edit duration limits") {
+      const total = await ctx.ui.select("Whole-run deadline", ["5 minutes", "10 minutes (recommended)", "20 minutes", "60 minutes"]);
+      const call = total ? await ctx.ui.select("Per-provider-call deadline", ["1 minute", "2 minutes (recommended)", "5 minutes"]) : null;
+      if (total && call) {
+        workflow.stop.max_runtime_ms = Number(total.split(" ")[0]) * 60_000;
+        workflow.deployment.call_timeout_ms = Number(call.split(" ")[0]) * 60_000;
+      }
+    }
+  }
+}
+
+async function showWorkflowCreator(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
+  if (ctx.mode !== "tui" || typeof ctx.ui?.select !== "function" || typeof ctx.ui?.input !== "function") {
+    sendOutput(pi, executeHelixCommand("workflows list", { mode: ctx.mode }));
+    return;
+  }
+  const templateLabel = await ctx.ui.select(
+    "Choose a starting workflow",
+    WORKFLOW_TEMPLATES.map((template) => `${template.label} — ${template.description}`),
+  );
+  if (!templateLabel) return;
+  const template = WORKFLOW_TEMPLATES.find((entry) => templateLabel.startsWith(entry.label));
+  if (!template) return;
+  const id = (await ctx.ui.input("Workflow name", "my-workflow"))?.trim();
+  if (!id) return;
+  const gatePath = (await ctx.ui.input("Objective gate file", "proposal.txt"))?.trim();
+  if (!gatePath) return;
+  const gateMarker = (await ctx.ui.input("Text that means the objective passed", "HELIX_WORKFLOW_PASS"))?.trim();
+  if (!gateMarker) {
+    ctx.ui.notify("Gate text must not be empty", "error");
+    return;
+  }
+  const maxChoice = await ctx.ui.select("Maximum total stage passes", ["4", "6 (recommended)", "8", "12"]);
+  if (!maxChoice) return;
+  const created = createWorkflowFromTemplate({
+    id,
+    template: template.id,
+    gate_path: gatePath,
+    gate_contains: gateMarker,
+    max_iterations: Number(maxChoice.split(" ")[0]),
+  });
+  if (!created.ok) {
+    ctx.ui.notify(`Workflow could not be created (${created.code})`, "error");
+    return;
+  }
+  const workflow: any = created.workflow;
+  for (const stage of workflow.stages) {
+    const passChoice = await ctx.ui.select(
+      `${stage.label ?? stage.id}: maximum passes`,
+      ["1", "2", "3 (recommended)", "5"],
+    );
+    if (!passChoice) return;
+    stage.max_passes = Number(passChoice.split(" ")[0]);
+    for (const transition of stage.transitions.filter((rule: any) =>
+      rule.when.type === "verdict" && ["revise", "revise-jump"].includes(rule.when.is))) {
+      const earlier = workflow.stages.slice(0, workflow.stages.indexOf(stage));
+      const choices = ["Retry this stage", ...earlier.map((entry: any) => `Go back to ${entry.id}`), "Stop the workflow"];
+      const action = await ctx.ui.select(
+        `${stage.label ?? stage.id}: when ${transition.when.role} says ${transition.when.is}`,
+        choices,
+      );
+      if (!action) return;
+      delete transition.target;
+      delete transition.reason;
+      if (action === "Retry this stage") transition.action = "retry";
+      else if (action === "Stop the workflow") {
+        transition.action = "stop";
+        transition.reason = `stopped-by-${stage.id}-${transition.when.is}`;
+      } else {
+        transition.action = "back";
+        transition.target = action.slice("Go back to ".length);
+      }
+    }
+    for (const transition of stage.transitions.filter((rule: any) => rule.when.type === "gate" && rule.action !== "advance")) {
+      const action = await ctx.ui.select(
+        `${stage.label ?? stage.id}: when the gate is ${transition.when.is}`,
+        ["Retry this stage", "Stop the workflow"],
+      );
+      if (!action) return;
+      if (action === "Stop the workflow") {
+        transition.action = "stop";
+        transition.reason = `stopped-by-${stage.id}-gate-${transition.when.is}`;
+      }
+    }
+  }
+  if (!await customizeWorkflow(workflow, ctx)) return;
+  const valid = validateWorkflow(workflow);
+  const tested = valid.valid ? testWorkflow(workflow) : null;
+  if (!valid.valid || !tested?.ok) {
+    ctx.ui.notify("Workflow validation failed; no file was saved", "error");
+    return;
+  }
+  const preview = workflow.stages.map((stage: any, index: number) =>
+    `${index + 1}. ${stage.id} (max ${stage.max_passes})\n` +
+    `   panel: ${stage.steps.filter((step: any) => step.kind === "role").map((step: any) => step.role).join(", ")}\n` +
+    `   output: ${stage.artifact.path} (${stage.artifact.kind})\n` +
+    stage.transitions.map((rule: any) => `   ${transitionSummary(rule)}`).join("\n"),
+  ).join("\n");
+  const approved = await ctx.ui.confirm(
+    `Save workflow ${id}`,
+    `${preview}\n\nDefault cast: ${workflow.deployment.default_assignment.preset}\nStage casts: ${Object.entries(workflow.deployment.assignments).map(([stage, assignment]: any) => `${stage}=${assignment.preset ?? assignment.model}`).join(", ") || "none"}\nConcurrency: ${workflow.deployment.parallel.max_concurrency}\nTarget: ${workflow.deployment.run_target.repo}${workflow.deployment.run_target.ref ? ` (${workflow.deployment.run_target.ref})` : ""}\nGlobal maximum: ${workflow.stop.max_iterations}\nRuntime: ${workflow.stop.max_runtime_ms}ms total; ${workflow.deployment.call_timeout_ms}ms per call\nGate: ${gatePath} contains ${gateMarker}\nTransitions tested: ${tested.transitions_tested}/${tested.transitions_total}\nSimulation: ${tested.simulation.stop_reason}`,
+  );
+  if (!approved) return;
+  const chains = readRegistry("../dispatch/config/chains.json");
+  const runs = readRegistry("../dispatch/config/run-configs.json");
+  const saved = saveUserWorkflow(helixStateRoot(), workflow, {
+    builtInIds: builtInWorkflows(chains, runs).map((entry: any) => entry.id),
+  });
+  if (!saved.ok) {
+    ctx.ui.notify(`Workflow was not saved (${saved.code})`, "error");
+    return;
+  }
+  ctx.ui.notify(`Workflow ${id} saved; transitions tested ${tested.transitions_tested}/${tested.transitions_total}`, "info");
+  sendOutput(pi, executeHelixCommand(`workflows show ${id}`, { mode: "print" }));
+}
+
+function parseRunArgs(args: string) {
+  const separator = args.indexOf(" -- ");
+  return separator === -1
+    ? { workflowId: args.trim(), task: "" }
+    : { workflowId: args.slice(0, separator).trim(), task: args.slice(separator + 4).trim() };
+}
+
+async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args: string) {
+  if (ctx.mode !== "tui" || typeof ctx.ui?.confirm !== "function") {
+    sendOutput(pi, executeHelixCommand("run " + parseRunArgs(args).workflowId, { mode: ctx.mode }));
+    return;
+  }
+  let { workflowId, task } = parseRunArgs(args);
+  if (!workflowId) {
+    const catalog = executeHelixCommand("workflows list", { mode: "print" });
+    const ids = Array.isArray(catalog.details?.workflows)
+      ? catalog.details.workflows.map((workflow: any) => String(workflow.id))
+      : [];
+    workflowId = await ctx.ui.select("Choose a workflow", ids) ?? "";
+    if (!workflowId) return;
+  }
+  if (!task) task = (await ctx.ui.input?.("What should this workflow do?"))?.trim() ?? "";
+  if (!task) {
+    ctx.ui.notify("A workflow task is required; nothing was started", "warning");
+    return;
+  }
+  const modelInventory = await availableModelInventory(`run ${workflowId}`, ctx);
+  const preflight = executeHelixCommand(`run ${workflowId}`, { mode: ctx.mode }, { modelInventory });
   sendOutput(pi, preflight);
-  if (!preflight.ok || ctx.mode !== "tui" || typeof ctx.ui?.confirm !== "function") return;
-  const configId = String(preflight.details?.config_id ?? "");
+  if (!preflight.ok) return;
+  const configId = String(preflight.details?.config_id ?? workflowId);
+  const providers = Array.isArray(preflight.details?.providers) ? preflight.details.providers : [];
+  const worktreeEnabled = preflight.details?.worktree_enabled !== false;
+  const maxRuntimeMs = Number(preflight.details?.runtime_limits?.max_runtime_ms);
+  const callTimeoutMs = Number(preflight.details?.runtime_limits?.call_timeout_ms);
+  const executionBindingRef = String(preflight.details?.execution_binding_ref ?? "");
   const approved = await ctx.ui.confirm(
     "Start Helix workflow",
-    `Run the packaged no-live mock workflow with config ${configId}?`,
+    `Workflow: ${configId}\nStages: ${preflight.details?.chain?.stages?.map((stage: any) => stage.id).join(" → ")}\nProviders: ${providers.join(", ")}\nMaximum passes: ${preflight.details?.rail?.max_iterations}\nRuntime: ${maxRuntimeMs}ms total; ${callTimeoutMs}ms per provider call\nTask: ${task}\nRepository: ${ctx.cwd}\nIsolation: ${worktreeEnabled ? "per-run Git worktree" : "OFF — the current checkout will be mutated"}\n\nPi tools use the normal Pi trust boundary. A worktree protects Git state; it is not an OS sandbox.`,
   );
   if (!approved) {
     ctx.ui.notify("Helix run cancelled; no workflow was started", "info");
@@ -185,27 +638,59 @@ async function runMockWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, p
   const runId = nextRunId();
   ctx.ui.setWorkingMessage?.(`Helix is running ${configId}`);
   ctx.ui.setWorkingVisible?.(true);
-  let execution;
+  let execution: any;
+  let adapter: any = null;
+  const runAbort = new AbortController();
+  let runAbortCode: string | null = null;
+  const cancelRun = () => {
+    runAbortCode ??= "workflow-run-cancelled";
+    runAbort.abort(runAbortCode);
+  };
+  ctx.signal?.addEventListener?.("abort", cancelRun, { once: true });
+  const runTimer = setTimeout(() => {
+    runAbortCode ??= "workflow-run-timeout";
+    runAbort.abort(runAbortCode);
+  }, maxRuntimeMs);
   try {
-    execution = await pi.exec(process.execPath, [
-      RUNNER_ENTRYPOINT,
-      "--config", configId,
-      "--run-id", runId,
-      "--summary",
-    ], { cwd: ctx.cwd, signal: ctx.signal, timeout: 10 * 60 * 1000 });
+    const realProviders = providers.filter((provider: string) => provider !== "mock");
+    adapter = realProviders.length > 0
+      ? createPiAgentAdapter({
+        modelRegistry: ctx.modelRegistry,
+        signal: runAbort.signal,
+        callTimeoutMs,
+        ...((pi as any).helixSessionFactory ? { sessionFactory: (pi as any).helixSessionFactory } : {}),
+      })
+      : null;
+    execution = await executeNamedWorkflow({
+      workflow_id: workflowId,
+      task,
+      run_id: runId,
+      cwd: ctx.cwd,
+      state_root: helixStateRoot(),
+      package_root: PACKAGE_ROOT,
+      chain_registry: readRegistry("../dispatch/config/chains.json"),
+      run_registry: readRegistry("../dispatch/config/run-configs.json"),
+      adapter,
+      expected_binding_ref: executionBindingRef,
+      signal: runAbort.signal,
+    });
+    if (!execution.ok && runAbortCode) execution.code = runAbortCode;
+    else if (!execution.ok && adapter?.lastFailureCode?.()) execution.code = adapter.lastFailureCode();
   } catch {
-    execution = { stdout: "", stderr: "", code: 1, killed: false };
+    execution = { ok: false, code: "helix-runner-failed", converged: false, stop_reason: null };
   } finally {
+    clearTimeout(runTimer);
+    ctx.signal?.removeEventListener?.("abort", cancelRun);
     ctx.ui.setWorkingVisible?.(false);
     ctx.ui.setWorkingMessage?.();
   }
-  const summary = runSummary(execution.stdout);
   sendOutput(pi, renderHelixRunCompletion({
     runId,
     configId,
-    exitCode: execution.code,
-    converged: summary.converged,
-    stopReason: summary.stopReason,
+    exitCode: execution.ok ? 0 : 1,
+    converged: execution.converged === true,
+    stopReason: execution.stop_reason,
+    failureCode: execution.ok ? null : execution.code,
   }));
 }
 
@@ -434,6 +919,14 @@ export default function helixCommand(pi: ExtensionAPI) {
           }
           return;
         }
+        if (command.workflowCreatorUi && !args.trim()) {
+          await showWorkflowCreator(pi, ctx);
+          return;
+        }
+        if (command.name === "helix-run") {
+          await runWorkflow(pi, ctx, args);
+          return;
+        }
         if (command.settingsUi && !args.trim() && ctx.mode === "tui" && typeof ctx.ui?.custom === "function") {
           await showSettings(pi, ctx);
           return;
@@ -447,10 +940,6 @@ export default function helixCommand(pi: ExtensionAPI) {
           out = executeHelixCommand(coreArgs, { mode: ctx.mode, confirm }, { modelInventory });
         } catch {
           out = internalError();
-        }
-        if (command.name === "helix-run") {
-          await runMockWorkflow(pi, ctx, out);
-          return;
         }
         sendOutput(pi, out);
       },

@@ -61,6 +61,17 @@ test("atomic and append writers refuse final-path symlinks without touching vict
   }
 });
 
+test("persistence rejects malformed segments and protected Git metadata", () => {
+  const root = mkdtempSync(join(tmpdir(), "helix-persistence-path-"));
+  for (const path of [".", "dir/", "a//b", "a/./b", ".git", ".Git/config"]) {
+    assert.throws(
+      () => writeTextAtomic(root, path, "unsafe\n"),
+      (error) => error.code === PERSISTENCE_CODES.UNSAFE_PATH,
+      path,
+    );
+  }
+});
+
 test("writers refuse a symlinked descendant parent", () => {
   const root = tempRoot();
   const outside = tempRoot();

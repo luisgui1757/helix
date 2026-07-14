@@ -16,11 +16,21 @@ import {
   createNoLiveMockAdapter,
   runTaskLoop,
   preflightTaskLoopConfig,
+  decideTaskLoopTransition,
 } from "../dispatch/lib/task-loop.mjs";
 import { MAX_ITERATIONS, MAX_PANEL_MEMBERS } from "../dispatch/lib/limits.mjs";
 
 const root = new URL("..", import.meta.url);
 const NOW = 1_751_731_200;
+
+test("task-loop mode uses canonical workflow retry and loops-off degeneration", () => {
+  assert.deepEqual(decideTaskLoopTransition(true), { action: "retry", code: null });
+  assert.deepEqual(decideTaskLoopTransition(false), {
+    action: "advance",
+    code: null,
+    warning: "loops-off-transition-ignored:task-loop:retry",
+  });
+});
 
 function readJson(rel) {
   return JSON.parse(readFileSync(new URL(rel, root), "utf8"));

@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -17,6 +18,8 @@ const COMMAND_NAMES = [
   "helix-run-prune",
   "helix-models",
   "helix-chains",
+  "helix-workflows",
+  "helix-workflow-create",
   "helix-settings",
   "helix-profiles",
   "helix-setup",
@@ -252,15 +255,29 @@ test("helix-setup projects Pi's available model inventory", async () => {
     ui: {},
     modelRegistry: {
       async getAvailable() {
-        return [{ provider: "openai", id: "gpt-5x", reasoning: true }];
+        return [
+          { provider: "openai", id: "gpt-5x", reasoning: true },
+          { provider: "CustomProvider", id: "custom-model", reasoning: false },
+        ];
       },
     },
   });
   assert.equal(messages[0].message.details.status, "ok");
   assert.match(messages[0].message.content, /openai-api\/gpt-5x \(reasoning\)/);
+  assert.match(messages[0].message.content, /CustomProvider\/custom-model/);
 });
 
-test("helix-run executes the packaged mock runner only after TUI confirmation", async () => {
+test("helix-run executes the canonical workflow in-process with the exact user task", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-run-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-run-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Run Test"], { cwd });
+  writeFileSync(join(cwd, "proposal.txt"), "initial\n", "utf8");
+  execFileSync("git", ["add", "proposal.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
   let invocation = null;
   const { commands, messages } = loadHelixCommands({
     async exec(command, args, options) {
@@ -274,27 +291,31 @@ test("helix-run executes the packaged mock runner only after TUI confirmation", 
     },
   });
   const working = [];
-  await commandByName(commands, "helix-run").handler("mock-core-loop", {
-    mode: "tui",
-    cwd: process.cwd(),
-    signal: undefined,
-    ui: {
-      confirm: async () => true,
-      notify() {},
-      setWorkingMessage: (message) => working.push(message ?? null),
-      setWorkingVisible: (visible) => working.push(visible),
-    },
-  });
+  try {
+    await commandByName(commands, "helix-run").handler("mock-core-loop -- Implement the requested test change", {
+      mode: "tui",
+      cwd,
+      signal: undefined,
+      ui: {
+        confirm: async () => true,
+        notify() {},
+        setWorkingMessage: (message) => working.push(message ?? null),
+        setWorkingVisible: (visible) => working.push(visible),
+      },
+    });
 
-  assert.equal(messages.length, 2);
-  assert.equal(messages[0].message.details.title, "Helix run preflight");
-  assert.equal(messages[1].message.details.title, "Helix run complete");
-  assert.match(messages[1].message.content, /Inspect: \/helix-run-status helix-/);
-  assert.equal(invocation.command, process.execPath);
-  assert.match(invocation.args[0], /tools\/loop\/helix-task-loop\.mjs$/);
-  assert.deepEqual(invocation.args.slice(1, 3), ["--config", "mock-core-loop"]);
-  assert.equal(invocation.args.includes("--repo"), false);
-  assert.deepEqual(working, ["Helix is running mock-core-loop", true, false, null]);
+    assert.equal(messages.length, 2);
+    assert.equal(messages[0].message.details.title, "Helix run preflight");
+    assert.equal(messages[1].message.details.title, "Helix run complete");
+    assert.match(messages[1].message.content, /Inspect: \/helix-run-status helix-/);
+    assert.equal(invocation, null, "the extension keeps Pi ModelRegistry/AuthStorage in-process");
+    assert.deepEqual(working, ["Helix is running mock-core-loop", true, false, null]);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("helix-settings is a keyboard-native checkbox list with immediate persistence", async () => {
@@ -336,6 +357,147 @@ test("helix-settings is a keyboard-native checkbox list with immediate persisten
     const settings = JSON.parse(readFileSync(join(stateRoot, "settings.json"), "utf8"));
     assert.equal(settings.toggles["multi-model"], false);
     assert.deepEqual(notices, [{ message: "Multi-model disabled", level: "info" }]);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("workflow creator guides template, limits, transitions, validation, simulation, and save", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    const { commands, messages } = loadHelixCommands();
+    const selections = [
+      "Implement and review — Build, review, and retry until approved.",
+      "6 (recommended)",
+      "3 (recommended)",
+      "Retry this stage",
+      "Stop the workflow",
+      "Finish building",
+    ];
+    const inputs = ["guided-flow", "proposal.txt", "READY TO SHIP"];
+    const notices = [];
+    await commandByName(commands, "helix-workflow-create").handler("", {
+      mode: "tui",
+      ui: {
+        select: async () => selections.shift() ?? null,
+        input: async () => inputs.shift() ?? null,
+        confirm: async (_title, body) => {
+          assert.match(body, /revise-jump → stop/);
+          assert.match(body, /Transitions tested: 3\/3/);
+          assert.match(body, /Simulation: converged/);
+          return true;
+        },
+        notify: (message, level) => notices.push({ message, level }),
+      },
+    });
+    const saved = JSON.parse(readFileSync(join(stateRoot, "workflows", "guided-flow.json"), "utf8"));
+    assert.equal(saved.stop.objective_gate.contains, "READY TO SHIP");
+    assert.equal(saved.stages[0].transitions.find((rule) => rule.when.is === "revise-jump").action, "stop");
+    assert.equal(notices.some((notice) => notice.message.includes("transitions tested 3\/3")), true);
+    assert.equal(messages.at(-1).message.details.title, "Helix workflow");
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("workflow creator refuses an unsafe durable output without changing the template output", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-output-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    const { commands } = loadHelixCommands();
+    const selections = [
+      "Implement and review — Build, review, and retry until approved.",
+      "6 (recommended)", "3 (recommended)", "Retry this stage", "Retry this stage",
+      "Edit stage durable output", "implement", "Finish building",
+    ];
+    const inputs = ["safe-output-flow", "proposal.txt", "DONE", ".git"];
+    const notices = [];
+    await commandByName(commands, "helix-workflow-create").handler("", {
+      mode: "tui",
+      ui: {
+        select: async () => selections.shift() ?? null,
+        input: async () => inputs.shift() ?? null,
+        notify: (message, level) => notices.push({ message, level }),
+        confirm: async () => true,
+      },
+    });
+    assert.deepEqual(selections, []);
+    const saved = JSON.parse(readFileSync(join(stateRoot, "workflows", "safe-output-flow.json"), "utf8"));
+    assert.deepEqual(saved.stages[0].artifact, { path: "proposal.txt", kind: "notes" });
+    assert.equal(notices.some((notice) => notice.message.includes("safe repository-relative file path")), true);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("workflow creator composes stage, panel, transition, deployment, and duration blocks", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-block-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    const { commands } = loadHelixCommands();
+    const selections = [
+      "Plan, implement, review — Review the plan, implement it, and send flawed work back to planning.",
+      "6 (recommended)",
+      "3 (recommended)", "Retry this stage", "Retry this stage",
+      "3 (recommended)", "Retry this stage", "Go back to plan",
+      "Add stage", "builder", "reviewer", "Done adding roles", "notes", "2", "Always advance",
+      "Move stage earlier", "verify",
+      "Edit stage panel roles", "verify", "Add role", "redteam",
+      "Edit stage transitions", "verify", "Replace condition family", "Verdict from a panel role", "reviewer",
+      "Edit stage transitions", "verify", "Change action", "reviewer=revise-jump → retry", "Stop",
+      "Edit stage durable output", "verify", "brief",
+      "Edit deployment", "Stage cast preset", "verify", "overlord",
+      "Edit deployment", "Maximum concurrency", "3",
+      "Edit duration limits", "20 minutes", "5 minutes",
+      "Add stage", "builder", "Done adding roles", "notes", "1", "Always advance",
+      "Remove stage", "plan",
+      "Remove stage", "temp",
+      "Finish building",
+    ];
+    const inputs = [
+      "blocks-flow", "proposal.txt", "BLOCKS_DONE", "verify", "VERIFY.md", "review-blocked",
+      "REVIEW.md", "temp", "TEMP.md",
+    ];
+    const notices = [];
+    await commandByName(commands, "helix-workflow-create").handler("", {
+      mode: "tui",
+      ui: {
+        select: async () => selections.shift() ?? null,
+        input: async () => inputs.shift() ?? null,
+        notify: (message, level) => notices.push({ message, level }),
+        confirm: async (_title, body) => {
+          assert.match(body, /panel: builder, reviewer, redteam/);
+          assert.match(body, /output: REVIEW.md \(brief\)/);
+          assert.match(body, /reviewer=revise-jump → stop/);
+          assert.match(body, /Stage casts: verify=overlord/);
+          assert.match(body, /Concurrency: 3/);
+          assert.match(body, /Runtime: 1200000ms total; 300000ms per call/);
+          return true;
+        },
+      },
+    });
+
+    assert.deepEqual(selections, []);
+    const saved = JSON.parse(readFileSync(join(stateRoot, "workflows", "blocks-flow.json"), "utf8"));
+    assert.deepEqual(saved.stages.map((stage) => stage.id), ["plan", "verify", "implement"]);
+    assert.deepEqual(saved.stages[1].steps.map((step) => step.role), ["builder", "reviewer", "redteam"]);
+    assert.deepEqual(saved.stages[1].artifact, { path: "REVIEW.md", kind: "brief" });
+    assert.equal(saved.stages[1].transitions.find((rule) => rule.when.is === "revise-jump").reason, "review-blocked");
+    assert.deepEqual(saved.deployment.assignments.verify, { kind: "composite", preset: "overlord" });
+    assert.equal(saved.deployment.parallel.max_concurrency, 3);
+    assert.equal(saved.stop.max_runtime_ms, 1_200_000);
+    assert.equal(saved.deployment.call_timeout_ms, 300_000);
+    assert.equal(notices.some((notice) => notice.message.includes("back target")), true);
   } finally {
     if (previous === undefined) delete process.env.HELIX_STATE_DIR;
     else process.env.HELIX_STATE_DIR = previous;

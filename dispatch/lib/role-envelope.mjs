@@ -7,7 +7,7 @@
 // TypeBox); see schema.mjs for why the validator is dependency-free.
 
 import { validate, assertValid, SchemaError } from "./schema.mjs";
-import { HELIX_PROVIDERS } from "./providers.mjs";
+import { PROVIDER_ID_PATTERN } from "./providers.mjs";
 import { INPUT_REF_VALUE_PATTERNS, MODEL_ID_PATTERN, REF_PATTERN, isModelId } from "./public-values.mjs";
 
 /** Canonical roles (stable log/test identifiers, never cosmetic callsigns). */
@@ -57,7 +57,7 @@ export const ROLE_ENVELOPE_SCHEMA = Object.freeze({
     run_id: { type: "string", minLength: 1 },
     stage: { type: "string", enum: STAGES },
     role: { type: "string", enum: ROLES },
-    provider: { type: "string", enum: HELIX_PROVIDERS },
+    provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
     // Token counts are CAPACITY telemetry (context-pressure cues), not spend
     // accounting — Helix performs no cost control (backend billing owns spend).

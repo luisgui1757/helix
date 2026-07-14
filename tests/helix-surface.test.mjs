@@ -204,7 +204,7 @@ test("every /helix mutation requires attended TUI confirmation", () => {
   }
 });
 
-test("setup stores inventory-validated real composite members but run preflight refuses unwired transport", () => {
+test("setup stores inventory-validated real composite members and run preflight uses Pi transport", () => {
   const { root, options } = tempOptions();
   const withInventory = {
     ...options,
@@ -225,8 +225,8 @@ test("setup stores inventory-validated real composite members but run preflight 
     const models = executeHelixCommand("models", { mode: "tui" }, withInventory);
     assert.match(models.text, /openai-codex\/gpt-5x:high x1/);
     const preflight = executeHelixCommand("run mock-core-loop", { mode: "tui" }, withInventory);
-    assert.equal(preflight.ok, false);
-    assert.equal(preflight.code, "live-adapter-not-wired");
+    assert.equal(preflight.ok, true, JSON.stringify(preflight));
+    assert.match(preflight.text, /live via Pi configured providers/);
 
     assert.equal(executeHelixCommand("profiles create absent", { mode: "tui", confirm: true }, options).ok, true);
     const unavailable = executeHelixCommand(
@@ -288,7 +288,7 @@ test("setup with no arguments is the guided view: presets, stages, inventory, an
     assert.equal(view.ok, true);
     assert.deepEqual(view.details.presets, ["daily", "overlord"]);
     assert.deepEqual(view.details.chains["full-cycle"], ["plan", "implement"]);
-    assert.match(view.text, /live-adapter-not-wired/);
+    assert.match(view.text, /Real-provider casts run through Pi's configured ModelRegistry/);
     assert.match(view.text, /available-model inventory: unavailable/);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -574,7 +574,7 @@ test("models shows both presets with members; dashboard shows toggles and profil
 
 test("new verbs appear in completions; rendered surfaces stay public-safe", () => {
   const verbs = getHelixArgumentCompletions("").map((c) => c.value);
-  assert.deepEqual(verbs, ["help", "run", "runs", "models", "chains", "settings", "profiles", "setup", "research"]);
+  assert.deepEqual(verbs, ["help", "run", "runs", "models", "chains", "workflows", "settings", "profiles", "setup", "research"]);
   const runsVerbs = getHelixArgumentCompletions("runs ").map((c) => c.value.trim());
   assert.deepEqual(runsVerbs, ["runs list", "runs status", "runs watch", "runs resume", "runs prune"]);
 

@@ -229,19 +229,29 @@ export function saveAndActivateProfile(root, profile, options = {}) {
  * default-config choice can change; chain/gate/run_target come from tracked
  * config by construction.
  */
-export function applyProfileToConfig(config, profile) {
-  if (!profile) return { config, overridden: [] };
+export function applyProfileToConfig(config, profile, { stageIds = null } = {}) {
+  if (!profile) return { config, overridden: [], ignored_assignments: [] };
   const overridden = [];
+  const ignoredAssignments = [];
   const next = { ...config };
   if (profile.overrides.assignments) {
-    next.assignments = { ...(config.assignments ?? {}), ...profile.overrides.assignments };
-    overridden.push("assignments");
+    const allowed = stageIds == null ? null : new Set(stageIds);
+    const applicable = Object.fromEntries(Object.entries(profile.overrides.assignments)
+      .filter(([stageId]) => {
+        const keep = allowed == null || allowed.has(stageId);
+        if (!keep) ignoredAssignments.push(stageId);
+        return keep;
+      }));
+    if (Object.keys(applicable).length > 0) {
+      next.assignments = { ...(config.assignments ?? {}), ...applicable };
+      overridden.push("assignments");
+    }
   }
   if (profile.overrides.default_assignment) {
     next.default_assignment = profile.overrides.default_assignment;
     overridden.push("default_assignment");
   }
-  return { config: next, overridden };
+  return { config: next, overridden, ignored_assignments: ignoredAssignments.sort() };
 }
 
 /** Layer complete user-local member lineups over tracked preset metadata. */

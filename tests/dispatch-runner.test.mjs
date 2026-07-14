@@ -142,6 +142,158 @@ test("full-cycle converges end to end: plan → implement → gate fail → revi
   }
 });
 
+test("role prompts include the exact objective marker and declared durable output", async () => {
+  const repo = tempRepo();
+  try {
+    const prompts = [];
+    const mock = createStagedMockAdapter();
+    const adapter = {
+      kind: "test-prompt-observer",
+      runCandidate(spec, ctx) {
+        prompts.push({ stage: ctx.stage_id, prompt: ctx.prompt });
+        return mock.dispatchAdapter.runCandidate(spec, ctx);
+      },
+      runJudge: mock.dispatchAdapter.runJudge,
+      runSynthesis: mock.dispatchAdapter.runSynthesis,
+      runVerifier: mock.dispatchAdapter.runVerifier,
+    };
+    const config = {
+      ...baseConfig,
+      objective_gate: { ...baseConfig.objective_gate, contains: "initial proposal" },
+    };
+    const { deps } = makeDeps(repo, { run_id: "prompt-obligations", adapter });
+    const result = await runStagedTaskLoop(config, { chainRegistry, presets }, deps);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(prompts.length > 0, true);
+    assert.equal(prompts.every(({ prompt }) => prompt.includes('file-contains:proposal.txt contains "initial proposal"')), true);
+    assert.equal(prompts.some(({ stage, prompt }) => stage === "plan" && prompt.includes("plan:PLAN.md")), true);
+    assert.equal(prompts.some(({ stage, prompt }) => stage === "implement" && prompt.includes("notes:proposal.txt")), true);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("mixed mock and configured-provider casts route each member to its matching adapter", async () => {
+  const repo = tempRepo();
+  try {
+    const mixedPresets = new Map([...presets.entries()].map(([id, preset]) => [id, structuredClone(preset)]));
+    mixedPresets.get("daily").roles.builder = [{
+      provider: "openrouter", model: "openai/gpt-oss-20b:free", effort: "high", instances: 1,
+      effort_vocab: ["medium", "high"],
+    }];
+    const liveCalls = [];
+    const liveMock = createStagedMockAdapter();
+    const liveAdapter = {
+      kind: "helix-pi-agent",
+      supportsProvider: (provider) => provider === "openrouter",
+      runCandidate(spec, ctx) {
+        liveCalls.push(spec.provider);
+        return liveMock.dispatchAdapter.runCandidate(spec, ctx);
+      },
+      runJudge: liveMock.dispatchAdapter.runJudge,
+      runSynthesis: liveMock.dispatchAdapter.runSynthesis,
+      runVerifier: liveMock.dispatchAdapter.runVerifier,
+    };
+    const config = {
+      ...baseConfig,
+      objective_gate: { ...baseConfig.objective_gate, contains: "initial proposal" },
+    };
+    const { deps } = makeDeps(repo, { run_id: "mixed-provider-cast", adapter: liveAdapter });
+    const result = await runStagedTaskLoop(config, { chainRegistry, presets: mixedPresets }, deps);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(liveCalls, ["openrouter"]);
+    assert.equal(result.calls.candidates > 0, true, "mock members used the deterministic adapter");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("writer-bearing stages serialize candidate access to their shared worktree", async () => {
+  const repo = tempRepo();
+  try {
+    const mock = createStagedMockAdapter();
+    let active = 0;
+    let maximumActive = 0;
+    const adapter = {
+      kind: "test-observable-adapter",
+      async runCandidate(spec, ctx) {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        const envelope = mock.dispatchAdapter.runCandidate(spec, ctx);
+        active -= 1;
+        return envelope;
+      },
+      runJudge: mock.dispatchAdapter.runJudge,
+      runSynthesis: mock.dispatchAdapter.runSynthesis,
+      runVerifier: mock.dispatchAdapter.runVerifier,
+    };
+    const config = {
+      ...baseConfig,
+      parallel: { max_concurrency: 4 },
+      objective_gate: { ...baseConfig.objective_gate, contains: "initial proposal" },
+    };
+    const { deps } = makeDeps(repo, { run_id: "serialized-writers", adapter });
+    const result = await runStagedTaskLoop(config, { chainRegistry, presets }, deps);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(maximumActive, 1);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("the runner whole-run deadline bounds an adapter that ignores cancellation", async () => {
+  const repo = tempRepo();
+  try {
+    const never = new Promise(() => {});
+    const mock = createStagedMockAdapter();
+    const adapter = {
+      kind: "test-hung-adapter",
+      runCandidate() { return never; },
+      runJudge: mock.dispatchAdapter.runJudge,
+      runSynthesis: mock.dispatchAdapter.runSynthesis,
+      runVerifier: mock.dispatchAdapter.runVerifier,
+    };
+    const { deps } = makeDeps(repo, {
+      run_id: "runner-deadline",
+      adapter,
+      runtime_limits: { max_runtime_ms: 1_000, call_timeout_ms: 1_000 },
+    });
+    const started = performance.now();
+    const result = await runStagedTaskLoop({ ...baseConfig }, { chainRegistry, presets }, deps);
+    assert.equal(result.code, "workflow-run-timeout", JSON.stringify(result));
+    assert.equal(JSON.parse(readFileSync(result.state_path, "utf8")).stop_reason, "workflow-run-timeout");
+    assert.equal(performance.now() - started < 2_000, true);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("an already-aborted attended deadline refuses before worktree or adapter effects", async () => {
+  const repo = tempRepo();
+  try {
+    const controller = new AbortController();
+    controller.abort("workflow-run-timeout");
+    let creates = 0;
+    let adapterCalls = 0;
+    const realWorktree = makeGitWorktreeEffect(repo, { baseDir: join(repo, ".wt") });
+    const worktree = {
+      ...realWorktree,
+      create(...args) { creates += 1; return realWorktree.create(...args); },
+    };
+    const result = await runStagedTaskLoop({ ...baseConfig }, { chainRegistry, presets }, {
+      cwd: repo, now: NOW, run_id: "already-timed-out", signal: controller.signal, worktree,
+      adapter: { kind: "test", runCandidate() { adapterCalls += 1; } },
+      runtime_limits: { max_runtime_ms: 1_000, call_timeout_ms: 1_000 },
+    });
+    assert.equal(result.code, "workflow-run-timeout");
+    assert.equal(creates, 0);
+    assert.equal(adapterCalls, 0);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("a terminal renderer failure cannot rewrite durable convergence", async () => {
   const repo = tempRepo();
   try {

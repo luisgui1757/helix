@@ -43,13 +43,27 @@ and ↓ to move between screens, Enter to advance or finish, and Esc to defer.
 The tour does not select a provider or change feature, profile, cast, or workflow
 configuration.
 
-### `/helix-run [config-id]`
+### `/helix-run [workflow-id] -- <task>`
 
-Preflights a tracked workflow config. It resolves the chain, active profile,
-cast, feature toggles, concurrency rail, and objective gate. In Pi's TUI, Helix
-then asks for confirmation and runs the packaged deterministic mock workflow in
-an isolated synthetic repository. Non-interactive modes stop after preflight.
-Real-provider casts refuse with `live-adapter-not-wired` before execution.
+Preflights a named workflow. With no workflow or task, the TUI prompts for them.
+The preflight resolves the stages, active-profile cast, exact providers,
+feature toggles, concurrency, objective gate, pass ceilings, 10-minute default
+whole-run deadline, 2-minute default per-provider-call deadline, repository,
+and worktree setting. It then asks for attended confirmation and executes the
+workflow in-process. Non-interactive modes stop after preflight.
+
+Configure or sign in to providers in Pi before running Helix. Helix reuses Pi's
+configured `ModelRegistry` and authentication storage; it does not select,
+configure, or persist provider credentials. OpenRouter free models are treated
+like any other configured and available model. A configured real cast never
+falls back to mock. Partially configured casts are valid: real members route to
+Pi and remaining mock members route to the deterministic adapter.
+
+Planner and builder workflow blocks receive Pi's normal mutation tools;
+other candidate roles are read-only. The selected worktree setting is shown in
+the confirmation. Writer-bearing stages run their panel serially against the
+shared worktree; read-only stages may use the configured concurrency cap. A Git
+worktree protects Git state but is not an OS sandbox.
 
 ### `/helix-runs`
 
@@ -66,8 +80,11 @@ Renders the run's event stream as a compact progress view.
 
 ### `/helix-run-resume <run-id>`
 
-Validates whether an interrupted run is resumable and prints the bound resume
-invocation. Completed, malformed, mismatched, and unsafe records refuse.
+Validates whether an interrupted legacy config run is resumable and prints its
+bound invocation. New Pi workflow runs bind the exact in-memory task into their
+execution identity and explicitly refuse with `workflow-resume-unsupported`;
+Helix never prints a config-only command that would lose the task. Completed,
+malformed, mismatched, and unsafe records also refuse.
 
 ### `/helix-run-prune <run-id>`
 
@@ -84,6 +101,57 @@ saved.
 
 Shows tracked workflow chains, stages, handoff artifacts, and whether each chain
 is runnable by the loop engine.
+
+Chains are architecture/view data. Only chains with a real run config become a
+built-in named workflow; Helix does not invent gates or deployment settings for
+the other tracked chain shapes.
+
+### `/helix-workflows [list | show <id> | test <id>]`
+
+Lists built-in and user-local named workflows, shows their stage panels and
+explicit transitions, or tests one without provider calls. A workflow test
+selects every authored condition, verifies its advance/retry/back/stop action
+and target, exercises retry-at-ceiling refusal, validates every durable output
+and the runner deployment projection, and then runs the complete success path.
+Output reports both transition and durable-output counts.
+
+Each stage has one candidate-role panel, a
+finite pass ceiling, and one condition family:
+
+- verdict: `approve`, `revise`, and `revise-jump` from one candidate role;
+- gate: `pass` and `fail` from the deterministic objective gate; or
+- `always`.
+
+Conditions route to advance, retry the current stage, return to a named earlier
+stage, or stop with a stable code. A final `always` may be a fallback. Gate and
+verdict families cannot be mixed in one stage.
+
+### `/helix-workflow-create`
+
+Opens the keyboard-first workflow builder. Choose `implement-review`,
+`plan-implement`, or `tdd-fix` as a safe starting point, then use the building
+block menu to:
+
+- add, remove, and reorder named stages;
+- edit each stage's required repository-relative durable output and kind
+  (`.`, empty/trailing segments, traversal, and `.git` are refused);
+- edit candidate-role panels and an optional verifier block;
+- replace a condition family and edit transition actions, back targets, or stop
+  codes;
+- set the default or per-stage cast preset and maximum concurrency;
+- set global passes, per-stage passes, objective gate, whole-run deadline, and
+  per-call deadline.
+
+Invalid removals or moves that would break a back target are refused in place.
+Every stage must retain a planner or builder so it can produce its declared
+durable output, and at least one output must be the objective-gate file;
+documenter and panel-mechanism roles are not offered as stage blocks.
+Named workflows currently target only the confirmed current repository. Before
+save, Helix validates deployability and output obligations, tests every
+transition and ceiling, simulates end-to-end success, and shows the complete
+panel, output, transition, deployment, current-repository target, gate, and
+duration preview. Workflows are atomically saved
+under `~/.pi/agent/helix/workflows/` and cannot shadow built-ins.
 
 ### `/helix-settings [<feature> on|off]`
 
@@ -118,7 +186,9 @@ inventory. Assign a preset or model to a stage:
 
 Composite members use `<preset>.<role>=<provider>/<model>[:effort][*instances]`.
 Helix validates the complete change before atomically saving and activating the
-profile.
+profile. Profiles are global overlays; when a named workflow has different
+stage ids, irrelevant stage overrides are ignored with an explicit preflight
+warning instead of breaking cast resolution.
 
 ### `/helix-research <question> --metric <name> <cmp> <target> --max <n> [--plateau <n>]`
 
@@ -128,7 +198,8 @@ command refuses when Autoresearch is disabled or the session is unattended.
 
 ## State and safety
 
-Helix writes `onboarding.json`, `settings.json`, `profiles/`, and `runs/` under
+Helix writes `onboarding.json`, `settings.json`, `profiles/`, `workflows/`, and
+`runs/` under
 `~/.pi/agent/helix`. `PI_CODING_AGENT_DIR` changes Pi's agent directory;
 `HELIX_STATE_DIR` overrides only the Helix state root.
 
@@ -145,3 +216,11 @@ reason, and next safe action.
 The fence and answer-capture extensions remain independent of command state.
 Helix ships no skill, theme, project settings file, provider credentials, or
 telemetry override.
+
+Helix registers no context-usage threshold, automatic-compaction policy, or
+compaction hook. Every workflow sub-session retains Pi's default compaction
+policy.
+
+The raw workflow task is never written to disk. Only a hash-bound execution
+identity and structural `task_bound: true` marker enter run state. Provider
+prompts and responses are not persisted by the workflow command surface.
