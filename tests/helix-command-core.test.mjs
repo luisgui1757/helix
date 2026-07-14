@@ -10,6 +10,7 @@ import {
   isHelixMutationRequest,
   isHelixPruneRequest,
   renderHelixRunCompletion,
+  renderWorkflowRuntimeTest,
 } from "../extensions/lib/helix-command-core.mjs";
 import { preflightTaskLoopConfig } from "../dispatch/lib/task-loop.mjs";
 import { PUBLIC_SAFETY_PATTERNS } from "../tools/ci/public-safety-diff-scan.mjs";
@@ -152,21 +153,63 @@ test("named workflows ignore irrelevant global profile stages visibly instead of
   assert.match(out.text, /profile-stage-overrides-ignored:implement\+plan/);
 });
 
-test("workflows requiring unavailable host effects are labeled and refused at preflight", () => {
+test("user workflows with unavailable host effects are rejected before persistence", () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-host-effects-"));
   const created = createWorkflowFromTemplate({ id: "host-flow" });
   assert.equal(created.ok, true);
   created.workflow.stages[0].steps.unshift({
     id: "check", kind: "local-check", note: "typed host check",
   });
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).code, "invalid-workflow");
+  assert.equal(existsSync(join(stateRoot, "workflows", "host-flow.json")), false);
+});
+
+test("workflow test fails deployment checks for an unknown preset instead of returning false green", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-preset-check-"));
+  const created = createWorkflowFromTemplate({ id: "unknown-preset-flow" });
+  assert.equal(created.ok, true);
+  created.workflow.deployment.default_assignment = { kind: "composite", preset: "does-not-exist" };
   assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
 
-  const list = executeHelixCommand("workflows list", { mode: "print" }, { stateRoot });
-  const listed = list.details.workflows.find((workflow) => workflow.id === "host-flow");
-  assert.equal(listed.runnable, false);
-  assert.deepEqual(listed.required_host_effects, ["local-check"]);
-  const preflight = executeHelixCommand("run host-flow", { mode: "print" }, { stateRoot });
-  assert.equal(preflight.code, "workflow-host-effects-unavailable");
+  const tested = executeHelixCommand("workflows test unknown-preset-flow", { mode: "print" }, { stateRoot });
+  assert.equal(tested.ok, false);
+  assert.equal(tested.code, "unknown-preset:does-not-exist");
+});
+
+test("workflow test refuses a missing objective-check executable", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-command-check-"));
+  const created = createWorkflowFromTemplate({
+    id: "missing-check-flow",
+    objective_gate: {
+      type: "command-exit-zero",
+      command: "helix-definitely-missing-checker",
+      args: [],
+      timeout_ms: 10_000,
+    },
+  });
+  assert.equal(created.ok, true, JSON.stringify(created));
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+  const tested = executeHelixCommand("workflows test missing-check-flow", { mode: "print" }, { stateRoot });
+  assert.equal(tested.code, "objective-gate-command-unavailable");
+});
+
+test("workflow deployment testing requires live model inventory for real casts", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-inventory-check-"));
+  const created = createWorkflowFromTemplate({ id: "real-cast-flow" });
+  assert.equal(created.ok, true);
+  created.workflow.deployment.default_assignment = {
+    kind: "model", provider: "openrouter", model: "cohere/north-mini-code:free", effort: "low",
+  };
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+
+  const unknown = executeHelixCommand("workflows test real-cast-flow", { mode: "print" }, { stateRoot });
+  assert.equal(unknown.code, "helix-model-inventory-unavailable");
+
+  const available = executeHelixCommand("workflows test real-cast-flow", { mode: "print" }, {
+    stateRoot,
+    modelInventory: [{ provider: "openrouter", model: "cohere/north-mini-code:free" }],
+  });
+  assert.equal(available.ok, true, JSON.stringify(available));
 });
 
 test("workflow creation refuses unsafe durable-output and gate paths", () => {
@@ -209,6 +252,30 @@ test("native run completion renders only stable structural fields", () => {
     exitCode: 0,
   });
   assert.equal(incomplete.code, "helix-runner-result-invalid");
+});
+
+test("workflow runtime test renderer accepts only the proved smoke contract", () => {
+  const complete = renderWorkflowRuntimeTest({
+    workflowId: "my-flow",
+    outcome: {
+      ok: true,
+      provider_calls: 0,
+      objective_check: "simulated",
+      stages_exercised: 2,
+      total_passes: 3,
+    },
+  });
+  assert.equal(complete.ok, true);
+  assert.equal(complete.details.provider_calls, 0);
+
+  for (const outcome of [
+    { ok: true, provider_calls: 1, objective_check: "simulated", stages_exercised: 2, total_passes: 3 },
+    { ok: true, provider_calls: 0, objective_check: "real", stages_exercised: 2, total_passes: 3 },
+    { ok: true, provider_calls: 0, objective_check: "simulated", stages_exercised: 0, total_passes: 3 },
+    { ok: true, provider_calls: 0, objective_check: "simulated", stages_exercised: 2, total_passes: Number.NaN },
+  ]) {
+    assert.equal(renderWorkflowRuntimeTest({ workflowId: "my-flow", outcome }).code, "workflow-runtime-smoke-invalid");
+  }
 });
 
 test("helix run unknown config fails with stable error", () => {

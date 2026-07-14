@@ -9,6 +9,7 @@ import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
 import { executeNamedWorkflow } from "../extensions/lib/helix-execution.mjs";
 import { executeHelixCommand } from "../extensions/lib/helix-command-core.mjs";
 import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
+import { smokeTestWorkflowRuntime } from "../extensions/lib/helix-workflow-test.mjs";
 
 const packageRoot = new URL("..", import.meta.url).pathname;
 const readJson = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
@@ -55,6 +56,26 @@ test("every stock workflow template runs end-to-end with a mock cast in an empty
   }
 });
 
+test("runtime smoke testing exercises the real staged runner and removes its detached worktree", async () => {
+  const cwd = repo();
+  const created = createWorkflowFromTemplate({ id: "smoke-flow", template: "plan-implement" });
+  assert.equal(created.ok, true);
+  created.workflow.deployment.default_assignment = {
+    kind: "model", provider: "openrouter", model: "cohere/north-mini-code:free", effort: "low",
+  };
+  const before = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd, encoding: "utf8" });
+  const outcome = await smokeTestWorkflowRuntime({ workflow: created.workflow, cwd, package_root: packageRoot });
+  assert.deepEqual(outcome, {
+    ok: true,
+    provider_calls: 0,
+    objective_check: "simulated",
+    total_passes: 2,
+    stages_exercised: 2,
+  });
+  const after = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd, encoding: "utf8" });
+  assert.equal(after, before);
+});
+
 function executionBinding(stateRoot, id) {
   const preflight = executeHelixCommand(`run ${id}`, { mode: "print" }, {
     stateRoot,
@@ -94,6 +115,28 @@ test("named user workflow executes canonical blocks and never persists the raw t
   const state = JSON.parse(readFileSync(join(publicDir, "user-loop-run.state.json"), "utf8"));
   assert.equal(state.task_bound, true);
   assert.deepEqual(state.runtime_limits, { max_runtime_ms: 600_000, call_timeout_ms: 120_000 });
+  const lifecycle = JSON.parse(readFileSync(join(publicDir, "user-loop-run.workflow.json"), "utf8"));
+  assert.equal(lifecycle.workflow_id, "user-loop");
+
+  const workflowPath = join(stateRoot, "workflows", "user-loop.json");
+  const edited = JSON.parse(readFileSync(workflowPath, "utf8"));
+  edited.stop.max_iterations = 1;
+  writeFileSync(workflowPath, JSON.stringify(edited), "utf8");
+  const watched = executeHelixCommand("runs watch user-loop-run", { mode: "print" }, {
+    stateRoot,
+    runsRoot: join(stateRoot, "runs"),
+    chainRegistry: chains,
+    runRegistry: runs,
+  });
+  assert.equal(watched.ok, true, JSON.stringify(watched));
+  assert.match(watched.text, /Flow:/);
+  assert.match(watched.text, /✓ implement/);
+  lifecycle.max_iterations = 2;
+  writeFileSync(join(publicDir, "user-loop-run.workflow.json"), JSON.stringify(lifecycle), "utf8");
+  const tampered = executeHelixCommand("runs watch user-loop-run", { mode: "print" }, {
+    stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
+  });
+  assert.equal(tampered.code, "run-record-invalid-or-unsafe");
 });
 
 test("run-directory collisions refuse without creating a raw task artifact", async () => {
@@ -206,6 +249,32 @@ test("built-in workflow keeps tracked chain identity and task-bound resume never
   assert.equal(resume.code, "workflow-resume-unsupported");
   assert.equal(resume.details.cli_invocation, undefined);
   assert.equal(resume.text.includes("helix-task-loop.mjs"), false);
+});
+
+test("built-in workflow projection preserves the tracked loop's pass, gate, and revision behavior", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-built-in-parity-"));
+  const cwd = repo();
+  writeFileSync(join(cwd, "proposal.txt"), "initial proposal\n", "utf8");
+  execFileSync("git", ["add", "proposal.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "add tracked gate fixture"], { cwd });
+  const result = await executeNamedWorkflow({
+    workflow_id: "mock-core-loop",
+    task: "exercise the tracked compatibility loop",
+    run_id: "built-in-parity-run",
+    cwd,
+    state_root: stateRoot,
+    package_root: packageRoot,
+    chain_registry: chains,
+    run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "mock-core-loop"),
+    now: 1_751_731_200,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.total_passes, 3, "plan, implement gate failure, implement revision");
+  assert.equal(result.calls.revisions, 1);
+  const events = readFileSync(join(stateRoot, "runs", "built-in-parity-run", "built-in-parity-run.events.jsonl"), "utf8")
+    .trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(events.filter((event) => event.kind === "gate").map((event) => event.result), ["fail", "pass"]);
 });
 
 test("execution refuses confirmation-source drift before reserving a run or calling an adapter", async () => {

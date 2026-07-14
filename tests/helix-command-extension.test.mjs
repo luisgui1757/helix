@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import helixCommand from "../extensions/helix-command.ts";
+import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
+import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
 
 const COMMAND_NAMES = [
   "helix",
@@ -20,6 +22,9 @@ const COMMAND_NAMES = [
   "helix-chains",
   "helix-workflows",
   "helix-workflow-create",
+  "helix-workflow-edit",
+  "helix-workflow-clone",
+  "helix-workflow-delete",
   "helix-settings",
   "helix-profiles",
   "helix-setup",
@@ -117,6 +122,28 @@ test("dedicated run and settings completions omit legacy verb prefixes", () => {
     commandByName(commands, "helix-settings").getArgumentCompletions("loops ").map((item) => item.label),
     ["on", "off"],
   );
+});
+
+test("run completion discovers personal workflows from Helix state", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-completion-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    const created = createWorkflowFromTemplate({ id: "personal-flow" });
+    assert.equal(created.ok, true);
+    assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+    const { commands } = loadHelixCommands();
+    const runs = commandByName(commands, "helix-run").getArgumentCompletions("personal");
+    assert.deepEqual(runs, [{
+      value: "personal-flow",
+      label: "personal-flow",
+      description: "Personal Helix workflow",
+    }]);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
 });
 
 test("helix-help renders product help without loading mutable state", async () => {
@@ -309,7 +336,15 @@ test("helix-run executes the canonical workflow in-process with the exact user t
     assert.equal(messages[1].message.details.title, "Helix run complete");
     assert.match(messages[1].message.content, /Inspect: \/helix-run-status helix-/);
     assert.equal(invocation, null, "the extension keeps Pi ModelRegistry/AuthStorage in-process");
-    assert.deepEqual(working, ["Helix is running mock-core-loop", true, false, null]);
+    assert.deepEqual(working, [
+      "Helix is running mock-core-loop", true,
+      "Helix · plan · pass 1/5",
+      "Helix · implement · pass 1/5",
+      "Helix · objective check fail",
+      "Helix · implement · pass 2/5",
+      "Helix · objective check pass",
+      false, null,
+    ]);
   } finally {
     if (previous === undefined) delete process.env.HELIX_STATE_DIR;
     else process.env.HELIX_STATE_DIR = previous;
@@ -373,6 +408,8 @@ test("workflow creator guides template, limits, transitions, validation, simulat
     const selections = [
       "Implement and review — Build, review, and retry until approved.",
       "6 (recommended)",
+      "Check text in a stage output (weaker: the model writes the marker)",
+      "proposal.txt",
       "3 (recommended)",
       "Retry this stage",
       "Stop the workflow",
@@ -387,7 +424,8 @@ test("workflow creator guides template, limits, transitions, validation, simulat
         input: async () => inputs.shift() ?? null,
         confirm: async (_title, body) => {
           assert.match(body, /revise-jump → stop/);
-          assert.match(body, /Transitions tested: 3\/3/);
+          assert.match(body, /Definition transitions tested: 3\/3/);
+          assert.match(body, /Runtime effects: not executed/);
           assert.match(body, /Simulation: converged/);
           return true;
         },
@@ -414,7 +452,9 @@ test("workflow creator refuses an unsafe durable output without changing the tem
     const { commands } = loadHelixCommands();
     const selections = [
       "Implement and review — Build, review, and retry until approved.",
-      "6 (recommended)", "3 (recommended)", "Retry this stage", "Retry this stage",
+      "6 (recommended)",
+      "Check text in a stage output (weaker: the model writes the marker)", "proposal.txt",
+      "3 (recommended)", "Retry this stage", "Retry this stage",
       "Edit stage durable output", "implement", "Finish building",
     ];
     const inputs = ["safe-output-flow", "proposal.txt", "DONE", ".git"];
@@ -439,6 +479,40 @@ test("workflow creator refuses an unsafe durable output without changing the tem
   }
 });
 
+test("workflow creator refuses an unavailable command objective check before saving", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-command-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    const { commands } = loadHelixCommands();
+    const selections = [
+      "Implement and review — Build, review, and retry until approved.",
+      "6 (recommended)",
+      "Run a command (recommended)", "2 minutes (recommended)",
+      "3 (recommended)", "Retry this stage", "Stop the workflow",
+      "Finish building",
+    ];
+    const inputs = ["missing-command-flow", "proposal.txt", "helix-command-that-does-not-exist", ""];
+    const notices = [];
+    await commandByName(commands, "helix-workflow-create").handler("", {
+      mode: "tui",
+      cwd: stateRoot,
+      ui: {
+        select: async () => selections.shift() ?? null,
+        input: async () => inputs.shift() ?? null,
+        confirm: async () => { throw new Error("invalid workflow must not reach save confirmation"); },
+        notify: (message, level) => notices.push({ message, level }),
+      },
+    });
+    assert.equal(existsSync(join(stateRoot, "workflows", "missing-command-flow.json")), false);
+    assert.equal(notices.some((notice) => notice.message.includes("executable is unavailable")), true);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
 test("workflow creator composes stage, panel, transition, deployment, and duration blocks", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-block-ui-"));
   const previous = process.env.HELIX_STATE_DIR;
@@ -448,6 +522,7 @@ test("workflow creator composes stage, panel, transition, deployment, and durati
     const selections = [
       "Plan, implement, review — Review the plan, implement it, and send flawed work back to planning.",
       "6 (recommended)",
+      "Check text in a stage output (weaker: the model writes the marker)", "proposal.txt",
       "3 (recommended)", "Retry this stage", "Retry this stage",
       "3 (recommended)", "Retry this stage", "Go back to plan",
       "Add stage", "builder", "reviewer", "Done adding roles", "notes", "2", "Always advance",
@@ -498,6 +573,53 @@ test("workflow creator composes stage, panel, transition, deployment, and durati
     assert.equal(saved.stop.max_runtime_ms, 1_200_000);
     assert.equal(saved.deployment.call_timeout_ms, 300_000);
     assert.equal(notices.some((notice) => notice.message.includes("back target")), true);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("workflow edit, clone, and delete form a complete attended personal lifecycle", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-lifecycle-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  try {
+    const created = createWorkflowFromTemplate({ id: "lifecycle-flow" });
+    assert.equal(created.ok, true);
+    assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+    const { commands } = loadHelixCommands();
+
+    await commandByName(commands, "helix-workflow-edit").handler("lifecycle-flow", {
+      mode: "tui",
+      ui: {
+        select: async () => "Finish building",
+        input: async () => null,
+        confirm: async () => true,
+        notify() {},
+      },
+    });
+    assert.equal(existsSync(join(stateRoot, "workflows", "lifecycle-flow.json")), true);
+
+    const cloneInputs = ["lifecycle-copy"];
+    await commandByName(commands, "helix-workflow-clone").handler("lifecycle-flow", {
+      mode: "tui",
+      ui: {
+        select: async () => "Finish building",
+        input: async () => cloneInputs.shift(),
+        confirm: async () => true,
+        notify() {},
+      },
+    });
+    const clone = JSON.parse(readFileSync(join(stateRoot, "workflows", "lifecycle-copy.json"), "utf8"));
+    assert.equal(clone.deployment.chain_id, "lifecycle-copy");
+    assert.equal(clone.deployment.claims_ref, "local-ref:claims/lifecycle-copy");
+
+    await commandByName(commands, "helix-workflow-delete").handler("lifecycle-copy", {
+      mode: "tui",
+      ui: { select: async () => null, input: async () => null, confirm: async () => true, notify() {} },
+    });
+    assert.equal(existsSync(join(stateRoot, "workflows", "lifecycle-copy.json")), false);
   } finally {
     if (previous === undefined) delete process.env.HELIX_STATE_DIR;
     else process.env.HELIX_STATE_DIR = previous;

@@ -22,8 +22,7 @@ Before using Helix, configure or sync the providers you want in Pi. Helix uses
 Pi's already available models; it does not log in, choose, or configure
 providers.
 
-This is the same package mechanism used by the [Pi package
-catalog](https://pi.dev/packages). Start Pi and open Helix:
+This is the [Pi package catalog](https://pi.dev/packages) mechanism. Start Pi and open Helix:
 
 ```sh
 pi
@@ -52,8 +51,9 @@ Start with `/helix` for the dashboard or `/helix-help` for the command guide.
 | `/helix-onboarding` | Rerun the getting-started tour |
 | `/helix-settings` | Open the interactive feature list |
 | `/helix-run [workflow] -- <task>` | Preflight and start a named workflow |
-| `/helix-workflows` | List, inspect, and test named workflows |
-| `/helix-workflow-create` | Build a workflow from stages and transitions |
+| `/helix-workflows` | List, visualize, inspect, and test named workflows |
+| `/helix-workflow-create` | Build a personal workflow from guided blocks |
+| `/helix-workflow-edit`, `-clone`, `-delete` | Manage personal workflows |
 | `/helix-runs` | List structural run records |
 | `/helix-run-watch <id>` | Follow run progress |
 | `/helix-models` | See Pi models and Helix casts |
@@ -92,20 +92,20 @@ workflow/profile/toggle/preset binding is rechecked before any run directory or
 provider call. A Git worktree protects repository state, but it is not an OS
 sandbox and Pi tools keep their normal trust boundary.
 
-`/helix-workflow-create` starts with a safe template, then lets you add, remove,
-or reorder stages; edit durable outputs and candidate-role panels; choose verdict, gate, or always
-conditions; route to advance, retry, an earlier stage, or stop; and configure
-casts, concurrency, objective gate, pass ceilings, and time
-ceilings. `/helix-workflows test <id>` exercises every transition and retry
-ceiling without provider calls, validates the deployment projection and every
-stage output, then proves the success path. Named workflows currently run only
-in the confirmed current repository. Every stage retains a planner or builder
-and a safe declared durable output outside `.git`; at least one output is the
-objective-gate file.
+`/helix-workflow-create` starts with a safe template, then lets you compose
+stages, candidate panels, durable outputs, explicit conditions, forward/retry/
+back/stop routes, casts, concurrency, and bounded stopping criteria. A direct
+argv command such as `npm test` is the recommended independent objective check;
+model-written file text is an explicitly weaker fallback. Read-only panels can
+run concurrently, while writer panels serialize. `show` and `watch` render the
+loop, transitions, current stage, and pass counts. Workflow testing separates
+definition simulation, deployment preflight, isolated mock runtime exercise,
+and task-specific proof—only a real run can provide the last one.
 
-The exact task stays in memory and only its hash is bound into structural run
-state. Task-bound Pi workflow resume is explicitly unsupported for now; start a
-fresh attended run instead of using a config-only legacy resume command.
+See the [workflow cookbook](docs/workflows.md) for blocks, limits, lifecycle, visuals, tests, and examples.
+
+The exact task stays in memory; only its hash enters structural run state.
+Task-bound resume is unsupported; start a fresh attended run instead.
 
 See the [command manual](docs/manual.md) for every command and refusal contract.
 

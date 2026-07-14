@@ -52,6 +52,13 @@ whole-run deadline, 2-minute default per-provider-call deadline, repository,
 and worktree setting. It then asks for attended confirmation and executes the
 workflow in-process. Non-interactive modes stop after preflight.
 
+The recommended objective check is a bounded argv command such as `npm test`.
+Helix verifies that its executable exists before save and run, displays the
+exact command in the consent preview, and invokes it directly in the run
+worktree with no shell. A file-text check remains available for repositories
+without an independent command, but the UI labels it weaker because a model can
+write the expected text itself.
+
 Configure or sign in to providers in Pi before running Helix. Helix reuses Pi's
 configured `ModelRegistry` and authentication storage; it does not select,
 configure, or persist provider credentials. OpenRouter free models are treated
@@ -76,7 +83,12 @@ Shows one run's structural state and gate outcome.
 
 ### `/helix-run-watch <run-id>`
 
-Renders the run's event stream as a compact progress view.
+Renders the run's event stream as a compact progress view with a stage flow,
+current/completed/pending indicators, pass counts, and forward, retry, and back
+arrows. Each new run stores a hash-bound immutable workflow snapshot; watch uses
+that snapshot, so later edits or deletion of a personal workflow cannot rewrite
+the history being displayed. Legacy records without a snapshot use the current
+definition when it is still available.
 
 ### `/helix-run-resume <run-id>`
 
@@ -109,11 +121,21 @@ the other tracked chain shapes.
 ### `/helix-workflows [list | show <id> | test <id>]`
 
 Lists built-in and user-local named workflows, shows their stage panels and
-explicit transitions, or tests one without provider calls. A workflow test
-selects every authored condition, verifies its advance/retry/back/stop action
-and target, exercises retry-at-ceiling refusal, validates every durable output
-and the runner deployment projection, and then runs the complete success path.
-Output reports both transition and durable-output counts.
+explicit transitions, or tests one without provider calls. `show` includes the
+same compact flow diagram used by run watch.
+
+Testing reports proof layers separately:
+
+1. Definition: the closed schema, every authored condition/action/target,
+   retry-at-ceiling refusal, declared outputs, and a deterministic success-path
+   simulation.
+2. Deployment: casts, configured provider availability, repository target,
+   limits, and objective-check executable resolution.
+3. Isolated runtime smoke (optional in TUI): the real staged runner, transitions,
+   checkpoints, outputs, and cleanup in a temporary detached worktree using the
+   deterministic mock cast and simulated gate results.
+4. Task proof: not claimed by testing; only an actual run executes the real
+   objective check against the requested task.
 
 Each stage has one candidate-role panel, a
 finite pass ceiling, and one condition family:
@@ -133,25 +155,49 @@ Opens the keyboard-first workflow builder. Choose `implement-review`,
 block menu to:
 
 - add, remove, and reorder named stages;
-- edit each stage's required repository-relative durable output and kind
+- edit each stage's repository-relative durable output and kind
   (`.`, empty/trailing segments, traversal, and `.git` are refused);
-- edit candidate-role panels and an optional verifier block;
+- edit panels built from scout, planner, builder, reviewer, red-team, and an
+  optional verifier block;
 - replace a condition family and edit transition actions, back targets, or stop
   codes;
 - set the default or per-stage cast preset and maximum concurrency;
-- set global passes, per-stage passes, objective gate, whole-run deadline, and
+- choose a recommended command check or weaker file-text check, then set global
+  passes, per-stage passes, whole-run deadline, and
   per-call deadline.
 
 Invalid removals or moves that would break a back target are refused in place.
-Every stage must retain a planner or builder so it can produce its declared
-durable output, and at least one output must be the objective-gate file;
-documenter and panel-mechanism roles are not offered as stage blocks.
+Every stage retains at least one candidate role and a declared durable output.
+Planner and builder make a stage writer-bearing and therefore serial. A stage
+containing only read-only candidates can use the configured concurrency cap;
+Helix writes its structured aggregate output at the runtime boundary. For a
+file-text objective check, the checked path must be one of the stage outputs.
+Documenter and internal panel-mechanism roles are not offered as stage blocks.
 Named workflows currently target only the confirmed current repository. Before
-save, Helix validates deployability and output obligations, tests every
-transition and ceiling, simulates end-to-end success, and shows the complete
+save, Helix validates deployability, output obligations, bounds, and objective
+executable availability; tests every transition and ceiling; simulates
+end-to-end success; and shows the complete
 panel, output, transition, deployment, current-repository target, gate, and
 duration preview. Workflows are atomically saved
 under `~/.pi/agent/helix/workflows/` and cannot shadow built-ins.
+
+### `/helix-workflow-edit [id]`
+
+Reopens a personal workflow in the same guided builder. Built-ins are immutable.
+The complete definition and deployment checks run again before an atomic replace.
+
+### `/helix-workflow-clone [id]`
+
+Copies a personal workflow to a new safe name, retargets its chain and structural
+references, opens it in the builder, and saves only after full validation.
+
+### `/helix-workflow-delete [id]`
+
+Deletes one personal definition after attended confirmation. Existing run
+records and their immutable workflow snapshots remain inspectable.
+
+The [workflow cookbook](workflows.md) documents allowed/required blocks,
+defaults, limits, visual notation, direct JSON customization, and examples.
 
 ### `/helix-settings [<feature> on|off]`
 
@@ -212,6 +258,12 @@ Run launch plus mutating profile, setup, and prune commands require an attended
 Pi confirmation. Settings toggles save directly from the checkbox interface. All malformed,
 unsafe, unavailable, or unsupported inputs fail closed with a stable code,
 reason, and next safe action.
+
+Personal workflow JSON is trusted local configuration, but it is still closed,
+bounded, and revalidated at load, save, test, and run. It cannot contain shell or
+filesystem effect steps. A declared objective command is the sole executable
+workflow-owned check; it is argv-only, bounded by its timeout and the whole-run
+deadline, and receives no shell expansion.
 
 The fence and answer-capture extensions remain independent of command state.
 Helix ships no skill, theme, project settings file, provider credentials, or

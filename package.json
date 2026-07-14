@@ -28,6 +28,7 @@
     "dispatch/config",
     "dispatch/lib",
     "docs/manual.md",
+    "docs/workflows.md",
     "tools/loop/helix-task-loop.mjs",
     "tools/research/helix-research.mjs"
   ],

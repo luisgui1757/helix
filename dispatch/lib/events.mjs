@@ -49,7 +49,7 @@ export const CODE_PATTERN = PUBLIC_CODE_PATTERN;
 const EVENT_FIELDS = Object.freeze({
   "run-start": {
     required: ["chain_id", "config_id", "max_iterations"],
-    fields: { chain_id: "code", config_id: "code", max_iterations: "positive-int", warning: "code" },
+    fields: { chain_id: "code", config_id: "code", max_iterations: "positive-int", workflow_ref: "ref", warning: "code" },
   },
   "stage-start": {
     required: ["stage_id", "executor_ref"],
@@ -245,6 +245,14 @@ export function reduceEventLifecycle(events, {
   const sameAttempt = (candidate, event) => candidate
     && candidate.stage_id === event.stage_id && candidate.pass === event.pass
     && event.attempt === candidate.attempt + 1;
+  const usesVerdict = (stage) => Boolean(stage?.advance
+    || stage?.transitions?.some((transition) => transition.when?.type === "verdict"));
+  const usesStageGate = (stage) => Boolean(stage?.gate_expectation
+    || stage?.transitions?.some((transition) => transition.when?.type === "gate"));
+  const stagePassLimit = (stage) => stage?.max_passes ?? stage?.advance?.max_passes ?? 1;
+  const implicitDecision = (stage, pass) => !usesVerdict(stage) && !usesStageGate(stage)
+    ? decideStageTransition(stage, pass, {}, loopsEnabled)
+    : null;
 
   for (let index = 0; index < events.length; index += 1) {
     const event = events[index];
@@ -264,6 +272,9 @@ export function reduceEventLifecycle(events, {
         restore(repeated.base);
         active = null;
         retryable = null;
+      } else if (active && implicitDecision(stages[stageIndex], active.pass)?.action === "stay") {
+        active = null;
+        retryable = null;
       } else if (active) {
         return invalid(`lifecycle-pass-before-decision:${index}`);
       } else {
@@ -273,7 +284,7 @@ export function reduceEventLifecycle(events, {
       if (phase !== "stage" || event.stage_id !== stage?.id || !seenStages.has(event.stage_id)
         || event.pass !== counts[event.stage_id] + 1 || event.of !== max_iterations
         || totalPasses >= max_iterations
-        || (loopsEnabled && stage.advance && event.pass > stage.advance.max_passes)
+        || (loopsEnabled && event.pass > stagePassLimit(stage))
         || (!loopsEnabled && event.pass > 1)) return invalid(`lifecycle-pass-order:${index}`);
       const base = snapshot();
       counts[event.stage_id] += 1;
@@ -289,7 +300,7 @@ export function reduceEventLifecycle(events, {
 
     if (event.kind === "verdict") {
       const stage = stages[stageIndex];
-      if (!active || event.stage_id !== active.stage_id || !stage?.advance || active.decision) {
+      if (!active || event.stage_id !== active.stage_id || !usesVerdict(stage) || active.decision) {
         return invalid(`lifecycle-verdict:${index}`);
       }
       active.decision = decideStageTransition(stage, active.pass, { verdict: event.verdict }, loopsEnabled);
@@ -303,7 +314,7 @@ export function reduceEventLifecycle(events, {
     if (event.kind === "gate") {
       if (event.phase === "stage-expectation") {
         const stage = stages[stageIndex];
-        if (!active || event.stage_id !== active.stage_id || !stage?.gate_expectation || active.decision) {
+        if (!active || event.stage_id !== active.stage_id || !usesStageGate(stage) || active.decision) {
           return invalid(`lifecycle-stage-gate:${index}`);
         }
         active.decision = decideStageTransition(stage, active.pass, { gate_result: event.result }, loopsEnabled);
@@ -325,9 +336,9 @@ export function reduceEventLifecycle(events, {
 
     if (event.kind === "stage-end") {
       const stage = stages[stageIndex];
-      const plainAdvance = active && !stage.advance && !stage.gate_expectation;
+      if (active && !active.decision) active.decision = implicitDecision(stage, active.pass);
       if (!active || event.stage_id !== active.stage_id
-        || (!plainAdvance && active.decision?.action !== "advance")) {
+        || active.decision?.action !== "advance") {
         return invalid(`lifecycle-stage-end:${index}`);
       }
       active = null;
@@ -338,6 +349,7 @@ export function reduceEventLifecycle(events, {
     }
 
     if (event.kind === "jump-back") {
+      if (active && !active.decision) active.decision = implicitDecision(stages[stageIndex], active.pass);
       const target = active?.decision?.target;
       if (!active || event.stage_id !== active.stage_id || active.decision?.action !== "jump"
         || !stageIndexById.has(target)) return invalid(`lifecycle-jump:${index}`);
@@ -356,6 +368,10 @@ export function reduceEventLifecycle(events, {
     }
 
     if (event.kind === "run-end") {
+      if (active && !active.decision) active.decision = implicitDecision(stages[stageIndex], active.pass);
+      if (active?.decision?.action === "stop" && event.stop_reason !== active.decision.code) {
+        return invalid(`lifecycle-terminal-stop:${index}`);
+      }
       if (event.converged === true) {
         const gate = events[index - 1];
         if (phase !== "conclusion" || gate?.kind !== "gate" || gate.phase !== "conclusion" || gate.result !== "pass") {

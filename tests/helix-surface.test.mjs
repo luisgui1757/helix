@@ -4,7 +4,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeHelixCommand, getHelixArgumentCompletions } from "../extensions/lib/helix-command-core.mjs";
@@ -390,6 +390,24 @@ test("runs watch/resume scan disk content read-time: a leak-shaped file fails cl
     const bad = executeHelixCommand("runs watch malformed", { mode: "print" }, options);
     assert.equal(bad.code, "helix-config-unreadable");
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runs watch refuses a symlinked event stream before reading its target", () => {
+  const { root, options } = tempOptions();
+  const outside = mkdtempSync(join(tmpdir(), "helix-events-outside-"));
+  try {
+    const runDir = join(options.runsRoot, "linked-events");
+    mkdirSync(runDir, { recursive: true });
+    const target = join(outside, "events.jsonl");
+    writeFileSync(target, "private target must never be parsed\n", "utf8");
+    symlinkSync(target, join(runDir, "linked-events.events.jsonl"));
+    const watch = executeHelixCommand("runs watch linked-events", { mode: "print" }, options);
+    assert.equal(watch.code, "run-record-invalid-or-unsafe");
+    assert.equal(JSON.stringify(watch).includes("private target"), false);
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

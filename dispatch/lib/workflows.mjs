@@ -28,6 +28,17 @@ const TASK_CLASSES = Object.freeze([
   "roadmap-reconciliation", "pr-preflight", "risky-change", "ui-quality",
 ]);
 const MAX_RUNTIME_MS = 60 * 60 * 1000;
+const MAX_WORKFLOW_BYTES = 64 * 1024;
+const MAX_WORKFLOW_ID_LENGTH = 64;
+const MAX_DESCRIPTION_LENGTH = 512;
+const MAX_STAGE_ID_LENGTH = 64;
+const MAX_STEP_ID_LENGTH = 64;
+const MAX_LABEL_LENGTH = 128;
+const MAX_NOTE_LENGTH = 512;
+const MAX_STOP_REASON_LENGTH = 128;
+const MAX_STAGES = 16;
+const MAX_STEPS_PER_STAGE = 16;
+const MAX_TRANSITIONS_PER_STAGE = 8;
 
 export const WORKFLOW_ROLE_BLOCKS = Object.freeze([
   "scout", "planner", "builder", "reviewer", "redteam", "verifier",
@@ -72,6 +83,16 @@ function runConfigFromWorkflow(workflow) {
     claims_ref: workflow.deployment?.claims_ref,
     evidence_ref: workflow.deployment?.evidence_ref,
   };
+}
+
+export function objectiveGateSummary(gate) {
+  if (gate?.type === "command-exit-zero") {
+    return `command-exit-zero argv=${JSON.stringify([gate.command, ...(gate.args ?? [])])}`;
+  }
+  if (gate?.type === "file-contains") {
+    return `file-contains:${gate.path} contains ${JSON.stringify(gate.contains)}`;
+  }
+  return "invalid-objective-gate";
 }
 
 export function isSafeWorkflowPath(path) {
@@ -120,13 +141,8 @@ export function normalizeWorkflowStage(stage) {
 
 /** Turn a tracked chain + run config into the same document saved for users. */
 export function workflowFromExecution(chain, config, { source = "built-in" } = {}) {
-  const objectiveGate = structuredClone(config?.objective_gate ?? {
-    type: "file-contains", path: "proposal.txt", contains: "HELIX_WORKFLOW_PASS",
-  });
-  const stages = (chain?.stages ?? []).map(normalizeWorkflowStage).map((stage) => ({
-    ...stage,
-    artifact: stage.artifact ?? { path: objectiveGate.path, kind: "notes" },
-  }));
+  const objectiveGate = structuredClone(config?.objective_gate);
+  const stages = (chain?.stages ?? []).map(normalizeWorkflowStage);
   return {
     schema_version: 1,
     id: config?.id ?? chain?.id,
@@ -190,14 +206,19 @@ export function validateWorkflow(workflow) {
     return { valid: false, errors };
   }
   if (workflow.schema_version !== 1) errors.push(issue("$.schema_version", "must equal 1"));
-  if (!ID.test(String(workflow.id ?? ""))) errors.push(issue("$.id", "must be a safe workflow id"));
-  if (typeof workflow.description !== "string" || workflow.description.trim() === "") {
-    errors.push(issue("$.description", "must be non-empty"));
+  if (!ID.test(String(workflow.id ?? "")) || String(workflow.id ?? "").length > MAX_WORKFLOW_ID_LENGTH) {
+    errors.push(issue("$.id", `must be a safe workflow id of at most ${MAX_WORKFLOW_ID_LENGTH} characters`));
+  }
+  if (typeof workflow.description !== "string" || workflow.description.trim() === ""
+    || workflow.description.length > MAX_DESCRIPTION_LENGTH) {
+    errors.push(issue("$.description", `must be non-empty and at most ${MAX_DESCRIPTION_LENGTH} characters`));
   }
   if (!TASK_CLASSES.includes(workflow.task_class)) errors.push(issue("$.task_class", "must be a known task class"));
   if (!["built-in", "user"].includes(workflow.source)) errors.push(issue("$.source", "must be built-in or user"));
   if (!Array.isArray(workflow.stages) || workflow.stages.length === 0) {
     errors.push(issue("$.stages", "must contain at least one stage"));
+  } else if (workflow.stages.length > MAX_STAGES) {
+    errors.push(issue("$.stages", `must contain at most ${MAX_STAGES} stages`));
   }
 
   const priorStageIds = [];
@@ -208,10 +229,13 @@ export function validateWorkflow(workflow) {
       errors.push(issue(path, "must contain only stage fields"));
       continue;
     }
-    if (!STAGE_ID.test(String(stage.id ?? ""))) errors.push(issue(`${path}.id`, "must be a stage id"));
+    if (!STAGE_ID.test(String(stage.id ?? "")) || String(stage.id ?? "").length > MAX_STAGE_ID_LENGTH) {
+      errors.push(issue(`${path}.id`, `must be a stage id of at most ${MAX_STAGE_ID_LENGTH} characters`));
+    }
     if (priorStageIds.includes(stage.id)) errors.push(issue(`${path}.id`, `duplicate stage '${stage.id}'`));
-    if (stage.label != null && (typeof stage.label !== "string" || stage.label.trim() === "")) {
-      errors.push(issue(`${path}.label`, "must be non-empty"));
+    if (stage.label != null && (typeof stage.label !== "string" || stage.label.trim() === ""
+      || stage.label.length > MAX_LABEL_LENGTH)) {
+      errors.push(issue(`${path}.label`, `must be non-empty and at most ${MAX_LABEL_LENGTH} characters`));
     }
     if (!Number.isSafeInteger(stage.max_passes) || stage.max_passes < 1 || stage.max_passes > MAX_ITERATIONS) {
       errors.push(issue(`${path}.max_passes`, `must be between 1 and ${MAX_ITERATIONS}`));
@@ -219,10 +243,12 @@ export function validateWorkflow(workflow) {
     const stepIds = new Set();
     const roleSteps = [];
     if (!Array.isArray(stage.steps) || stage.steps.length === 0) errors.push(issue(`${path}.steps`, "must not be empty"));
+    else if (stage.steps.length > MAX_STEPS_PER_STAGE) errors.push(issue(`${path}.steps`, `must contain at most ${MAX_STEPS_PER_STAGE} steps`));
     for (let stepIndex = 0; stepIndex < (stage.steps ?? []).length; stepIndex += 1) {
       const step = stage.steps[stepIndex];
       const stepPath = `${path}.steps[${stepIndex}]`;
       if (!keysAre(step, ["id", "kind", "role", "note"]) || !STEP_ID.test(String(step.id ?? ""))
+        || String(step.id ?? "").length > MAX_STEP_ID_LENGTH
         || !["role", "local-check", "handoff"].includes(step.kind)) {
         errors.push(issue(stepPath, "must be a valid workflow step"));
         continue;
@@ -234,23 +260,26 @@ export function validateWorkflow(workflow) {
         errors.push(issue(`${stepPath}.role`, `role '${step.role}' is not an executable workflow block`));
       }
       if (step.kind !== "role" && step.role != null) errors.push(issue(`${stepPath}.role`, "non-role step must not declare a role"));
-      if (step.kind !== "role" && (typeof step.note !== "string" || step.note.trim() === "")) {
-        errors.push(issue(`${stepPath}.note`, "non-role step needs a note"));
+      if (step.kind !== "role" && (typeof step.note !== "string" || step.note.trim() === ""
+        || step.note.length > MAX_NOTE_LENGTH)) {
+        errors.push(issue(`${stepPath}.note`, `non-role step needs a note of at most ${MAX_NOTE_LENGTH} characters`));
       }
       if (step.kind === "role" && step.note != null) errors.push(issue(`${stepPath}.note`, "role step must not declare a note"));
       if (step.kind === "role" && ROLES.includes(step.role)) {
         if (roleSteps.includes(step.role)) errors.push(issue(`${stepPath}.role`, `duplicate stage role '${step.role}'`));
         roleSteps.push(step.role);
       }
+      if (workflow.source === "user" && step.kind !== "role") {
+        errors.push(issue(`${stepPath}.kind`, "user workflows allow role blocks only; host effects are not deployable"));
+      }
     }
     if (Array.isArray(stage.steps) && stage.steps.length > 0 && stageStepSchedule(stage) == null) {
       errors.push(issue(`${path}.steps`, "must use executable candidate/check/verifier/handoff ordering"));
     }
-    if (!roleSteps.some((role) => WORKFLOW_MUTATING_ROLES.includes(role))) {
-      errors.push(issue(`${path}.steps`, "every stage must include a planner or builder that can produce its durable output"));
-    }
     if (!Array.isArray(stage.transitions) || stage.transitions.length === 0) {
       errors.push(issue(`${path}.transitions`, "must not be empty"));
+    } else if (stage.transitions.length > MAX_TRANSITIONS_PER_STAGE) {
+      errors.push(issue(`${path}.transitions`, `must contain at most ${MAX_TRANSITIONS_PER_STAGE} transitions`));
     }
     const seenConditions = new Set();
     let alwaysSeen = false;
@@ -281,8 +310,9 @@ export function validateWorkflow(workflow) {
       } else if (transition.target != null) {
         errors.push(issue(`${transitionPath}.target`, "is allowed only for back transitions"));
       }
-      if (transition.action === "stop" && !isPublicCode(transition.reason)) {
-        errors.push(issue(`${transitionPath}.reason`, "stop transition needs a stable public code"));
+      if (transition.action === "stop" && (!isPublicCode(transition.reason)
+        || transition.reason.length > MAX_STOP_REASON_LENGTH)) {
+        errors.push(issue(`${transitionPath}.reason`, `stop transition needs a stable public code of at most ${MAX_STOP_REASON_LENGTH} characters`));
       }
       if (transition.action !== "stop" && transition.reason != null) {
         errors.push(issue(`${transitionPath}.reason`, "is allowed only for stop transitions"));
@@ -301,9 +331,12 @@ export function validateWorkflow(workflow) {
         errors.push(issue(`${path}.transitions`, "gate routing must cover pass and fail or end with always"));
       }
     }
-    if (!keysAre(stage.artifact, ["path", "kind"])
-      || !isSafeWorkflowPath(stage.artifact?.path) || !["plan", "brief", "notes"].includes(stage.artifact?.kind)) {
-      errors.push(issue(`${path}.artifact`, "is required and must be a contained plan, brief, or notes output"));
+    if (stage.artifact == null && workflow.source === "user") {
+      errors.push(issue(`${path}.artifact`, "is required for user workflows"));
+    } else if (stage.artifact != null && (!keysAre(stage.artifact, ["path", "kind"])
+      || !isSafeWorkflowPath(stage.artifact?.path) || stage.artifact.path.length > 256
+      || !["plan", "brief", "notes"].includes(stage.artifact?.kind))) {
+      errors.push(issue(`${path}.artifact`, "must be a contained plan, brief, or notes output with a path of at most 256 characters"));
     }
     priorStageIds.push(stage.id);
   }
@@ -320,17 +353,40 @@ export function validateWorkflow(workflow) {
       errors.push(issue("$.stop.max_runtime_ms", `must be between 1000 and ${MAX_RUNTIME_MS}`));
     }
     const gate = workflow.stop.objective_gate;
-    if (!keysAre(gate, ["type", "path", "contains"]) || gate.type !== "file-contains"
-      || !isSafeWorkflowPath(gate.path) || typeof gate.contains !== "string" || gate.contains.length === 0) {
-      errors.push(issue("$.stop.objective_gate", "must be a valid file-contains gate"));
-    } else if (!(workflow.stages ?? []).some((stage) => stage.artifact?.path === gate.path)) {
-      errors.push(issue("$.stop.objective_gate.path", "must match at least one declared stage output"));
+    if (gate?.type === "file-contains") {
+      if (!keysAre(gate, ["type", "path", "contains"]) || !isSafeWorkflowPath(gate.path)
+        || gate.path.length > 256 || typeof gate.contains !== "string"
+        || gate.contains.length === 0 || gate.contains.length > 256) {
+        errors.push(issue("$.stop.objective_gate", "must be a valid bounded file-contains gate"));
+      } else if (workflow.source === "user"
+        && !(workflow.stages ?? []).some((stage) => stage.artifact?.path === gate.path)) {
+        errors.push(issue("$.stop.objective_gate.path", "must match at least one declared stage output"));
+      }
+    } else if (gate?.type === "command-exit-zero") {
+      const args = gate.args;
+      const commandSafe = typeof gate.command === "string"
+        && gate.command.length <= 128
+        && (/^[A-Za-z0-9][A-Za-z0-9._@+-]*$/.test(gate.command)
+          || (/^\.\/[A-Za-z0-9._@+/-]+$/.test(gate.command) && isSafeWorkflowPath(gate.command.slice(2))));
+      if (!keysAre(gate, ["type", "command", "args", "timeout_ms"]) || !commandSafe
+        || !Array.isArray(args) || args.length > 32
+        || args.some((arg) => typeof arg !== "string" || arg.length > 256 || arg.includes("\0"))
+        || !Number.isSafeInteger(gate.timeout_ms) || gate.timeout_ms < 1_000 || gate.timeout_ms > 10 * 60 * 1_000) {
+        errors.push(issue("$.stop.objective_gate", "must be a bounded argv-style command-exit-zero gate"));
+      } else if (gate.timeout_ms > workflow.stop.max_runtime_ms) {
+        errors.push(issue("$.stop.objective_gate.timeout_ms", "must not exceed max_runtime_ms"));
+      }
+    } else {
+      errors.push(issue("$.stop.objective_gate", "must be file-contains or command-exit-zero"));
     }
   }
   if (!hasExactlyKeys(workflow.deployment, DEPLOYMENT_FIELDS)) {
     errors.push(issue("$.deployment", "must contain every deployment field and no unknown fields"));
   }
   if (isPlainObject(workflow.deployment)) {
+    if (workflow.deployment.role_matrix !== "mock-core-loop") {
+      errors.push(issue("$.deployment.role_matrix", "must equal the supported compatibility matrix mock-core-loop"));
+    }
     const deployValidation = validateRunConfig(runConfigFromWorkflow(workflow));
     for (const error of deployValidation.errors) {
       const match = /^\$\.configs\[0\]\.([a-z_]+)/.exec(error.path);
@@ -346,6 +402,17 @@ export function validateWorkflow(workflow) {
     if (workflow.deployment.run_target?.repo !== "self" || workflow.deployment.run_target?.ref != null) {
       errors.push(issue("$.deployment.run_target", "named workflows currently run only in the confirmed current repository"));
     }
+  }
+  if (workflow.stop?.objective_gate?.type === "command-exit-zero"
+    && workflow.source === "built-in" && (workflow.stages ?? []).some((stage) => stage.artifact == null)) {
+    errors.push(issue("$.stages", "built-in command-gated stages require explicit artifacts for durable handoff"));
+  }
+  try {
+    if (Buffer.byteLength(stableStringify(workflow), "utf8") > MAX_WORKFLOW_BYTES) {
+      errors.push(issue("$", `serialized workflow must not exceed ${MAX_WORKFLOW_BYTES} bytes`));
+    }
+  } catch {
+    errors.push(issue("$", "must be serializable"));
   }
   return { valid: errors.length === 0, errors };
 }
@@ -391,6 +458,94 @@ export function workflowStageUsesGate(stage) {
   return stage?.transitions?.some((transition) => transition.when?.type === "gate") === true;
 }
 
+export function workflowLifecycleSnapshot(workflow) {
+  const execution = workflowToExecution(workflow);
+  if (!execution.ok) return null;
+  return {
+    schema_version: 1,
+    workflow_id: workflow.id,
+    chain_id: execution.chain.id,
+    max_iterations: workflow.stop.max_iterations,
+    stages: execution.chain.stages.map((stage) => ({
+      id: stage.id,
+      max_passes: stage.max_passes,
+      roles: stage.steps.filter((step) => step.kind === "role").map((step) => step.role),
+      transitions: structuredClone(stage.transitions),
+    })),
+  };
+}
+
+export function validateWorkflowLifecycleSnapshot(snapshot) {
+  if (!hasExactlyKeys(snapshot, ["schema_version", "workflow_id", "chain_id", "max_iterations", "stages"])
+    || snapshot.schema_version !== 1 || !ID.test(String(snapshot.workflow_id ?? ""))
+    || snapshot.workflow_id.length > MAX_WORKFLOW_ID_LENGTH
+    || !isPublicCode(snapshot.chain_id) || snapshot.chain_id.length > MAX_STAGE_ID_LENGTH
+    || !Number.isSafeInteger(snapshot.max_iterations)
+    || snapshot.max_iterations < 1 || snapshot.max_iterations > MAX_ITERATIONS
+    || !Array.isArray(snapshot.stages) || snapshot.stages.length < 1 || snapshot.stages.length > MAX_STAGES) {
+    return false;
+  }
+  const seen = new Set();
+  for (const stage of snapshot.stages) {
+    if (!hasExactlyKeys(stage, ["id", "max_passes", "roles", "transitions"])
+      || !STAGE_ID.test(String(stage.id ?? "")) || stage.id.length > MAX_STAGE_ID_LENGTH || seen.has(stage.id)
+      || !Number.isSafeInteger(stage.max_passes) || stage.max_passes < 1 || stage.max_passes > MAX_ITERATIONS
+      || !Array.isArray(stage.roles) || stage.roles.length < 1 || stage.roles.length > MAX_STEPS_PER_STAGE
+      || new Set(stage.roles).size !== stage.roles.length
+      || !stage.roles.some((role) => role !== "verifier")
+      || stage.roles.some((role) => !WORKFLOW_ROLE_BLOCKS.includes(role))
+      || !Array.isArray(stage.transitions) || stage.transitions.length < 1 || stage.transitions.length > MAX_TRANSITIONS_PER_STAGE) {
+      return false;
+    }
+    const schedule = stageStepSchedule({
+      steps: stage.roles.map((role, index) => ({ id: `role-${index}`, kind: "role", role })),
+    });
+    if (schedule == null) return false;
+    const definitionStage = { id: stage.id, max_passes: stage.max_passes, transitions: stage.transitions };
+    const conditions = new Set();
+    const verdicts = new Set();
+    const gates = new Set();
+    let verdictRole = null;
+    let alwaysSeen = false;
+    for (const transition of stage.transitions) {
+      if (!keysAre(transition, ["when", "action", "target", "reason"]) || !ACTIONS.includes(transition.action)) return false;
+      const conditionErrors = [];
+      validateCondition(transition.when, "$.when", stage.roles, conditionErrors);
+      if (conditionErrors.length > 0 || alwaysSeen) return false;
+      const conditionKey = JSON.stringify(transition.when);
+      if (conditions.has(conditionKey)) return false;
+      conditions.add(conditionKey);
+      if (transition.when.type === "always") alwaysSeen = true;
+      if (transition.when.type === "verdict") {
+        verdicts.add(transition.when.is);
+        verdictRole ??= transition.when.role;
+        if (transition.when.role !== verdictRole) return false;
+      }
+      if (transition.when.type === "gate") gates.add(transition.when.is);
+      if (transition.action === "back") {
+        if (!seen.has(transition.target) || transition.reason != null) return false;
+      } else if (transition.target != null) return false;
+      if (transition.action === "stop") {
+        if (!isPublicCode(transition.reason) || transition.reason.length > MAX_STOP_REASON_LENGTH) return false;
+      } else if (transition.reason != null) return false;
+      let decision;
+      try {
+        decision = decideWorkflowTransition(definitionStage, 0, signalForCondition(transition.when));
+      } catch {
+        return false;
+      }
+      if (decision.action !== transition.action || (decision.target ?? null) !== (transition.target ?? null)
+        || (transition.action === "stop" && decision.code !== transition.reason)
+        || (transition.action === "back" && !seen.has(transition.target))) return false;
+    }
+    if (verdicts.size > 0 && gates.size > 0) return false;
+    if (!alwaysSeen && (verdicts.size > 0 && VERDICTS.some((value) => !verdicts.has(value)))) return false;
+    if (!alwaysSeen && (gates.size > 0 && ["pass", "fail"].some((value) => !gates.has(value)))) return false;
+    seen.add(stage.id);
+  }
+  return true;
+}
+
 /** Host effects required beyond role execution; the Pi workflow runner injects none. */
 export function workflowRequiredHostEffects(workflow) {
   return [...new Set((workflow?.stages ?? []).flatMap((stage) =>
@@ -414,7 +569,7 @@ function successSignals(workflow) {
   });
 }
 
-/** Exercise every transition and ceiling, then prove the end-to-end success path. */
+/** Validate and simulate the definition. This performs no deployment or artifact effects. */
 export function testWorkflow(workflow) {
   const valid = validateWorkflow(workflow);
   const totalTransitions = (workflow?.stages ?? []).reduce((sum, stage) => sum + (stage.transitions?.length ?? 0), 0);
@@ -472,7 +627,8 @@ export function testWorkflow(workflow) {
   return {
     ok: true, transitions_tested: transitionsTested, transitions_total: totalTransitions,
     ceilings_tested: workflow.stages.length, exhaustions_tested: exhaustionsTested,
-    artifacts_tested: workflow.stages.length, deployment_tested: true,
+    artifacts_declared: workflow.stages.filter((stage) => stage.artifact != null).length,
+    definition_tested: true, deployment_projected: true, runtime_tested: false,
     actions_tested: [...actionsTested].sort(), simulation,
   };
 }
@@ -588,7 +744,7 @@ function templateStages(template, gatePath) {
 
 export function createWorkflowFromTemplate({
   id, template = "implement-review", description = "User-created Helix workflow",
-  gate_path = "proposal.txt", gate_contains = "HELIX_WORKFLOW_PASS", max_iterations = 6,
+  gate_path = "proposal.txt", gate_contains = "HELIX_WORKFLOW_PASS", objective_gate = null, max_iterations = 6,
 } = {}) {
   const stages = templateStages(template, gate_path);
   if (!stages) return { ok: false, code: "unknown-workflow-template", detail: template };
@@ -602,7 +758,7 @@ export function createWorkflowFromTemplate({
     stop: {
       max_iterations,
       max_runtime_ms: 10 * 60 * 1000,
-      objective_gate: { type: "file-contains", path: gate_path, contains: gate_contains },
+      objective_gate: structuredClone(objective_gate ?? { type: "file-contains", path: gate_path, contains: gate_contains }),
     },
     deployment: {
       chain_id: id,

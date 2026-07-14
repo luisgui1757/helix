@@ -7,9 +7,12 @@ import { join } from "node:path";
 import { loadPresetRegistry } from "../../dispatch/lib/presets.mjs";
 import { loadSettings, toggleVector, DEFAULT_SETTINGS_REL_PATH } from "../../dispatch/lib/settings.mjs";
 import { prepareRunDirectory, validateRunId } from "../../dispatch/lib/run-manager.mjs";
+import { writeTextAtomic } from "../../dispatch/lib/persistence.mjs";
+import { hashRef, stableStringify } from "../../dispatch/lib/run-record.mjs";
 import { makeGitWorktreeEffect, runStagedTaskLoop } from "../../dispatch/lib/runner.mjs";
 import {
   workflowExecutionBindingRef,
+  workflowLifecycleSnapshot,
   workflowRequiredHostEffects,
   workflowToExecution,
 } from "../../dispatch/lib/workflows.mjs";
@@ -82,6 +85,15 @@ export async function executeNamedWorkflow({
 
   const prepared = prepareRunDirectory(runsRoot, run_id, { clean: false });
   if (!prepared.ok) return { ok: false, status: "fail-closed", code: prepared.code };
+  const lifecycle = workflowLifecycleSnapshot(named.workflow);
+  if (!lifecycle) return { ok: false, status: "fail-closed", code: "workflow-lifecycle-snapshot-invalid" };
+  const lifecycleText = stableStringify(lifecycle);
+  const workflowRef = hashRef(lifecycleText);
+  try {
+    writeTextAtomic(prepared.path, `${run_id}.workflow.json`, `${lifecycleText}\n`);
+  } catch {
+    return { ok: false, status: "fail-closed", code: "workflow-lifecycle-snapshot-write-failed" };
+  }
 
   return runStagedTaskLoop(config, {
     chainRegistry: { schema_version: 3, chains: [execution.chain] },
@@ -92,6 +104,7 @@ export async function executeNamedWorkflow({
     seed: 7,
     run_id,
     task_instruction: task,
+    workflow_ref: workflowRef,
     runtime_limits: {
       max_runtime_ms: named.workflow.stop.max_runtime_ms,
       call_timeout_ms: named.workflow.deployment.call_timeout_ms,

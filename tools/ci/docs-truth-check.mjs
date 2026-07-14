@@ -20,6 +20,9 @@ export const HELIX_COMMANDS = Object.freeze([
   "/helix-chains",
   "/helix-workflows",
   "/helix-workflow-create",
+  "/helix-workflow-edit",
+  "/helix-workflow-clone",
+  "/helix-workflow-delete",
   "/helix-settings",
   "/helix-profiles",
   "/helix-setup",
@@ -47,7 +50,7 @@ function requireCommand(errors, manual, command) {
 
 export function checkDocsTruth(root = ROOT) {
   const errors = [];
-  for (const rel of ["README.md", "docs/manual.md", "docs/architecture.md", "package.json"]) {
+  for (const rel of ["README.md", "docs/manual.md", "docs/workflows.md", "docs/architecture.md", "package.json"]) {
     if (!existsSync(join(root, rel))) errors.push(`${rel}: required documentation surface is missing`);
   }
   if (errors.length > 0) return { ok: false, errors };

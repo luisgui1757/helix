@@ -15,15 +15,35 @@ import { isSafeWorktreeFilePath } from "./persistence.mjs";
 const CONFIG_ID_PATTERN = "^[a-z0-9][a-z0-9._:-]*$";
 const SAFE_REL_PATH_PATTERN = "^[A-Za-z0-9._/-]+$";
 
-const OBJECTIVE_GATE_SCHEMA = Object.freeze({
+const FILE_CONTAINS_GATE_SCHEMA = Object.freeze({
   type: "object",
   additionalProperties: false,
   required: ["type", "path", "contains"],
   properties: {
-    type: { type: "string", enum: ["file-contains"] },
-    path: { type: "string", pattern: SAFE_REL_PATH_PATTERN },
-    contains: { type: "string", minLength: 1 },
+    type: { const: "file-contains" },
+    path: { type: "string", pattern: SAFE_REL_PATH_PATTERN, maxLength: 256 },
+    contains: { type: "string", minLength: 1, maxLength: 256 },
   },
+});
+
+const COMMAND_GATE_SCHEMA = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "command", "args", "timeout_ms"],
+  properties: {
+    type: { const: "command-exit-zero" },
+    command: { type: "string", minLength: 1, maxLength: 128 },
+    args: {
+      type: "array",
+      maxItems: 32,
+      items: { type: "string", maxLength: 256 },
+    },
+    timeout_ms: { type: "integer", minimum: 1_000, maximum: 10 * 60 * 1_000 },
+  },
+});
+
+export const OBJECTIVE_GATE_SCHEMA = Object.freeze({
+  anyOf: [FILE_CONTAINS_GATE_SCHEMA, COMMAND_GATE_SCHEMA],
 });
 
 export const RUN_CONFIG_SCHEMA = Object.freeze({
@@ -41,10 +61,10 @@ export const RUN_CONFIG_SCHEMA = Object.freeze({
     "evidence_ref",
   ],
   properties: {
-    id: { type: "string", pattern: CONFIG_ID_PATTERN },
-    description: { type: "string", minLength: 1 },
-    chain: { type: "string", pattern: CONFIG_ID_PATTERN },
-    role_matrix: { type: "string", pattern: CONFIG_ID_PATTERN },
+    id: { type: "string", pattern: CONFIG_ID_PATTERN, maxLength: 64 },
+    description: { type: "string", minLength: 1, maxLength: 512 },
+    chain: { type: "string", pattern: CONFIG_ID_PATTERN, maxLength: 64 },
+    role_matrix: { type: "string", pattern: CONFIG_ID_PATTERN, maxLength: 64 },
     max_iterations: { type: "integer", minimum: 1, maximum: MAX_ITERATIONS },
     // Per-stage casts: stage-id → composite or plain model. Keys and
     // values are validated semantically below (the dependency-free validator
@@ -67,7 +87,7 @@ export const RUN_CONFIG_SCHEMA = Object.freeze({
       required: ["repo"],
       properties: {
         repo: { type: "string", enum: ["self", "other"] },
-        ref: { type: "string", minLength: 1 },
+        ref: { type: "string", minLength: 1, maxLength: 256 },
       },
     },
     input_refs: {
@@ -78,13 +98,13 @@ export const RUN_CONFIG_SCHEMA = Object.freeze({
         required: ["kind", "value", "algorithm"],
         properties: {
           kind: { type: "string", enum: ["sha256", "redacted-id", "local-ref"] },
-          value: { type: "string", minLength: 1 },
+          value: { type: "string", minLength: 1, maxLength: 512 },
           algorithm: { anyOf: [{ type: "string", enum: ["sha256"] }, { type: "null" }] },
         },
       },
     },
-    claims_ref: { type: "string", pattern: REF_PATTERN },
-    evidence_ref: { type: "string", pattern: REF_PATTERN },
+    claims_ref: { type: "string", pattern: REF_PATTERN, maxLength: 512 },
+    evidence_ref: { type: "string", pattern: REF_PATTERN, maxLength: 512 },
   },
 });
 
@@ -118,13 +138,25 @@ export function validateRunConfigRegistry(registry) {
     if (seen.has(config.id)) errors.push(semanticError(`${path}.id`, `duplicate run config id '${config.id}'`));
     seen.add(config.id);
 
-    if (!isSafeWorktreeFilePath(config.objective_gate.path)) {
+    if (config.objective_gate.type === "file-contains" && !isSafeWorktreeFilePath(config.objective_gate.path)) {
       errors.push(semanticError(`${path}.objective_gate.path`, "must be a safe repo-relative path"));
+    }
+    if (config.objective_gate.type === "command-exit-zero") {
+      const command = config.objective_gate.command;
+      const commandSafe = typeof command === "string" && !command.includes("\0")
+        && (/^[A-Za-z0-9][A-Za-z0-9._@+-]*$/.test(command)
+          || (/^\.\/[A-Za-z0-9._@+/-]+$/.test(command) && isSafeWorktreeFilePath(command.slice(2))));
+      if (!commandSafe) {
+        errors.push(semanticError(`${path}.objective_gate.command`, "must be an executable name or safe ./repo-relative path"));
+      }
+      if (config.objective_gate.args.some((arg) => arg.includes("\0"))) {
+        errors.push(semanticError(`${path}.objective_gate.args`, "must not contain NUL bytes"));
+      }
     }
 
     if (config.assignments != null) {
       for (const [stageId, assignment] of Object.entries(config.assignments)) {
-        if (!STAGE_KEY.test(stageId)) {
+        if (!STAGE_KEY.test(stageId) || stageId.length > 64) {
           errors.push(semanticError(`${path}.assignments.${stageId}`, "assignment keys must be stage ids"));
         }
         const shape = validateAssignment(assignment);

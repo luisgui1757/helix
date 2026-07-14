@@ -22,6 +22,7 @@ import { makeEventLog, renderEventLine, validateCheckpointEventBinding } from ".
 import { loadPresetRegistry } from "../dispatch/lib/presets.mjs";
 import { hashRef, stableStringify } from "../dispatch/lib/run-record.mjs";
 import { MAX_PANEL_MEMBERS } from "../dispatch/lib/limits.mjs";
+import { createWorkflowFromTemplate, workflowToExecution } from "../dispatch/lib/workflows.mjs";
 
 const NOW = 1_751_731_200;
 const matricesDir = new URL("../dispatch/config/matrices/", import.meta.url).pathname;
@@ -237,6 +238,54 @@ test("writer-bearing stages serialize candidate access to their shared worktree"
     const result = await runStagedTaskLoop(config, { chainRegistry, presets }, deps);
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(maximumActive, 1);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("read-only workflow panels honor bounded concurrency and produce a runtime-owned artifact", async () => {
+  const repo = tempRepo();
+  try {
+    const created = createWorkflowFromTemplate({ id: "parallel-review" });
+    assert.equal(created.ok, true);
+    created.workflow.stages[0].steps = [
+      { id: "review", kind: "role", role: "reviewer" },
+      { id: "redteam", kind: "role", role: "redteam" },
+    ];
+    const execution = workflowToExecution(created.workflow);
+    assert.equal(execution.ok, true, JSON.stringify(execution));
+    const mock = createStagedMockAdapter();
+    let active = 0;
+    let maximumActive = 0;
+    const adapter = {
+      kind: "test-read-only-parallel-adapter",
+      async runCandidate(spec, ctx) {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        const envelope = mock.dispatchAdapter.runCandidate(spec, ctx);
+        active -= 1;
+        return envelope;
+      },
+      runJudge: mock.dispatchAdapter.runJudge,
+      runSynthesis: mock.dispatchAdapter.runSynthesis,
+      runVerifier: mock.dispatchAdapter.runVerifier,
+    };
+    const { deps } = makeDeps(repo, {
+      run_id: "parallel-read-only",
+      adapter,
+      objective_gate_effect: async () => ({
+        command_names: ["test-gate"], result: "pass", source: "deterministic-checker",
+      }),
+    });
+    const result = await runStagedTaskLoop(execution.config, {
+      chainRegistry: { schema_version: 3, chains: [execution.chain] }, presets,
+    }, deps);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(maximumActive, 2);
+    const artifact = JSON.parse(readFileSync(join(result.worktree_path, "proposal.txt"), "utf8"));
+    assert.equal(artifact.stage_id, "implement");
+    assert.deepEqual(artifact.results.map((entry) => entry.role), ["reviewer", "redteam"]);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

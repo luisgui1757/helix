@@ -88,6 +88,13 @@ test("array items + minItems", () => {
   assert.equal(isValid(s, [1]), false);
 });
 
+test("maxLength and maxItems enforce bounded external input", () => {
+  assert.equal(validate({ type: "string", maxLength: 3 }, "abc").valid, true);
+  assert.equal(validate({ type: "string", maxLength: 3 }, "abcd").valid, false);
+  assert.equal(validate({ type: "array", maxItems: 2, items: { type: "string" } }, ["a", "b"]).valid, true);
+  assert.equal(validate({ type: "array", maxItems: 2, items: { type: "string" } }, ["a", "b", "c"]).valid, false);
+});
+
 test("a string `pattern` (JSON-Schema/TypeBox shape) is enforced, not ignored", () => {
   const s = { type: "string", pattern: "^[a]+$" };
   assert.equal(isValid(s, "aaa"), true);

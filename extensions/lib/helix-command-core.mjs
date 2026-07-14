@@ -5,7 +5,7 @@
 // Mutating verbs (settings set, profile create/switch, setup, and structural
 // prune) are gated by ctx.mode + explicit confirmation before any writer runs.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, lstatSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "../../dispatch/lib/schema.mjs";
@@ -22,9 +22,11 @@ import {
   createWorkflowFromTemplate,
   testWorkflow,
   workflowExecutionBindingRef,
+  validateWorkflowLifecycleSnapshot,
   workflowRequiredHostEffects,
   workflowToExecution,
 } from "../../dispatch/lib/workflows.mjs";
+import { preflightObjectiveGate } from "../../dispatch/lib/task-loop.mjs";
 import { resolveChainCast } from "../../dispatch/lib/presets.mjs";
 import { validateRoleMatrixConfig } from "../../dispatch/lib/role-matrix.mjs";
 import { validateMachineResume } from "../../dispatch/lib/stage-machine.mjs";
@@ -91,6 +93,9 @@ export const HELIX_USAGE = `Usage:
   /helix-chains
   /helix-workflows [list | show <id> | test <id>]
   /helix-workflow-create <id> [implement-review|plan-implement|tdd-fix]
+  /helix-workflow-edit [id]
+  /helix-workflow-clone [id]
+  /helix-workflow-delete [id]
   /helix-settings [<toggle> on|off]
   /helix-profiles [show <id> | switch <id> | create <id>]
   /helix-setup [<existing-profile-id> <stage>=<preset | provider/model[:effort]> ...]
@@ -206,6 +211,10 @@ const REFUSAL_GUIDANCE = Object.freeze({
     reason: "This workflow needs typed host effects that the Pi workflow runner does not provide.",
     next: "Inspect /helix-workflows show <id>; use a runnable workflow until those effects are wired.",
   },
+  "objective-gate-command-unavailable": {
+    reason: "The workflow's objective-check executable is not available in this repository environment.",
+    next: "Install the checker or edit the workflow to use an available argv-style command.",
+  },
 });
 
 class HelixConfigLoadError extends Error {
@@ -240,6 +249,7 @@ function dependencies(options = {}) {
     runsRoot: options.runsRoot ?? join(stateRoot, "runs"),
     settingsPath: options.settingsPath ?? join(stateRoot, DEFAULT_SETTINGS_REL_PATH),
     matricesDir: options.matricesDir ?? join(root, "dispatch", "config", "matrices"),
+    cwd: options.cwd ?? process.cwd(),
     modelInventory: Array.isArray(options.modelInventory) ? options.modelInventory : null,
     toggles: options.toggles ?? null,
   };
@@ -363,7 +373,7 @@ function renderHelp() {
       "Tour: /helix-onboarding reruns the keyboard-first getting-started guide.",
       "Dashboard: /helix shows status; /helix-settings opens the interactive feature list.",
       "Run: /helix-run [workflow-id] shows the cast, rails, repository, and task, then starts after confirmation.",
-      "Build: /helix-workflow-create starts from a template and edits stages, panels, transitions, deployment, and stop rails.",
+      "Build: /helix-workflow-create starts from a template; /helix-workflow-edit, -clone, and -delete manage personal workflows.",
       "Runs: /helix-runs, /helix-run-status, /helix-run-watch, /helix-run-resume, /helix-run-prune.",
       "Views: /helix-models, /helix-chains, /helix-profiles.",
       "Casts: /helix-setup saves stage assignments and composite member lineups from Pi's available-model inventory.",
@@ -466,6 +476,15 @@ function resourceStatus(pkg) {
 }
 
 function structuralObjectiveGate(gate) {
+  if (gate.type === "command-exit-zero") {
+    return {
+      type: gate.type,
+      command: gate.command,
+      args_ref: hashRef(stableStringify(gate.args)),
+      arg_count: gate.args.length,
+      timeout_ms: gate.timeout_ms,
+    };
+  }
   return {
     type: gate.type,
     path: gate.path,
@@ -602,6 +621,10 @@ function buildPreflight(configId, deps) {
   if (!castResult.ok) return { ok: false, code: castResult.code, detail: castResult.detail, config, profile_applied: profileApplied };
 
   const providers = castProviders(castResult.cast);
+  const gatePreflight = preflightObjectiveGate(deps.cwd, config.objective_gate);
+  if (!gatePreflight.ok) {
+    return { ok: false, code: gatePreflight.code, detail: config.objective_gate.type, config, chain, profile_applied: profileApplied };
+  }
   const executionBindingRef = workflow
     ? workflowExecutionBindingRef({
       workflow,
@@ -648,7 +671,9 @@ function renderPreflight(preflight, requestedId) {
       `Assignments: ${config.assignments && Object.keys(config.assignments).length ? Object.entries(config.assignments).map(([stage, a]) => `${stage}=${assignmentLabel(a)}`).join(" ") : "(defaults)"}`,
       `Providers: ${preflight.cast_providers.join(", ")}`,
       `Live: ${preflight.live_status}`,
-      `Objective gate: ${config.objective_gate.type}:${config.objective_gate.path}`,
+      `Objective gate: ${config.objective_gate.type === "command-exit-zero"
+        ? `${config.objective_gate.command} (${config.objective_gate.args.length} argument(s))`
+        : `${config.objective_gate.type}:${config.objective_gate.path}`}`,
       `Rail: max_iterations=${config.max_iterations}`,
       `Runtime: ${preflight.runtime_limits.max_runtime_ms}ms total; ${preflight.runtime_limits.call_timeout_ms}ms per provider call`,
       config.parallel
@@ -702,7 +727,7 @@ export function renderHelixRunCompletion({ runId, configId, exitCode, converged 
         `Helix refusal: ${safeFailure}`,
         "Reason: workflow execution stopped at a stable fail-closed boundary.",
         `Run: ${runId}`,
-        `Next safe action: inspect /helix-run-status ${runId}; no raw runner output was rendered.`,
+        `Next safe action: inspect /helix-run-watch ${runId}; no raw runner output was rendered.`,
       ],
       details: { run_id: runId, config_id: configId, exit_code: exitCode, converged: false, stop_reason: safeStopReason },
     });
@@ -714,8 +739,49 @@ export function renderHelixRunCompletion({ runId, configId, exitCode, converged 
       `Config: ${configId}`,
       `Result: ${converged ? "converged" : "complete"} (${safeStopReason})`,
       `Inspect: /helix-run-status ${runId}`,
+      `Visual flow: /helix-run-watch ${runId}`,
     ],
     details: { run_id: runId, config_id: configId, exit_code: exitCode, converged, stop_reason: safeStopReason },
+  });
+}
+
+export function renderWorkflowRuntimeTest({ workflowId, outcome }) {
+  if (!isPublicCode(workflowId) || !outcome || typeof outcome !== "object") {
+    return fail("workflow-runtime-smoke-invalid", null, "Helix workflow runtime test failed");
+  }
+  if (outcome.ok !== true) {
+    return fail(isPublicCode(outcome.code) ? outcome.code : "workflow-runtime-smoke-failed", workflowId,
+      "Helix workflow runtime test failed");
+  }
+  if (outcome.provider_calls !== 0
+    || outcome.objective_check !== "simulated"
+    || !Number.isSafeInteger(outcome.stages_exercised)
+    || outcome.stages_exercised < 1
+    || !Number.isSafeInteger(outcome.total_passes)
+    || outcome.total_passes < 1) {
+    return fail("workflow-runtime-smoke-invalid", workflowId, "Helix workflow runtime test failed");
+  }
+  return result({
+    title: "Helix workflow runtime test passed",
+    lines: [
+      `Workflow: ${workflowId}`,
+      "Runner: real staged execution in a temporary detached Git worktree",
+      "Providers: 0 calls (deterministic mock cast)",
+      "Objective check: simulated to exercise routing without claiming task success",
+      `Stages exercised: ${outcome.stages_exercised}`,
+      `Total passes: ${outcome.total_passes}`,
+      "Cleanup: temporary worktree removed",
+    ],
+    details: {
+      workflow_id: workflowId,
+      runtime_tested: true,
+      provider_calls: outcome.provider_calls,
+      objective_check_simulated: true,
+      stages_exercised: outcome.stages_exercised,
+      total_passes: outcome.total_passes,
+      cleanup: "complete",
+      view_only: true,
+    },
   });
 }
 
@@ -855,7 +921,7 @@ function workflowLines(workflow) {
   return workflow.stages.flatMap((stage, index) => [
     `${index + 1}. ${stage.id} (max ${stage.max_passes} pass${stage.max_passes === 1 ? "" : "es"})`,
     `   roles: ${stage.steps.filter((step) => step.kind === "role").map((step) => step.role).join(" -> ") || "none"}`,
-    `   output: ${stage.artifact.path} (${stage.artifact.kind})`,
+    `   output: ${stage.artifact ? `${stage.artifact.path} (${stage.artifact.kind})` : "not declared (legacy built-in stage)"}`,
     ...stage.transitions.map((transition) => {
       const condition = transition.when.type === "always"
         ? "always"
@@ -865,6 +931,40 @@ function workflowLines(workflow) {
       return `   ${condition} -> ${transition.action}${transition.target ? ` ${transition.target}` : ""}`;
     }),
   ]);
+}
+
+function workflowGraphLines(workflow, events = []) {
+  const passCounts = Object.fromEntries(workflow.stages.map((stage) => [stage.id, 0]));
+  const completed = new Set();
+  let current = null;
+  for (const event of events) {
+    if (event.kind === "pass-start" && Object.hasOwn(passCounts, event.stage_id)) {
+      passCounts[event.stage_id] = Math.max(passCounts[event.stage_id], event.pass);
+      current = event.stage_id;
+    }
+    if (event.kind === "stage-end") completed.add(event.stage_id);
+    if (event.kind === "run-end") current = null;
+  }
+  return ["Flow:", ...workflow.stages.flatMap((stage, index) => {
+    const marker = current === stage.id ? "●" : completed.has(stage.id) ? "✓" : "○";
+    const count = passCounts[stage.id] > 0 ? ` · ${passCounts[stage.id]} pass${passCounts[stage.id] === 1 ? "" : "es"}` : "";
+    const next = workflow.stages[index + 1]?.id ?? "complete";
+    return [
+      `  ${marker} ${stage.id}${count}`,
+      ...stage.transitions.map((transition) => {
+        const condition = transition.when.type === "always"
+          ? "always"
+          : transition.when.type === "gate"
+            ? `gate=${transition.when.is}`
+            : `${transition.when.role}=${transition.when.is}`;
+        const target = transition.action === "advance" ? next
+          : transition.action === "retry" ? stage.id
+            : transition.target ?? transition.reason;
+        const glyph = transition.action === "back" ? "↩" : transition.action === "retry" ? "↻" : "→";
+        return `      ${condition} ${glyph} ${target}`;
+      }),
+    ];
+  })];
 }
 
 function structuralWorkflow(workflow) {
@@ -885,7 +985,7 @@ function structuralWorkflow(workflow) {
     stages: workflow.stages.map((stage) => ({
       id: stage.id,
       max_passes: stage.max_passes,
-      artifact: { ...stage.artifact },
+      artifact: stage.artifact ? { ...stage.artifact } : null,
       roles: stage.steps.filter((step) => step.kind === "role").map((step) => step.role),
       transitions: stage.transitions.map((transition) => ({
         when: { ...transition.when },
@@ -938,8 +1038,9 @@ function renderWorkflows(deps, tokens) {
           `  ${workflow.id} [${workflow.source}]: ${workflow.stages.map((stage) => stage.id).join(" -> ")} · max ${workflow.stop.max_iterations} · ${workflowRequiredHostEffects(workflow).length ? `requires host effects: ${workflowRequiredHostEffects(workflow).join(", ")}` : "ready to run"}`),
         "",
         "Create: /helix-workflow-create",
+        "Manage personal workflows: /helix-workflow-edit · /helix-workflow-clone · /helix-workflow-delete",
         "Inspect: /helix-workflows show <id>",
-        "Test without providers: /helix-workflows test <id>",
+        "Test definition, deployment, and isolated mock runtime: /helix-workflows test <id>",
       ],
       details: { workflows: catalog.workflows.map(structuralWorkflow), view_only: true },
     });
@@ -952,6 +1053,8 @@ function renderWorkflows(deps, tokens) {
       title: "Helix workflow",
       lines: [
         `Workflow: ${resolved.workflow.id} [${resolved.workflow.source}]`,
+        ...workflowGraphLines(resolved.workflow),
+        "",
         ...workflowLines(resolved.workflow),
         `Stop: objective gate passes, max_iterations=${resolved.workflow.stop.max_iterations}, or ${resolved.workflow.stop.max_runtime_ms}ms`,
         `Provider call timeout: ${resolved.workflow.deployment.call_timeout_ms}ms`,
@@ -965,15 +1068,23 @@ function renderWorkflows(deps, tokens) {
   if (sub === "test") {
     const tested = testWorkflow(resolved.workflow);
     if (!tested.ok) return fail(tested.code, id, "Helix workflow test failed");
+    const deployable = buildPreflight(id, deps);
+    if (!deployable.ok) return fail(deployable.code, deployable.detail, "Helix workflow deployment check failed");
+    if (deployable.cast_providers.some((provider) => provider !== "mock") && !Array.isArray(deps.modelInventory)) {
+      return fail("helix-model-inventory-unavailable", id, "Helix workflow deployment check failed");
+    }
     const simulated = tested.simulation;
     return result({
-      title: "Helix workflow test passed",
+      title: "Helix workflow checks passed",
       lines: [
         `Workflow: ${id}`,
-        "Provider calls: 0 (deterministic simulation)",
+        "Definition: valid closed schema",
+        "Deployment: cast, providers, objective-check executable, and environment resolved",
+        "Runtime effects: not executed (run the workflow for task-specific proof)",
+        "Provider calls: 0",
         `Transitions tested: ${tested.transitions_tested}/${tested.transitions_total}`,
         `Stage ceilings tested: ${tested.ceilings_tested}`,
-        `Durable output contracts: ${tested.artifacts_tested}/${tested.artifacts_tested}`,
+        `Durable outputs declared: ${tested.artifacts_declared}`,
         ...simulated.trace.map((entry) => `${entry.stage_id} pass ${entry.pass} -> ${entry.action}${entry.target ? ` ${entry.target}` : ""}`),
         `Stop: ${simulated.stop_reason}`,
       ],
@@ -983,8 +1094,10 @@ function renderWorkflows(deps, tokens) {
         transitions_tested: tested.transitions_tested,
         transitions_total: tested.transitions_total,
         ceilings_tested: tested.ceilings_tested,
-        artifacts_tested: tested.artifacts_tested,
-        deployment_tested: tested.deployment_tested,
+        artifacts_declared: tested.artifacts_declared,
+        definition_tested: true,
+        deployment_checked: true,
+        runtime_tested: false,
         converged: simulated.converged,
         stop_reason: simulated.stop_reason,
         trace: simulated.trace,
@@ -1333,6 +1446,10 @@ function renderRunsWatch(runId, deps) {
   if (!existsSync(eventsPath)) return fail("run-not-found", "run-events-not-found", "Helix run watch refused");
   let events;
   try {
+    const entry = lstatSync(eventsPath);
+    if (entry.isSymbolicLink() || !entry.isFile() || entry.size === 0 || entry.size > 64 * 1024 * 1024) {
+      return fail("run-record-invalid-or-unsafe", "event-stream-file", "Helix run watch refused");
+    }
     events = readFileSync(eventsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   } catch {
     return fail("helix-config-unreadable", "events-jsonl", "Helix run watch refused");
@@ -1343,8 +1460,41 @@ function renderRunsWatch(runId, deps) {
     return fail("run-record-invalid-or-unsafe", "event-stream-structure", "Helix run watch refused");
   }
   const runStart = events[0];
-  const resolvedConfig = resolveRunConfig(deps.runRegistry, runStart?.config_id);
-  const resolvedChain = resolveChain(deps.chainRegistry, runStart?.chain_id);
+  let resolvedConfig = resolveRunConfig(deps.runRegistry, runStart?.config_id);
+  let resolvedChain = resolveChain(deps.chainRegistry, runStart?.chain_id);
+  let workflow = null;
+  if (runStart?.workflow_ref) {
+    const definitionPath = join(deps.runsRoot, runId, `${runId}.workflow.json`);
+    try {
+      if (!existsSync(definitionPath)) throw new Error("missing");
+      const entry = lstatSync(definitionPath);
+      if (entry.isSymbolicLink() || !entry.isFile() || entry.size > 64 * 1024) throw new Error("invalid-file");
+      const definition = JSON.parse(readFileSync(definitionPath, "utf8"));
+      const definitionText = stableStringify(definition);
+      if (hashRef(definitionText) !== runStart.workflow_ref
+        || !validateWorkflowLifecycleSnapshot(definition)
+        || definition.workflow_id !== runStart.config_id || definition.chain_id !== runStart.chain_id) {
+        throw new Error("invalid");
+      }
+      resolvedConfig = { ok: true, config: { id: definition.workflow_id, chain: definition.chain_id, max_iterations: definition.max_iterations } };
+      resolvedChain = { ok: true, chain: { id: definition.chain_id, stages: definition.stages } };
+      workflow = { id: definition.workflow_id, source: "run-snapshot", stages: definition.stages };
+    } catch {
+      return fail("run-record-invalid-or-unsafe", "workflow-snapshot", "Helix run watch refused");
+    }
+  } else if (!resolvedConfig.ok) {
+    const named = resolveWorkflow(deps.stateRoot, runStart?.config_id, deps.chainRegistry, deps.runRegistry);
+    const execution = named.ok ? workflowToExecution(named.workflow) : null;
+    if (execution?.ok && execution.chain.id === runStart?.chain_id) {
+      resolvedConfig = { ok: true, config: execution.config };
+      resolvedChain = { ok: true, chain: execution.chain };
+      workflow = named.workflow;
+    }
+  }
+  if (!workflow && resolvedConfig.ok && resolvedChain.ok) {
+    workflow = builtInWorkflows(deps.chainRegistry, deps.runRegistry)
+      .find((candidate) => candidate.id === runStart.config_id) ?? null;
+  }
   const lifecycleValid = resolvedConfig.ok && resolvedChain.ok
     && [true, false].some((loops) => reduceEventLifecycle(events, {
       chain: resolvedChain.chain,
@@ -1373,6 +1523,7 @@ function renderRunsWatch(runId, deps) {
     blocked ? `Blocked: ${blocked.code} -> next: ${blocked.next_action ?? "-"}` : "Blocked: no",
     `Elapsed: ${elapsed}ms across ${events.length} event(s)`,
     ...(runEnd && runEnd.open_disagreements != null ? [`Open disagreements: ${runEnd.open_disagreements}`] : []),
+    ...(workflow ? ["", ...workflowGraphLines(workflow, events)] : []),
   ];
   return result({
     title: "Helix run watch",
@@ -1387,6 +1538,7 @@ function renderRunsWatch(runId, deps) {
       verdict: verdict?.verdict ?? null,
       blocked_code: blocked?.code ?? null,
       events: events.length,
+      flow: workflow ? workflowGraphLines(workflow, events).slice(1) : [],
     },
   });
 }

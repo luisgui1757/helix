@@ -46,11 +46,11 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { validateRunConfig } from "./run-configs.mjs";
 import { resolveChain } from "./chains.mjs";
-import { workflowVerdictRole } from "./workflows.mjs";
+import { objectiveGateSummary, workflowVerdictRole } from "./workflows.mjs";
 import { resolveChainCast } from "./presets.mjs";
 import { runStagedChain, STAGE_VERDICTS, validateMachineResume } from "./stage-machine.mjs";
 import { runDispatch } from "./orchestrate.mjs";
-import { makeFileContainsGate } from "./task-loop.mjs";
+import { makeObjectiveGate } from "./task-loop.mjs";
 import { makeModelRevision } from "./revision-effect.mjs";
 import {
   makeEventLog,
@@ -1733,6 +1733,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       chain_id: chain.id,
       config_id: config.id,
       max_iterations: config.max_iterations,
+      ...(deps.workflow_ref ? { workflow_ref: deps.workflow_ref } : {}),
       ...(worktreeEnabled ? {} : { warning: "worktree-off-working-tree" }),
     });
   }
@@ -1756,25 +1757,48 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       return (ctx.verification?.provider === "mock" ? mock.dispatchAdapter : piLiveAdapter).runVerifier(input, ctx);
     },
   } : liveAdapter ?? mock.dispatchAdapter;
-  const mockRevisionModelAdapter = mock.revisionAdapter({
+  const mockRevisionModelAdapter = mock.revisionAdapter(config.objective_gate.type === "file-contains" ? {
     [config.objective_gate.path]: `Helix staged proposal\n${config.objective_gate.contains}\n`,
-  });
+  } : {});
   const artifactEffect = deps.artifact_effect ?? (async (artifact, ctx) => {
     const stageCast = castByStage.get(ctx.stage_id);
     const mutatingMembers = Object.entries(stageCast?.roles ?? {})
       .filter(([role]) => WORKTREE_MUTATING_ROLES.has(role))
       .flatMap(([, members]) => members);
+    if (mutatingMembers.length === 0) {
+      const results = (ctx.stage_result?.candidates ?? [])
+        .filter((candidate) => candidate.disposition === "launched" && candidate.envelope)
+        .map((candidate) => ({
+          role: candidate.role,
+          status: candidate.envelope.status,
+          uncertainty: candidate.envelope.uncertainty,
+          risks: candidate.envelope.risks,
+          recommendation: candidate.envelope.recommendation,
+          proposed_actions: candidate.envelope.proposed_actions,
+          open_questions: candidate.envelope.open_questions,
+        }));
+      if (results.length === 0) return { ok: false };
+      writeTextAtomic(ctx.cwd, artifact.path, stableStringify({
+        schema_version: 1,
+        stage_id: ctx.stage_id,
+        pass: ctx.pass,
+        results,
+      }) + "\n");
+      return { ok: true };
+    }
     if (mutatingMembers.length > 0 && mutatingMembers.every((member) => member.provider === "mock")) {
       const path = resolve(ctx.cwd, artifact.path);
       const existing = existsSync(path) && isContainedRegularFile(ctx.cwd, path) ? readFileSync(path, "utf8") : "";
-      const gateMarker = artifact.path === config.objective_gate.path ? `\n${config.objective_gate.contains}\n` : "";
+      const gateMarker = config.objective_gate.type === "file-contains"
+        && artifact.path === config.objective_gate.path ? `\n${config.objective_gate.contains}\n` : "";
       writeTextAtomic(ctx.cwd, artifact.path,
         `${existing}\nMock ${artifact.kind} artifact pass ${ctx.pass}.${gateMarker}`);
     }
     return { ok: true };
   });
 
-  const gate = makeFileContainsGate(workPath, config.objective_gate);
+  const gate = deps.objective_gate_effect
+    ?? makeObjectiveGate(workPath, config.objective_gate, { signal: deps.signal ?? null });
   let passCounter = 0;
   const seenStages = new Set(
     isResume
@@ -1829,7 +1853,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     currentHandoff = restored.handoff;
     currentHandoffSource = resumeState.handoff_source;
   }
-  const gateSummary = `${config.objective_gate.type}:${config.objective_gate.path} contains ${JSON.stringify(config.objective_gate.contains)}`;
+  const gateSummary = objectiveGateSummary(config.objective_gate);
   let disagreementsPath = isResume && typeof deps.state_dir === "string"
     ? join(deps.state_dir, `${runId}.disagreements.json`)
     : null;
@@ -2123,6 +2147,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       try {
         produced = await artifactEffect(stage.artifact, {
           run_id: runId, chain_id: chain.id, stage_id: stage.id, pass: ctx.pass, cwd: workPath,
+          stage_result: result,
           signal: deps.signal ?? null,
         });
       } catch {
@@ -2176,7 +2201,7 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
   };
 
   const runGate = async (ctx) => {
-    const outcome = gate();
+    const outcome = await gate(ctx);
     log.emit("gate", { stage_id: ctx.stage_id, phase: ctx.phase, result: outcome.result });
     // Handoffs are outward effects, not evidence for convergence. Execute them
     // only after the objective gate has independently passed. On a kill after

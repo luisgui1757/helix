@@ -2,7 +2,7 @@
 // user workflows live under <Pi agent dir>/helix/workflows and are atomically
 // written so package upgrades cannot erase them.
 
-import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { writeTextAtomic } from "../../dispatch/lib/persistence.mjs";
 import {
@@ -17,9 +17,15 @@ export const WORKFLOW_CODES = Object.freeze({
   UNKNOWN: "unknown-workflow",
   SHADOWS_BUILTIN: "helix-workflow-shadows-built-in",
   WRITE_FAILED: "helix-workflow-write-failed",
+  DELETE_FAILED: "helix-workflow-delete-failed",
 });
 
 const WORKFLOW_ID = /^[a-z0-9][a-z0-9._-]*$/;
+const MAX_WORKFLOW_FILE_BYTES = 256 * 1024;
+
+function isWorkflowId(id) {
+  return typeof id === "string" && id.length <= 64 && WORKFLOW_ID.test(id);
+}
 
 export function workflowsDir(root) {
   return join(root, "workflows");
@@ -40,7 +46,7 @@ export function listUserWorkflows(root) {
     try {
       const path = join(dir, name);
       const entry = lstatSync(path);
-      if (entry.isSymbolicLink() || !entry.isFile()) {
+      if (entry.isSymbolicLink() || !entry.isFile() || entry.size > MAX_WORKFLOW_FILE_BYTES) {
         return { ok: false, code: WORKFLOW_CODES.UNREADABLE, detail: name };
       }
       const workflow = JSON.parse(readFileSync(path, "utf8"));
@@ -72,6 +78,26 @@ export function saveUserWorkflow(root, workflow, { replace = false, builtInIds =
   return { ok: true, workflow_id: workflow.id, path };
 }
 
+export function deleteUserWorkflow(root, id) {
+  if (!isWorkflowId(id)) return { ok: false, code: WORKFLOW_CODES.UNKNOWN, detail: "workflow-id-invalid" };
+  const path = join(workflowsDir(root), `${id}.json`);
+  try {
+    if (!existsSync(path)) return { ok: false, code: WORKFLOW_CODES.UNKNOWN, detail: id };
+    const entry = lstatSync(path);
+    if (entry.isSymbolicLink() || !entry.isFile() || entry.size > MAX_WORKFLOW_FILE_BYTES) {
+      return { ok: false, code: WORKFLOW_CODES.UNREADABLE, detail: id };
+    }
+    const workflow = JSON.parse(readFileSync(path, "utf8"));
+    if (workflow.id !== id || workflow.source !== "user" || !validateWorkflow(workflow).valid) {
+      return { ok: false, code: WORKFLOW_CODES.INVALID, detail: id };
+    }
+    unlinkSync(path);
+    return { ok: true, workflow_id: id };
+  } catch {
+    return { ok: false, code: WORKFLOW_CODES.DELETE_FAILED, detail: id };
+  }
+}
+
 export function builtInWorkflows(chainRegistry, runRegistry) {
   const configByChain = new Map((runRegistry?.configs ?? []).map((config) => [config.chain, config]));
   return (chainRegistry?.chains ?? []).flatMap((chain) => {
@@ -91,7 +117,7 @@ export function workflowCatalog(root, chainRegistry, runRegistry) {
 }
 
 export function resolveWorkflow(root, id, chainRegistry, runRegistry) {
-  if (!WORKFLOW_ID.test(String(id ?? ""))) return { ok: false, code: WORKFLOW_CODES.UNKNOWN, detail: "workflow-id-invalid" };
+  if (!isWorkflowId(id)) return { ok: false, code: WORKFLOW_CODES.UNKNOWN, detail: "workflow-id-invalid" };
   const catalog = workflowCatalog(root, chainRegistry, runRegistry);
   if (!catalog.ok) return catalog;
   const workflow = catalog.workflows.find((candidate) => candidate.id === id);

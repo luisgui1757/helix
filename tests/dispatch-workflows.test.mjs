@@ -9,14 +9,18 @@ import {
   createWorkflowFromTemplate,
   decideWorkflowTransition,
   isSafeWorkflowPath,
+  objectiveGateSummary,
   simulateWorkflow,
   testWorkflow,
   validateWorkflow,
+  validateWorkflowLifecycleSnapshot,
+  workflowLifecycleSnapshot,
   workflowFromExecution,
   workflowToExecution,
 } from "../dispatch/lib/workflows.mjs";
 import {
   listUserWorkflows,
+  deleteUserWorkflow,
   resolveWorkflow,
   saveUserWorkflow,
   workflowCatalog,
@@ -43,8 +47,10 @@ test("workflow templates are concise, named, and produce valid explicit transiti
     assert.equal(created.workflow.stages.some((stage) => stage.artifact.path === created.workflow.stop.objective_gate.path), true);
     const tested = testWorkflow(created.workflow);
     assert.equal(tested.ok, true, JSON.stringify(tested));
-    assert.equal(tested.artifacts_tested, created.workflow.stages.length);
-    assert.equal(tested.deployment_tested, true);
+    assert.equal(tested.artifacts_declared, created.workflow.stages.length);
+    assert.equal(tested.definition_tested, true);
+    assert.equal(tested.deployment_projected, true);
+    assert.equal(tested.runtime_tested, false);
   }
 });
 
@@ -66,6 +72,59 @@ test("workflow validation rejects forward backtracking, unbounded rails, and inc
   assert.equal(validateWorkflow(missingGate).valid, false);
 });
 
+test("workflow validation bounds every repeated collection and user-authored string surface", () => {
+  const longId = template();
+  longId.id = "a".repeat(65);
+  assert.equal(validateWorkflow(longId).errors.some((error) => error.path === "$.id"), true);
+
+  const longDescription = template();
+  longDescription.description = "x".repeat(513);
+  assert.equal(validateWorkflow(longDescription).errors.some((error) => error.path === "$.description"), true);
+
+  const tooManyStages = template();
+  tooManyStages.stages = Array.from({ length: 17 }, (_, index) => ({
+    ...structuredClone(tooManyStages.stages[0]),
+    id: `stage-${index}`,
+    artifact: { path: `stage-${index}.txt`, kind: "notes" },
+  }));
+  assert.equal(validateWorkflow(tooManyStages).errors.some((error) => error.path === "$.stages"), true);
+
+  const longLabel = template();
+  longLabel.stages[0].label = "x".repeat(129);
+  assert.equal(validateWorkflow(longLabel).errors.some((error) => error.path === "$.stages[0].label"), true);
+
+  const oversized = template();
+  oversized.source = "built-in";
+  oversized.stages[0].steps[0] = { id: "check", kind: "local-check", note: "x".repeat(70_000) };
+  assert.equal(validateWorkflow(oversized).errors.some((error) =>
+    error.path === "$" && error.message.includes("65536 bytes")), true);
+});
+
+test("workflow lifecycle snapshots revalidate every persisted graph boundary", () => {
+  const valid = workflowLifecycleSnapshot(template());
+  assert.equal(validateWorkflowLifecycleSnapshot(valid), true);
+
+  const invalidAction = structuredClone(valid);
+  invalidAction.stages[0].transitions[0].action = "teleport";
+  assert.equal(validateWorkflowLifecycleSnapshot(invalidAction), false);
+
+  const duplicateRole = structuredClone(valid);
+  duplicateRole.stages[0].roles.push(duplicateRole.stages[0].roles[0]);
+  assert.equal(validateWorkflowLifecycleSnapshot(duplicateRole), false);
+
+  const incompleteVerdicts = structuredClone(valid);
+  incompleteVerdicts.stages[0].transitions.pop();
+  assert.equal(validateWorkflowLifecycleSnapshot(incompleteVerdicts), false);
+
+  const oversizedStage = structuredClone(valid);
+  oversizedStage.stages[0].id = "a".repeat(65);
+  assert.equal(validateWorkflowLifecycleSnapshot(oversizedStage), false);
+
+  const extraField = structuredClone(valid);
+  extraField.stages[0].transitions[0].unexpected = true;
+  assert.equal(validateWorkflowLifecycleSnapshot(extraField), false);
+});
+
 test("workflow paths match the persistence boundary and protect Git metadata", () => {
   for (const path of [".", "dir/", "a//b", "a/./b", "../outside", ".git", ".Git/config"]) {
     assert.equal(isSafeWorkflowPath(path), false, path);
@@ -75,6 +134,43 @@ test("workflow paths match the persistence boundary and protect Git metadata", (
   for (const path of ["proposal.txt", "docs/result.md", ".helix-result.json"]) {
     assert.equal(isSafeWorkflowPath(path), true, path);
   }
+});
+
+test("command objective checks are argv-style, bounded, and independent of model-written artifacts", () => {
+  const workflow = template();
+  workflow.stop.objective_gate = {
+    type: "command-exit-zero",
+    command: "npm",
+    args: ["test"],
+    timeout_ms: 120_000,
+  };
+  assert.equal(validateWorkflow(workflow).valid, true);
+  assert.equal(workflowToExecution(workflow).ok, true);
+
+  const shell = structuredClone(workflow);
+  shell.stop.objective_gate.command = "npm test && curl";
+  assert.equal(validateWorkflow(shell).valid, false);
+
+  const traversal = structuredClone(workflow);
+  traversal.stop.objective_gate.command = "./../verify.sh";
+  assert.equal(validateWorkflow(traversal).valid, false);
+
+  const oversized = structuredClone(workflow);
+  oversized.stop.objective_gate.args = Array.from({ length: 33 }, () => "x");
+  assert.equal(validateWorkflow(oversized).valid, false);
+
+  const longCommand = structuredClone(workflow);
+  longCommand.stop.objective_gate.command = "a".repeat(129);
+  assert.equal(validateWorkflow(longCommand).valid, false);
+
+  const longerThanRun = structuredClone(workflow);
+  longerThanRun.stop.max_runtime_ms = 60_000;
+  longerThanRun.stop.objective_gate.timeout_ms = 120_000;
+  assert.equal(validateWorkflow(longerThanRun).errors.some((error) =>
+    error.path === "$.stop.objective_gate.timeout_ms"), true);
+  assert.equal(objectiveGateSummary({
+    type: "command-exit-zero", command: "node", args: ["arg with spaces"], timeout_ms: 1_000,
+  }), 'command-exit-zero argv=["node","arg with spaces"]');
 });
 
 test("workflow validation guarantees deployable fields and public transition semantics before save", () => {
@@ -131,7 +227,7 @@ test("workflow validation guarantees deployable fields and public transition sem
 
   const readOnlyFirstStage = template();
   readOnlyFirstStage.stages[0].steps[0] = { id: "scout", kind: "role", role: "scout" };
-  assert.equal(validateWorkflow(readOnlyFirstStage).valid, false);
+  assert.equal(validateWorkflow(readOnlyFirstStage).valid, true);
 
   const readOnlyLaterStage = template();
   readOnlyLaterStage.stages[1].steps = [
@@ -142,7 +238,11 @@ test("workflow validation guarantees deployable fields and public transition sem
     { when: { type: "verdict", role: "reviewer", is: "revise" }, action: "retry" },
     { when: { type: "verdict", role: "reviewer", is: "revise-jump" }, action: "back", target: "plan" },
   ];
-  assert.equal(validateWorkflow(readOnlyLaterStage).valid, false);
+  assert.equal(validateWorkflow(readOnlyLaterStage).valid, true);
+
+  const hostEffect = template();
+  hostEffect.stages[0].steps.unshift({ id: "check", kind: "local-check", note: "unwired" });
+  assert.equal(validateWorkflow(hostEffect).valid, false);
 
   const missingOutput = template();
   delete missingOutput.stages[0].artifact;
@@ -155,6 +255,11 @@ test("workflow validation guarantees deployable fields and public transition sem
   const unresolvedRepository = template();
   unresolvedRepository.deployment.run_target = { repo: "other", ref: "bound-repo" };
   assert.equal(validateWorkflow(unresolvedRepository).valid, false);
+
+  const ignoredMatrix = template();
+  ignoredMatrix.deployment.role_matrix = "silently-ignored";
+  assert.equal(validateWorkflow(ignoredMatrix).errors.some((error) =>
+    error.path === "$.deployment.role_matrix"), true);
 });
 
 test("transition blocks advance, retry, go back to a named stage, and stop deterministically", () => {
@@ -216,7 +321,7 @@ test("existing shipped chains normalize into the same workflow blocks and back i
   const workflow = workflowFromExecution(chain, config);
   assert.equal(validateWorkflow(workflow).valid, true);
   assert.equal(workflow.stages[1].transitions.find((rule) => rule.action === "back").target, "plan");
-  assert.equal(workflow.stages[1].artifact.path, config.objective_gate.path);
+  assert.equal(workflow.stages[1].artifact, undefined, "compatibility projection must not fabricate a stage artifact");
   const execution = workflowToExecution(workflow);
   assert.equal(execution.ok, true, JSON.stringify(execution));
   assert.equal(execution.chain.stages[1].transitions.find((rule) => rule.action === "back").target, "plan");
@@ -233,6 +338,8 @@ test("user workflows persist atomically, reject collisions, and retain legacy tr
   assert.equal(saveUserWorkflow(stateRoot, workflow).code, "helix-workflow-exists");
   assert.deepEqual(listUserWorkflows(stateRoot).workflows.map((entry) => entry.id), ["my-flow"]);
   assert.equal(resolveWorkflow(stateRoot, "my-flow", chains, configs).workflow.source, "user");
+  assert.equal(deleteUserWorkflow(stateRoot, "my-flow").ok, true);
+  assert.equal(resolveWorkflow(stateRoot, "my-flow", chains, configs).code, "unknown-workflow");
 
   const catalog = workflowCatalog(stateRoot, chains, configs);
   assert.equal(catalog.ok, true);
@@ -244,6 +351,28 @@ test("malformed and legacy-version user files fail closed instead of disappearin
   mkdirSync(join(stateRoot, "workflows"), { recursive: true });
   writeFileSync(join(stateRoot, "workflows", "old.json"), JSON.stringify({ schema_version: 0, id: "old" }), "utf8");
   assert.equal(listUserWorkflows(stateRoot).code, "invalid-workflow");
+});
+
+test("workflow loading bounds the on-disk file before parsing", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflows-oversized-"));
+  mkdirSync(join(stateRoot, "workflows"), { recursive: true });
+  writeFileSync(join(stateRoot, "workflows", "huge.json"), `${" ".repeat(300 * 1024)}{}`, "utf8");
+  assert.deepEqual(listUserWorkflows(stateRoot), {
+    ok: false, code: "helix-workflow-unreadable", detail: "huge.json",
+  });
+});
+
+test("workflow deletion bounds ids and on-disk files before reading them", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflows-delete-bounds-"));
+  mkdirSync(join(stateRoot, "workflows"), { recursive: true });
+  writeFileSync(join(stateRoot, "workflows", "huge.json"), `${" ".repeat(300 * 1024)}{}`, "utf8");
+
+  assert.deepEqual(deleteUserWorkflow(stateRoot, "huge"), {
+    ok: false, code: "helix-workflow-unreadable", detail: "huge",
+  });
+  assert.deepEqual(deleteUserWorkflow(stateRoot, "a".repeat(65)), {
+    ok: false, code: "unknown-workflow", detail: "workflow-id-invalid",
+  });
 });
 
 test("workflow listing refuses symlink and non-regular entries before reading them", () => {

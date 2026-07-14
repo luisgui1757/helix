@@ -10,8 +10,9 @@
 // refuses before any injected adapter/revision effect. Objective gates are deterministic checkers;
 // model/judge/verifier output never decides convergence.
 
-import { readFileSync, statSync, realpathSync, lstatSync } from "node:fs";
-import { join, dirname, isAbsolute, sep } from "node:path";
+import { accessSync, constants, existsSync, readFileSync, statSync, realpathSync, lstatSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { delimiter, join, dirname, isAbsolute, resolve, sep } from "node:path";
 import { validateRunConfig } from "./run-configs.mjs";
 import { resolveChain } from "./chains.mjs";
 import { expandRoleMatrix } from "./role-matrix.mjs";
@@ -99,6 +100,84 @@ export function makeFileContainsGate(cwd, gate) {
       source: "deterministic-checker",
     };
   };
+}
+
+function executableCandidates(cwd, command, env = process.env) {
+  if (command.startsWith("./")) return [resolve(cwd, command)];
+  const extensions = process.platform === "win32"
+    ? String(env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)
+    : [""];
+  return String(env.PATH ?? "").split(delimiter)
+    .flatMap((directory) => {
+      const base = directory === "" ? cwd : isAbsolute(directory) ? directory : resolve(cwd, directory);
+      return extensions.map((extension) => join(base, `${command}${extension}`));
+    });
+}
+
+export function preflightObjectiveGate(cwd, gate, { env = process.env } = {}) {
+  if (gate?.type === "file-contains") return { ok: true, gate_kind: gate.type };
+  if (gate?.type !== "command-exit-zero") return { ok: false, code: "objective-gate-invalid" };
+  const candidates = executableCandidates(cwd, gate.command, env);
+  const executable = candidates.find((candidate) => {
+    try {
+      if (!existsSync(candidate) || !statSync(candidate).isFile()) return false;
+      accessSync(candidate, process.platform === "win32" ? constants.F_OK : constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  return executable
+    ? { ok: true, gate_kind: gate.type, executable }
+    : { ok: false, code: "objective-gate-command-unavailable" };
+}
+
+export function makeCommandExitZeroGate(cwd, gate, { signal = null, spawnEffect = spawn } = {}) {
+  return () => new Promise((resolveOutcome) => {
+    const command = gate.command.startsWith("./") ? resolve(cwd, gate.command) : gate.command;
+    const name = `command-exit-zero:${gate.command}`;
+    let settled = false;
+    let timer = null;
+    let child = null;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener?.("abort", abort);
+      resolveOutcome({ command_names: [name], result, source: "deterministic-checker" });
+    };
+    const abort = () => {
+      try {
+        if (process.platform !== "win32" && Number.isSafeInteger(child?.pid)) process.kill(-child.pid, "SIGKILL");
+        else child?.kill?.("SIGKILL");
+      } catch {
+        child?.kill?.("SIGKILL");
+      }
+      finish("fail");
+    };
+    if (signal?.aborted) return finish("fail");
+    try {
+      child = spawnEffect(command, gate.args, {
+        cwd,
+        shell: false,
+        stdio: "ignore",
+        detached: process.platform !== "win32",
+      });
+    } catch {
+      return finish("fail");
+    }
+    child.once("error", () => finish("fail"));
+    child.once("close", (code) => finish(code === 0 ? "pass" : "fail"));
+    signal?.addEventListener?.("abort", abort, { once: true });
+    timer = setTimeout(abort, gate.timeout_ms);
+    if (signal?.aborted) abort();
+  });
+}
+
+export function makeObjectiveGate(cwd, gate, options = {}) {
+  if (gate?.type === "file-contains") return makeFileContainsGate(cwd, gate);
+  if (gate?.type === "command-exit-zero") return makeCommandExitZeroGate(cwd, gate, options);
+  return async () => ({ command_names: ["objective-gate-invalid"], result: "fail", source: "deterministic-checker" });
 }
 
 function structuralEnvelope({ run_id, role, provider, model, stage = "candidate", status = "ok", recommendation = "ok", open_questions = [] }) {
@@ -286,9 +365,10 @@ export async function runTaskLoop(config, registries, deps = {}) {
 
   const mock = deps.adapter ? null : createNoLiveMockAdapter();
   const dispatchAdapter = deps.adapter ?? mock.dispatchAdapter;
-  const revisionModelAdapter = deps.revisionAdapter ?? mock?.revisionAdapter({
-    [config.objective_gate.path]: `Helix synthetic proposal\n${config.objective_gate.contains}\n`,
-  }) ?? null;
+  const revisionContent = config.objective_gate.type === "file-contains"
+    ? { [config.objective_gate.path]: `Helix synthetic proposal\n${config.objective_gate.contains}\n` }
+    : {};
+  const revisionModelAdapter = deps.revisionAdapter ?? mock?.revisionAdapter(revisionContent) ?? null;
 
   const revise = makeModelRevision({
     cwd: deps.cwd,
@@ -309,7 +389,7 @@ export async function runTaskLoop(config, registries, deps = {}) {
     max_iterations: effectiveMaxIterations,
   }, {
     adapter: dispatchAdapter,
-    runGate: makeFileContainsGate(deps.cwd, config.objective_gate),
+    runGate: makeObjectiveGate(deps.cwd, config.objective_gate),
     now: deps.now,
     seed: deps.seed ?? 7,
     mode: deps.mode ?? "print",

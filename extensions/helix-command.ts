@@ -8,13 +8,14 @@
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   executeHelixCommand,
   getHelixArgumentCompletions,
   isHelixMutationRequest,
   renderHelixRunCompletion,
+  renderWorkflowRuntimeTest,
 } from "./lib/helix-command-core.mjs";
 import {
   loadOnboardingState,
@@ -22,20 +23,22 @@ import {
   saveOnboardingState,
 } from "./lib/helix-onboarding.mjs";
 import { createPiAgentAdapter } from "../dispatch/lib/pi-agent-adapter.mjs";
+import { preflightObjectiveGate } from "../dispatch/lib/task-loop.mjs";
 import {
-  WORKFLOW_MUTATING_ROLES,
   WORKFLOW_ROLE_BLOCKS,
   WORKFLOW_TEMPLATES,
   createWorkflowFromTemplate,
   isSafeWorkflowPath,
+  objectiveGateSummary,
   testWorkflow,
   validateWorkflow,
 } from "../dispatch/lib/workflows.mjs";
 import { executeNamedWorkflow } from "./lib/helix-execution.mjs";
 import { helixStateRoot } from "./lib/helix-paths.mjs";
-import { builtInWorkflows, saveUserWorkflow } from "./lib/helix-workflows.mjs";
+import { builtInWorkflows, deleteUserWorkflow, resolveWorkflow, saveUserWorkflow, workflowCatalog } from "./lib/helix-workflows.mjs";
 import { isHelixProvider } from "../dispatch/lib/providers.mjs";
 import { isPublicCode } from "../dispatch/lib/public-values.mjs";
+import { smokeTestWorkflowRuntime } from "./lib/helix-workflow-test.mjs";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
 
@@ -67,6 +70,7 @@ type CommandDefinition = {
   onboardingUi?: boolean;
   settingsUi?: boolean;
   workflowCreatorUi?: boolean;
+  workflowLifecycleUi?: "edit" | "clone" | "delete";
 };
 
 function trimWithPrefix(prefix: string, args: string): string {
@@ -76,7 +80,32 @@ function trimWithPrefix(prefix: string, args: string): string {
 
 function runCompletions(prefix: string) {
   const items = getHelixArgumentCompletions(`run ${prefix}`) ?? [];
-  return items.map((item) => ({ ...item, value: item.value.replace(/^run /, "") }));
+  const completions = new Map(items.map((item) => {
+    const value = item.value.replace(/^run /, "");
+    return [value, { ...item, value }];
+  }));
+  try {
+    const catalog = workflowCatalog(
+      helixStateRoot(),
+      readRegistry("../dispatch/config/chains.json"),
+      readRegistry("../dispatch/config/run-configs.json"),
+    );
+    if (catalog.ok) {
+      const query = prefix.trimStart();
+      for (const workflow of catalog.workflows) {
+        if (workflow.id.startsWith(query)) {
+          completions.set(workflow.id, {
+            value: workflow.id,
+            label: workflow.id,
+            description: workflow.source === "user" ? "Personal Helix workflow" : "Built-in Helix workflow",
+          });
+        }
+      }
+    }
+  } catch {
+    // Built-in completion remains available when personal workflow state is unreadable.
+  }
+  return [...completions.values()];
 }
 
 function settingsCompletions(prefix: string) {
@@ -116,6 +145,24 @@ const COMMANDS: readonly CommandDefinition[] = Object.freeze([
     workflowCreatorUi: true,
   },
   {
+    name: "helix-workflow-edit",
+    description: "Edit a user workflow in the guided builder",
+    coreArgs: (args) => trimWithPrefix("workflows show", args),
+    workflowLifecycleUi: "edit",
+  },
+  {
+    name: "helix-workflow-clone",
+    description: "Copy a user workflow under a new name",
+    coreArgs: (args) => trimWithPrefix("workflows show", args),
+    workflowLifecycleUi: "clone",
+  },
+  {
+    name: "helix-workflow-delete",
+    description: "Delete a user workflow",
+    coreArgs: (args) => trimWithPrefix("workflows show", args),
+    workflowLifecycleUi: "delete",
+  },
+  {
     name: "helix-settings",
     description: "Toggle Helix features",
     coreArgs: (args) => args.trim() ? `settings set ${args.trim()}` : "settings",
@@ -128,8 +175,10 @@ const COMMANDS: readonly CommandDefinition[] = Object.freeze([
 ]);
 
 function commandNeedsInventory(args: string): boolean {
-  const verb = args.trim().split(/\s+/, 1)[0] ?? "";
-  return verb === "" || ["run", "models", "setup"].includes(verb);
+  const tokens = args.trim().split(/\s+/);
+  const verb = tokens[0] ?? "";
+  return verb === "" || ["run", "models", "setup"].includes(verb)
+    || (verb === "workflows" && tokens[1] === "test");
 }
 
 async function availableModelInventory(args: string, ctx: ExtensionCommandContext) {
@@ -184,10 +233,11 @@ function readRegistry(path: string) {
 }
 
 const WORKFLOW_PANEL_ROLES = [...WORKFLOW_ROLE_BLOCKS];
+const WORKFLOW_CANDIDATE_ROLES = WORKFLOW_PANEL_ROLES.filter((role) => role !== "verifier");
 const SAFE_STAGE_ID = /^[a-z][a-z0-9-]*$/;
 
-function stageHasProducer(stage: any) {
-  return stage.steps.some((step: any) => step.kind === "role" && WORKFLOW_MUTATING_ROLES.includes(step.role));
+function stageHasCandidate(stage: any) {
+  return stage.steps.some((step: any) => step.kind === "role" && step.role !== "verifier");
 }
 
 function transitionSummary(rule: any) {
@@ -197,6 +247,45 @@ function transitionSummary(rule: any) {
       ? `gate=${rule.when.is}`
       : `${rule.when.role}=${rule.when.is}`;
   return `${when} → ${rule.action}${rule.target ? ` ${rule.target}` : ""}`;
+}
+
+function suggestedObjectiveCommand(cwd?: string): { command: string; args: string[] } {
+  const root = typeof cwd === "string" && cwd ? cwd : process.cwd();
+  if (existsSync(`${root}/package.json`)) return { command: "npm", args: ["test"] };
+  if (existsSync(`${root}/Cargo.toml`)) return { command: "cargo", args: ["test"] };
+  if (existsSync(`${root}/pyproject.toml`)) return { command: "python", args: ["-m", "pytest"] };
+  return { command: "git", args: ["diff", "--check"] };
+}
+
+async function chooseObjectiveGate(workflow: any, ctx: any) {
+  const kind = await ctx.ui.select("How should Helix independently decide success?", [
+    "Run a command (recommended)",
+    "Check text in a stage output (weaker: the model writes the marker)",
+  ]);
+  if (!kind) return false;
+  if (kind.startsWith("Run a command")) {
+    const suggested = suggestedObjectiveCommand(ctx.cwd);
+    const command = (await ctx.ui.input("Executable (no shell)", suggested.command))?.trim() ?? "";
+    const argsText = (await ctx.ui.input("Arguments (space-separated; passed literally, no shell)", suggested.args.join(" ")))?.trim() ?? "";
+    const timeout = await ctx.ui.select("Objective-check timeout", ["1 minute", "2 minutes (recommended)", "5 minutes", "10 minutes"]);
+    if (!command || !timeout) return false;
+    workflow.stop.objective_gate = {
+      type: "command-exit-zero",
+      command,
+      args: argsText ? argsText.split(/\s+/) : [],
+      timeout_ms: Number(timeout.split(" ")[0]) * 60_000,
+    };
+    return true;
+  }
+  const outputs = workflow.stages.map((stage: any) => stage.artifact?.path).filter(Boolean);
+  const path = await ctx.ui.select("Stage output to check", [...new Set(outputs)]);
+  const marker = path
+    ? (await ctx.ui.input("Exact text that means success", "HELIX_WORKFLOW_PASS"))?.trim() ?? ""
+    : "";
+  if (!path || !marker) return false;
+  workflow.stop.objective_gate = { type: "file-contains", path, contains: marker };
+  ctx.ui.notify("File-text checks are model-writable; use a command check when the repository has one", "warning");
+  return true;
 }
 
 async function chooseTransitionAction(workflow: any, stage: any, rule: any, ctx: any) {
@@ -232,10 +321,10 @@ async function addStage(workflow: any, ctx: any) {
   }
   const roles: string[] = [];
   while (true) {
-    const available = (roles.length ? WORKFLOW_PANEL_ROLES : WORKFLOW_MUTATING_ROLES)
+    const available = (roles.length ? WORKFLOW_PANEL_ROLES : WORKFLOW_CANDIDATE_ROLES)
       .filter((role) => !roles.includes(role));
     const selected = await ctx.ui.select(
-      roles.length ? "Add another panel role (roles may run concurrently)" : "Choose the first panel role",
+      roles.length ? "Add another panel role" : "Choose the first panel role",
       [...(roles.length ? ["Done adding roles"] : []), ...available],
     );
     if (!selected) return;
@@ -284,7 +373,7 @@ async function editStageRoles(workflow: any, ctx: any) {
   const id = await ctx.ui.select("Choose a stage panel", workflow.stages.map((stage: any) => stage.id));
   const stage = workflow.stages.find((entry: any) => entry.id === id);
   if (!stage) return;
-  const action = await ctx.ui.select("Edit panel roles (candidate roles may run concurrently)", ["Add role", "Remove role"]);
+  const action = await ctx.ui.select("Edit panel roles (read-only panels can run concurrently)", ["Add role", "Remove role"]);
   const roleSteps = stage.steps.filter((step: any) => step.kind === "role");
   if (action === "Add role") {
     const available = WORKFLOW_PANEL_ROLES.filter((role) => !roleSteps.some((step: any) => step.role === role));
@@ -298,11 +387,6 @@ async function editStageRoles(workflow: any, ctx: any) {
     const candidateSteps = roleSteps.filter((step: any) => step.role !== "verifier");
     const role = await ctx.ui.select("Role to remove", roleSteps.map((step: any) => step.role));
     if (!role) return;
-    if (WORKFLOW_MUTATING_ROLES.includes(role)
-      && !roleSteps.some((step: any) => step.role !== role && WORKFLOW_MUTATING_ROLES.includes(step.role))) {
-      ctx.ui.notify("Every stage needs a planner or builder to produce its durable output", "warning");
-      return;
-    }
     if (role !== "verifier" && candidateSteps.length <= 1) {
       ctx.ui.notify("A runnable stage needs at least one candidate panel role", "warning");
       return;
@@ -324,7 +408,8 @@ async function editStageOutput(workflow: any, ctx: any) {
     ctx.ui.notify("Output must be a safe repository-relative file path", "warning");
     return;
   }
-  const isOnlyGateOutput = stage.artifact.path === workflow.stop.objective_gate.path
+  const isOnlyGateOutput = workflow.stop.objective_gate.type === "file-contains"
+    && stage.artifact.path === workflow.stop.objective_gate.path
     && workflow.stages.filter((entry: any) => entry.artifact.path === workflow.stop.objective_gate.path).length === 1;
   if (isOnlyGateOutput && outputPath !== workflow.stop.objective_gate.path) {
     ctx.ui.notify("At least one stage output must remain the objective gate file", "warning");
@@ -430,9 +515,15 @@ async function customizeWorkflow(workflow: any, ctx: any) {
   while (true) {
     const action = await ctx.ui.select("Workflow building blocks", [
       "Finish building", "Add stage", "Remove stage", "Move stage earlier", "Move stage later",
-      "Edit stage panel roles", "Edit stage durable output", "Edit stage transitions", "Edit deployment", "Edit duration limits",
+      "Edit stage panel roles", "Edit stage durable output", "Edit stage transitions", "Edit objective check", "Edit deployment", "Edit duration limits",
     ]);
-    if (!action) return false;
+    if (!action) {
+      const discard = typeof ctx.ui.confirm === "function"
+        ? await ctx.ui.confirm("Discard this draft?", "No changes have been saved.")
+        : true;
+      if (discard) return false;
+      continue;
+    }
     if (action === "Finish building") return true;
     if (action === "Add stage") await addStage(workflow, ctx);
     else if (action === "Remove stage") {
@@ -445,11 +536,12 @@ async function customizeWorkflow(workflow: any, ctx: any) {
             continue;
           }
           const remaining = workflow.stages.filter((stage: any) => stage.id !== id);
-          if (!remaining.every(stageHasProducer)) {
-            ctx.ui.notify("That removal would leave a stage without a planner or builder", "warning");
+          if (!remaining.every(stageHasCandidate)) {
+            ctx.ui.notify("That removal would leave a stage without a candidate role", "warning");
             continue;
           }
-          if (!remaining.some((stage: any) => stage.artifact.path === workflow.stop.objective_gate.path)) {
+          if (workflow.stop.objective_gate.type === "file-contains"
+            && !remaining.some((stage: any) => stage.artifact.path === workflow.stop.objective_gate.path)) {
             ctx.ui.notify("At least one stage output must remain the objective gate file", "warning");
             continue;
           }
@@ -464,8 +556,8 @@ async function customizeWorkflow(workflow: any, ctx: any) {
       if (index >= 0 && target >= 0 && target < workflow.stages.length) {
         const reordered = [...workflow.stages];
         [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
-        if (!reordered.every(stageHasProducer)) {
-          ctx.ui.notify("Every stage needs a planner or builder to produce its durable output", "warning");
+        if (!reordered.every(stageHasCandidate)) {
+          ctx.ui.notify("Every stage needs at least one candidate role", "warning");
         } else if (!backTargetsValid(reordered)) {
           ctx.ui.notify("That move would put a back target after its transition stage", "warning");
         } else workflow.stages = reordered;
@@ -473,6 +565,7 @@ async function customizeWorkflow(workflow: any, ctx: any) {
     } else if (action === "Edit stage panel roles") await editStageRoles(workflow, ctx);
     else if (action === "Edit stage durable output") await editStageOutput(workflow, ctx);
     else if (action === "Edit stage transitions") await editStageTransitions(workflow, ctx);
+    else if (action === "Edit objective check") await chooseObjectiveGate(workflow, ctx);
     else if (action === "Edit deployment") await editDeployment(workflow, ctx);
     else if (action === "Edit duration limits") {
       const total = await ctx.ui.select("Whole-run deadline", ["5 minutes", "10 minutes (recommended)", "20 minutes", "60 minutes"]);
@@ -483,6 +576,80 @@ async function customizeWorkflow(workflow: any, ctx: any) {
       }
     }
   }
+}
+
+function retargetWorkflow(workflow: any, id: string) {
+  workflow.id = id;
+  workflow.source = "user";
+  workflow.deployment.chain_id = id;
+  workflow.deployment.input_refs = [];
+  workflow.deployment.claims_ref = `local-ref:claims/${id}`;
+  workflow.deployment.evidence_ref = `local-ref:evidence/${id}`;
+}
+
+async function showWorkflowLifecycle(pi: ExtensionAPI, ctx: ExtensionCommandContext, mode: "edit" | "clone" | "delete", rawId: string) {
+  if (ctx.mode !== "tui" || typeof ctx.ui?.select !== "function" || typeof ctx.ui?.confirm !== "function"
+    || (mode !== "delete" && typeof ctx.ui?.input !== "function")) {
+    ctx.ui?.notify?.("Workflow lifecycle changes require Pi TUI mode", "warning");
+    return;
+  }
+  const chains = readRegistry("../dispatch/config/chains.json");
+  const runs = readRegistry("../dispatch/config/run-configs.json");
+  const catalog = workflowCatalog(helixStateRoot(), chains, runs);
+  if (!catalog.ok) {
+    ctx.ui.notify(`Workflows could not be loaded (${catalog.code})`, "error");
+    return;
+  }
+  const userIds = catalog.workflows.filter((workflow: any) => workflow.source === "user").map((workflow: any) => workflow.id);
+  const id = rawId.trim() || await ctx.ui.select("Choose a user workflow", userIds) || "";
+  const resolved = resolveWorkflow(helixStateRoot(), id, chains, runs);
+  if (!resolved.ok || resolved.workflow.source !== "user") {
+    ctx.ui.notify("Choose an existing user workflow; built-ins are immutable", "warning");
+    return;
+  }
+  if (mode === "delete") {
+    if (!await ctx.ui.confirm(`Delete workflow ${id}?`, "This removes the personal workflow definition. Existing run records remain inspectable.")) return;
+    const deleted = deleteUserWorkflow(helixStateRoot(), id);
+    ctx.ui.notify(deleted.ok ? `Workflow ${id} deleted` : `Workflow was not deleted (${deleted.code})`, deleted.ok ? "info" : "error");
+    return;
+  }
+  const workflow: any = structuredClone(resolved.workflow);
+  let targetId = id;
+  if (mode === "clone") {
+    targetId = (await ctx.ui.input("New workflow name", `${id}-copy`))?.trim() ?? "";
+    if (!targetId) return;
+    retargetWorkflow(workflow, targetId);
+  }
+  if (!await customizeWorkflow(workflow, ctx)) {
+    ctx.ui.notify(`Workflow ${id} unchanged`, "info");
+    return;
+  }
+  const valid = validateWorkflow(workflow);
+  const tested = valid.valid ? testWorkflow(workflow) : null;
+  const gateReady = valid.valid ? preflightObjectiveGate(ctx.cwd ?? process.cwd(), workflow.stop.objective_gate) : null;
+  if (!valid.valid || !tested?.ok || !gateReady?.ok) {
+    const first = valid.errors?.[0];
+    ctx.ui.notify(first
+      ? `Workflow invalid at ${first.path}: ${first.message}`
+      : !tested?.ok
+        ? `Workflow test failed (${tested?.code})`
+        : `Objective-check executable is unavailable (${workflow.stop.objective_gate.command})`, "error");
+    return;
+  }
+  const preview = workflow.stages.map((stage: any) =>
+    `${stage.id}: ${stage.transitions.map(transitionSummary).join("; ")}`).join("\n");
+  if (!await ctx.ui.confirm(`${mode === "clone" ? "Save" : "Update"} workflow ${targetId}?`,
+    `${preview}\n\nObjective check: ${objectiveGateSummary(workflow.stop.objective_gate)}\nDefinition transitions tested: ${tested.transitions_tested}/${tested.transitions_total}`)) return;
+  const saved = saveUserWorkflow(helixStateRoot(), workflow, {
+    replace: mode === "edit",
+    builtInIds: builtInWorkflows(chains, runs).map((entry: any) => entry.id),
+  });
+  if (!saved.ok) {
+    ctx.ui.notify(`Workflow was not saved (${saved.code})`, "error");
+    return;
+  }
+  ctx.ui.notify(`Workflow ${targetId} ${mode === "clone" ? "created" : "updated"}`, "info");
+  sendOutput(pi, executeHelixCommand(`workflows show ${targetId}`, { mode: "print" }));
 }
 
 async function showWorkflowCreator(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
@@ -499,20 +666,15 @@ async function showWorkflowCreator(pi: ExtensionAPI, ctx: ExtensionCommandContex
   if (!template) return;
   const id = (await ctx.ui.input("Workflow name", "my-workflow"))?.trim();
   if (!id) return;
-  const gatePath = (await ctx.ui.input("Objective gate file", "proposal.txt"))?.trim();
-  if (!gatePath) return;
-  const gateMarker = (await ctx.ui.input("Text that means the objective passed", "HELIX_WORKFLOW_PASS"))?.trim();
-  if (!gateMarker) {
-    ctx.ui.notify("Gate text must not be empty", "error");
-    return;
-  }
+  const primaryOutput = (await ctx.ui.input("Primary durable output file", "proposal.txt"))?.trim();
+  if (!primaryOutput) return;
   const maxChoice = await ctx.ui.select("Maximum total stage passes", ["4", "6 (recommended)", "8", "12"]);
   if (!maxChoice) return;
   const created = createWorkflowFromTemplate({
     id,
     template: template.id,
-    gate_path: gatePath,
-    gate_contains: gateMarker,
+    gate_path: primaryOutput,
+    gate_contains: "HELIX_WORKFLOW_PASS",
     max_iterations: Number(maxChoice.split(" ")[0]),
   });
   if (!created.ok) {
@@ -520,6 +682,7 @@ async function showWorkflowCreator(pi: ExtensionAPI, ctx: ExtensionCommandContex
     return;
   }
   const workflow: any = created.workflow;
+  if (!await chooseObjectiveGate(workflow, ctx)) return;
   for (const stage of workflow.stages) {
     const passChoice = await ctx.ui.select(
       `${stage.label ?? stage.id}: maximum passes`,
@@ -562,8 +725,14 @@ async function showWorkflowCreator(pi: ExtensionAPI, ctx: ExtensionCommandContex
   if (!await customizeWorkflow(workflow, ctx)) return;
   const valid = validateWorkflow(workflow);
   const tested = valid.valid ? testWorkflow(workflow) : null;
-  if (!valid.valid || !tested?.ok) {
-    ctx.ui.notify("Workflow validation failed; no file was saved", "error");
+  const gateReady = valid.valid ? preflightObjectiveGate(ctx.cwd ?? process.cwd(), workflow.stop.objective_gate) : null;
+  if (!valid.valid || !tested?.ok || !gateReady?.ok) {
+    const first = valid.errors?.[0];
+    ctx.ui.notify(first
+      ? `Workflow invalid at ${first.path}: ${first.message}; no file was saved`
+      : !tested?.ok
+        ? `Workflow test failed (${tested?.code ?? "unknown"}); no file was saved`
+        : `Objective-check executable is unavailable (${workflow.stop.objective_gate.command}); no file was saved`, "error");
     return;
   }
   const preview = workflow.stages.map((stage: any, index: number) =>
@@ -574,7 +743,7 @@ async function showWorkflowCreator(pi: ExtensionAPI, ctx: ExtensionCommandContex
   ).join("\n");
   const approved = await ctx.ui.confirm(
     `Save workflow ${id}`,
-    `${preview}\n\nDefault cast: ${workflow.deployment.default_assignment.preset}\nStage casts: ${Object.entries(workflow.deployment.assignments).map(([stage, assignment]: any) => `${stage}=${assignment.preset ?? assignment.model}`).join(", ") || "none"}\nConcurrency: ${workflow.deployment.parallel.max_concurrency}\nTarget: ${workflow.deployment.run_target.repo}${workflow.deployment.run_target.ref ? ` (${workflow.deployment.run_target.ref})` : ""}\nGlobal maximum: ${workflow.stop.max_iterations}\nRuntime: ${workflow.stop.max_runtime_ms}ms total; ${workflow.deployment.call_timeout_ms}ms per call\nGate: ${gatePath} contains ${gateMarker}\nTransitions tested: ${tested.transitions_tested}/${tested.transitions_total}\nSimulation: ${tested.simulation.stop_reason}`,
+    `${preview}\n\nDefault cast: ${workflow.deployment.default_assignment.preset}\nStage casts: ${Object.entries(workflow.deployment.assignments).map(([stage, assignment]: any) => `${stage}=${assignment.preset ?? assignment.model}`).join(", ") || "none"}\nConcurrency: ${workflow.deployment.parallel.max_concurrency} (read-only panels only; writer stages serialize)\nTarget: ${workflow.deployment.run_target.repo}${workflow.deployment.run_target.ref ? ` (${workflow.deployment.run_target.ref})` : ""}\nGlobal maximum: ${workflow.stop.max_iterations}\nRuntime: ${workflow.stop.max_runtime_ms}ms total; ${workflow.deployment.call_timeout_ms}ms per call\nObjective check: ${objectiveGateSummary(workflow.stop.objective_gate)}\nDefinition transitions tested: ${tested.transitions_tested}/${tested.transitions_total}\nRuntime effects: not executed\nSimulation: ${tested.simulation.stop_reason}`,
   );
   if (!approved) return;
   const chains = readRegistry("../dispatch/config/chains.json");
@@ -617,7 +786,11 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
     return;
   }
   const modelInventory = await availableModelInventory(`run ${workflowId}`, ctx);
-  const preflight = executeHelixCommand(`run ${workflowId}`, { mode: ctx.mode }, { modelInventory });
+  const registries = {
+    chains: readRegistry("../dispatch/config/chains.json"),
+    runs: readRegistry("../dispatch/config/run-configs.json"),
+  };
+  const preflight = executeHelixCommand(`run ${workflowId}`, { mode: ctx.mode }, { modelInventory, cwd: ctx.cwd });
   sendOutput(pi, preflight);
   if (!preflight.ok) return;
   const configId = String(preflight.details?.config_id ?? workflowId);
@@ -626,9 +799,11 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
   const maxRuntimeMs = Number(preflight.details?.runtime_limits?.max_runtime_ms);
   const callTimeoutMs = Number(preflight.details?.runtime_limits?.call_timeout_ms);
   const executionBindingRef = String(preflight.details?.execution_binding_ref ?? "");
+  const named = resolveWorkflow(helixStateRoot(), workflowId, registries.chains, registries.runs);
+  const gate = named.ok ? objectiveGateSummary(named.workflow.stop.objective_gate) : "unavailable";
   const approved = await ctx.ui.confirm(
     "Start Helix workflow",
-    `Workflow: ${configId}\nStages: ${preflight.details?.chain?.stages?.map((stage: any) => stage.id).join(" → ")}\nProviders: ${providers.join(", ")}\nMaximum passes: ${preflight.details?.rail?.max_iterations}\nRuntime: ${maxRuntimeMs}ms total; ${callTimeoutMs}ms per provider call\nTask: ${task}\nRepository: ${ctx.cwd}\nIsolation: ${worktreeEnabled ? "per-run Git worktree" : "OFF — the current checkout will be mutated"}\n\nPi tools use the normal Pi trust boundary. A worktree protects Git state; it is not an OS sandbox.`,
+    `Workflow: ${configId}\nStages: ${preflight.details?.chain?.stages?.map((stage: any) => stage.id).join(" → ")}\nProviders: ${providers.join(", ")}\nObjective check: ${gate}\nMaximum passes: ${preflight.details?.rail?.max_iterations}\nRuntime: ${maxRuntimeMs}ms total; ${callTimeoutMs}ms per provider call\nTask: ${task}\nRepository: ${ctx.cwd}\nIsolation: ${worktreeEnabled ? "per-run Git worktree" : "OFF — the current checkout will be mutated"}\n\nPi tools use the normal Pi trust boundary. A worktree protects Git state; it is not an OS sandbox.`,
   );
   if (!approved) {
     ctx.ui.notify("Helix run cancelled; no workflow was started", "info");
@@ -668,11 +843,20 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
       cwd: ctx.cwd,
       state_root: helixStateRoot(),
       package_root: PACKAGE_ROOT,
-      chain_registry: readRegistry("../dispatch/config/chains.json"),
-      run_registry: readRegistry("../dispatch/config/run-configs.json"),
+      chain_registry: registries.chains,
+      run_registry: registries.runs,
       adapter,
       expected_binding_ref: executionBindingRef,
       signal: runAbort.signal,
+      onEvent(event: any) {
+        if (event.kind === "pass-start") {
+          ctx.ui.setWorkingMessage?.(`Helix · ${event.stage_id} · pass ${event.pass}/${event.of}`);
+        } else if (event.kind === "gate") {
+          ctx.ui.setWorkingMessage?.(`Helix · objective check ${event.result}`);
+        } else if (event.kind === "blocked") {
+          ctx.ui.setWorkingMessage?.(`Helix · blocked · ${event.code}`);
+        }
+      },
     });
     if (!execution.ok && runAbortCode) execution.code = runAbortCode;
     else if (!execution.ok && adapter?.lastFailureCode?.()) execution.code = adapter.lastFailureCode();
@@ -692,6 +876,49 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
     stopReason: execution.stop_reason,
     failureCode: execution.ok ? null : execution.code,
   }));
+}
+
+async function testWorkflowCommand(pi: ExtensionAPI, ctx: ExtensionCommandContext, args: string) {
+  const tokens = args.trim().split(/\s+/);
+  const id = tokens[1] ?? "";
+  if (!id || tokens[0] !== "test" || tokens.length !== 2) return false;
+  const modelInventory = await availableModelInventory(`workflows test ${id}`, ctx);
+  const checked = executeHelixCommand(`workflows test ${id}`, { mode: ctx.mode }, { modelInventory, cwd: ctx.cwd });
+  sendOutput(pi, checked);
+  if (!checked.ok || ctx.mode !== "tui" || typeof ctx.ui?.confirm !== "function") return true;
+  const chains = readRegistry("../dispatch/config/chains.json");
+  const runs = readRegistry("../dispatch/config/run-configs.json");
+  const resolved = resolveWorkflow(helixStateRoot(), id, chains, runs);
+  if (!resolved.ok) return true;
+  const approved = await ctx.ui.confirm(
+    `Run isolated runtime smoke test for ${id}?`,
+    "Helix will create a temporary detached Git worktree, execute every stage with the deterministic mock cast, simulate objective-check outcomes, and remove the worktree. No provider is called and this does not claim the task-specific objective passes.",
+  );
+  if (!approved) {
+    ctx.ui.notify("Runtime smoke test skipped; definition and deployment checks remain valid", "info");
+    return true;
+  }
+  ctx.ui.setWorkingMessage?.(`Helix · runtime smoke · ${id}`);
+  ctx.ui.setWorkingVisible?.(true);
+  let outcome;
+  try {
+    outcome = await smokeTestWorkflowRuntime({
+      workflow: resolved.workflow,
+      cwd: ctx.cwd,
+      package_root: PACKAGE_ROOT,
+      signal: ctx.signal,
+      onEvent(event: any) {
+        if (event.kind === "pass-start") ctx.ui.setWorkingMessage?.(`Helix smoke · ${event.stage_id} · pass ${event.pass}`);
+      },
+    });
+  } catch {
+    outcome = { ok: false, code: "workflow-runtime-smoke-failed" };
+  } finally {
+    ctx.ui.setWorkingVisible?.(false);
+    ctx.ui.setWorkingMessage?.();
+  }
+  sendOutput(pi, renderWorkflowRuntimeTest({ workflowId: id, outcome }));
+  return true;
 }
 
 function clip(text: string, width: number): string {
@@ -923,10 +1150,15 @@ export default function helixCommand(pi: ExtensionAPI) {
           await showWorkflowCreator(pi, ctx);
           return;
         }
+        if (command.workflowLifecycleUi) {
+          await showWorkflowLifecycle(pi, ctx, command.workflowLifecycleUi, args);
+          return;
+        }
         if (command.name === "helix-run") {
           await runWorkflow(pi, ctx, args);
           return;
         }
+        if (command.name === "helix-workflows" && await testWorkflowCommand(pi, ctx, args)) return;
         if (command.settingsUi && !args.trim() && ctx.mode === "tui" && typeof ctx.ui?.custom === "function") {
           await showSettings(pi, ctx);
           return;
@@ -937,7 +1169,7 @@ export default function helixCommand(pi: ExtensionAPI) {
         try {
           const confirm = await confirmMutation(coreArgs, ctx);
           const modelInventory = await availableModelInventory(coreArgs, ctx);
-          out = executeHelixCommand(coreArgs, { mode: ctx.mode, confirm }, { modelInventory });
+          out = executeHelixCommand(coreArgs, { mode: ctx.mode, confirm }, { modelInventory, cwd: ctx.cwd });
         } catch {
           out = internalError();
         }

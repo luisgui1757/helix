@@ -130,6 +130,7 @@ function isManagedCompanion(path) {
   const runId = basename(dirname(path));
   const escapedRunId = runId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return name === `${runId}.state.json`
+    || name === `${runId}.workflow.json`
     || name === `${runId}.disagreements.json`
     || name === `${runId}.research.json`
     || new RegExp(`^${escapedRunId}\\.disagreements\\.[0-9a-f]{64}\\.json$`).test(name);
