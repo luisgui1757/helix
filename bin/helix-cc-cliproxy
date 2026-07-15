@@ -1,0 +1,883 @@
+#!/usr/bin/env node
+
+import { randomBytes } from 'node:crypto'
+import { closeSync, openSync, realpathSync } from 'node:fs'
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { once } from 'node:events'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import {
+  CLIPROXY_RELEASE,
+  archiveBasename,
+  binaryDirectory,
+  claudeGatewayEnvironment,
+  ensureCliProxyState,
+  expectedTranscriptModel,
+  hardenCodexAuthFiles,
+  inspectCliProxyState,
+  prepareCliProxyArchive,
+  probeCliProxyModels,
+  resolvedModelsExactlyMatch,
+  resolveCliProxyPaths,
+  sanitizeCliProxyLoginLine,
+  setCodexAuthPrefix,
+  sidecarProcessEnvironment,
+  verifyCodexOnlyAuthDir,
+  waitForResolvedModels,
+} from '../lib/cliproxy.mjs'
+import {
+  COPILOT_API_RELEASE,
+  discoverCopilotServedModel,
+  ensureCopilotState,
+  hardenCopilotCredential,
+  isCopilotResponsesModel,
+  probeCopilotCatalog,
+  readCopilotPins,
+  renderCopilotAttestationConfig,
+  resolveCopilotPaths,
+  sanitizeCopilotLoginLine,
+  verifyCopilotApiInstallation,
+  verifyCopilotCredential,
+  writeCopilotPin,
+} from '../lib/copilot.mjs'
+import { ensureAzureState, parseProviderList, providerRoute, validateProviderModel } from '../lib/providers.mjs'
+import { createProcessLifecycleOwner, runForeground, spawnOwned, waitForForegroundChild } from '../lib/process-lifecycle.mjs'
+
+const pluginRoot = fileURLToPath(new URL('../', import.meta.url))
+const copilotLauncher = join(pluginRoot, 'bin', 'helix-cc-copilot-api')
+const attestedProxyLauncher = join(pluginRoot, 'bin', 'helix-cc-attested-proxy')
+
+function usage() {
+  return `Usage: helix-cc-cliproxy <command> [options]
+
+Commands:
+  prepare                 Download and checksum-verify pinned CLIProxyAPI ${CLIPROXY_RELEASE.tag}
+  login [--device]        Authenticate one OpenAI/Codex subscription account
+  copilot-login           Authenticate one GitHub Copilot subscription account
+  copilot-pin --model <id> Discover and pin one exact Copilot served-model identity
+  serve [--providers <list>] Run the selected loopback provider chain in the foreground
+  status                  Probe the sidecar without printing account or token data
+  run [--providers <list>] [-- <claude args>]
+                          Run Claude Code through the selected providers and load Helix CC
+  proof [--providers <list>] [--model <id>]
+                          Run one low-effort native Workflow subagent proof
+  proof-matrix --providers <list> --models <id,id,...>
+                          Run two to four low-effort models in one native Workflow
+
+Environment:
+  HELIX_CC_CLIPROXY_DIR   Override the local state directory
+  HELIX_CC_CLIPROXY_PORT  Override the loopback port (default: 18317)
+  HELIX_CC_COPILOT_BACKEND_PORT / HELIX_CC_COPILOT_PROXY_PORT
+                          Override Copilot loopback ports (defaults: 18318/18319)
+  HELIX_CC_AZURE_PROXY_PORT
+                          Override the Azure attestation port (default: 18320)
+  HELIX_CC_AZURE_ENDPOINT Azure Foundry endpoint ending in /openai/v1
+  HELIX_CC_AZURE_MODELS   JSON object mapping deployment IDs to served-model IDs
+  HELIX_CC_AZURE_API_KEY  Optional Foundry API key; otherwise Azure CLI/Entra is used
+`
+}
+
+async function exists(path) {
+  try {
+    await stat(path)
+    return true
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+function runChecked(command, args, options = {}) {
+  const result = spawnSync(command, args, options)
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`${command} exited with status ${result.status}`)
+  return result
+}
+
+export function createProviderRuntimeDependencies(overrides = {}) {
+  return Object.freeze({
+    ensureBinary,
+    requireCodexAuth,
+    inspectCliProxyState,
+    probeCliProxyModels,
+    ensureCliProxyState,
+    setCodexAuthPrefix,
+    verifyCopilotApiInstallation,
+    ensureCopilotState,
+    hardenCopilotCredential,
+    probeCopilotCatalog,
+    readCopilotPins,
+    renderCopilotAttestationConfig,
+    ensureAzureState,
+    providerRoute,
+    waitForResolvedModels,
+    expectedTranscriptModel,
+    resolvedModelsExactlyMatch,
+    fetch,
+    copilotBackendCommand: copilot => ({
+      command: process.execPath,
+      args: [copilotLauncher, `--api-home=${copilot.apiHome}`, 'start', '--port', String(copilot.backendPort)],
+    }),
+    attestedProxyCommand: configPath => ({
+      command: process.execPath,
+      args: [attestedProxyLauncher, configPath],
+    }),
+    sidecarCommand: state => ({
+      command: state.binaryPath,
+      args: ['-local-model', '-config', state.configPath],
+    }),
+    claudeCommand: args => ({ command: 'claude', args }),
+    ...overrides,
+  })
+}
+
+async function ensureBinary(paths, stateOptions = {}, { writeConfig = true } = {}) {
+  await ensureCliProxyState({ paths, ...stateOptions, writeConfig })
+  await prepareCliProxyArchive({ paths })
+  if (!(await exists(paths.binaryPath))) {
+    const temporary = join(paths.releaseRoot, `.extract-${process.pid}`)
+    await rm(temporary, { recursive: true, force: true })
+    await mkdir(temporary, { recursive: true, mode: 0o700 })
+    try {
+      runChecked('tar', ['-xf', paths.archivePath, '-C', temporary], { stdio: 'inherit' })
+      const extracted = join(temporary, 'cli-proxy-api')
+      if (!(await exists(extracted))) throw new Error(`pinned archive ${archiveBasename(paths)} did not contain the CLIProxyAPI executable`)
+      await mkdir(binaryDirectory(paths), { recursive: true, mode: 0o700 })
+      await rename(extracted, paths.binaryPath)
+      await chmod(paths.binaryPath, 0o700)
+    } finally {
+      await rm(temporary, { recursive: true, force: true })
+    }
+  }
+  const version = runChecked(paths.binaryPath, ['--help'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  const output = `${version.stdout || ''}\n${version.stderr || ''}`
+  if (!output.includes(`Version: ${CLIPROXY_RELEASE.version}`)) {
+    throw new Error(`CLIProxyAPI executable does not report pinned version ${CLIPROXY_RELEASE.version}`)
+  }
+  return ensureCliProxyState({ paths, ...stateOptions, writeConfig })
+}
+
+async function requireCodexAuth(paths) {
+  const result = await hardenCodexAuthFiles(paths.authDir)
+  if (!result.verified) {
+    throw new Error(result.state === 'mixed-providers'
+      ? 'the dedicated Helix CC auth directory contains a non-Codex credential; use a clean HELIX_CC_CLIPROXY_DIR'
+      : 'no Codex OAuth credential is present; run helix-cc-cliproxy login first')
+  }
+  if (result.count !== 1) {
+    throw new Error('the dedicated Helix CC auth directory must contain exactly one Codex OAuth credential')
+  }
+  return result
+}
+
+async function stopOwnedSidecar(child, lifecycle) {
+  if (lifecycle) return lifecycle.stopChild(child)
+  if (!child || child.exitCode != null || child.signalCode != null) return
+  const exited = once(child, 'exit')
+  child.kill('SIGTERM')
+  const timer = setTimeout(() => {
+    if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL')
+  }, 3000)
+  try {
+    await exited
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function waitForSidecar({ child, baseUrl, apiKey, lifecycle, dependencies }) {
+  let last = { verified: false, state: 'unreachable', models: [] }
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    lifecycle?.throwIfInterrupted()
+    if (child?.exitCode != null || child?.signalCode != null) throw new Error(`CLIProxyAPI exited before readiness with status ${child.exitCode ?? child.signalCode}`)
+    last = await dependencies.probeCliProxyModels({ baseUrl, apiKey, timeoutMs: 500 })
+    if (last.verified && last.models.length > 0) return last
+    if (!last.verified && last.state !== 'unreachable') throw new Error(`CLIProxyAPI readiness probe failed: ${last.state}`)
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error(`CLIProxyAPI did not become ready: ${last.state}`)
+}
+
+async function startSidecar(state, lifecycle, dependencies) {
+  const logFd = openSync(state.logPath, 'w', 0o600)
+  let child
+  try {
+    const command = dependencies.sidecarCommand(state)
+    child = spawnOwned(lifecycle, command.command, command.args, {
+      env: sidecarProcessEnvironment(),
+      stdio: ['ignore', logFd, logFd],
+    })
+  } finally {
+    closeSync(logFd)
+  }
+  try {
+    const probe = await waitForSidecar({ child, baseUrl: state.baseUrl, apiKey: state.apiKey, lifecycle, dependencies })
+    return { child, probe, reused: false }
+  } catch (error) {
+    await stopOwnedSidecar(child, lifecycle)
+    throw error
+  }
+}
+
+function startLogged(command, args, { env, logPath, lifecycle }) {
+  const logFd = openSync(logPath, 'w', 0o600)
+  let child
+  try {
+    child = spawnOwned(lifecycle, command, args, { env, stdio: ['ignore', logFd, logFd] })
+  } finally {
+    closeSync(logFd)
+  }
+  return child
+}
+
+async function waitForModels({ child, baseUrl, apiKey, label, attempts = 120, modelFilter, lifecycle, dependencies }) {
+  let last = { verified: false, state: 'unreachable', models: [] }
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    lifecycle?.throwIfInterrupted()
+    if (child?.exitCode != null || child?.signalCode != null) throw new Error(`${label} exited before readiness with status ${child.exitCode ?? child.signalCode}`)
+    last = await dependencies.probeCliProxyModels({ baseUrl, apiKey, timeoutMs: 1000, modelFilter })
+    if (last.verified && last.models.length > 0) return last
+    if (!last.verified && !['unreachable', 'http-503'].includes(last.state)) {
+      throw new Error(`${label} readiness probe failed: ${last.state}`)
+    }
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  throw new Error(`${label} did not become ready: ${last.state}`)
+}
+
+async function waitForGatewayCatalog({ child, baseUrl, apiKey, requiredModels, requireOpenAiPrefix, lifecycle, dependencies }) {
+  let last = { verified: false, state: 'unreachable', models: [] }
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    lifecycle?.throwIfInterrupted()
+    if (child?.exitCode != null || child?.signalCode != null) throw new Error(`CLIProxyAPI exited before catalog convergence with status ${child.exitCode ?? child.signalCode}`)
+    last = await dependencies.probeCliProxyModels({ baseUrl, apiKey, timeoutMs: 1000 })
+    if (last.verified
+      && requiredModels.every(model => last.models.includes(model))
+      && (!requireOpenAiPrefix || last.models.some(model => model.startsWith('openai/')))) return last
+    if (!last.verified && last.state !== 'unreachable') throw new Error(`CLIProxyAPI catalog probe failed: ${last.state}`)
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  throw new Error('CLIProxyAPI catalog did not converge on every required provider namespace')
+}
+
+async function waitForAttestationProxy({ child, baseUrl, apiKey, label, lifecycle, dependencies }) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    lifecycle?.throwIfInterrupted()
+    if (child?.exitCode != null || child?.signalCode != null) throw new Error(`${label} exited before readiness with status ${child.exitCode ?? child.signalCode}`)
+    try {
+      const response = await dependencies.fetch(new URL('/_helix/ready', baseUrl), {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(500),
+      })
+      const receipt = response.status === 200 ? await response.json() : undefined
+      if (receipt?.status === 'helix-attested-proxy-ready') return
+    } catch {
+      // The listener is not ready yet.
+    }
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error(`${label} did not become ready`)
+}
+
+async function startCopilotProvider(paths, lifecycle, dependencies) {
+  await dependencies.verifyCopilotApiInstallation()
+  const copilot = await dependencies.ensureCopilotState(paths)
+  const credential = await dependencies.hardenCopilotCredential(copilot)
+  if (!credential.verified) throw new Error('no GitHub Copilot credential is present; run helix-cc-cliproxy copilot-login')
+  const backendCommand = dependencies.copilotBackendCommand(copilot)
+  const backend = startLogged(backendCommand.command, backendCommand.args, {
+    env: { ...sidecarProcessEnvironment(), NODE_ENV: 'production' },
+    logPath: copilot.backendLogPath,
+    lifecycle,
+  })
+  try {
+    await waitForModels({
+      child: backend,
+      baseUrl: copilot.backendBaseUrl,
+      apiKey: copilot.backendToken,
+      label: 'Copilot API',
+      modelFilter: isCopilotResponsesModel,
+      lifecycle,
+      dependencies,
+    })
+    const capabilityCatalog = await dependencies.probeCopilotCatalog({
+      baseUrl: copilot.backendBaseUrl,
+      apiKey: copilot.backendToken,
+    })
+    if (!capabilityCatalog.verified) throw new Error(`Copilot capability catalog failed: ${capabilityCatalog.state}`)
+    const pins = await dependencies.readCopilotPins(copilot)
+    const attestedModels = capabilityCatalog.models.map(model => ({
+      ...model,
+      servedModel: pins[model.id] || model.id,
+    }))
+    const attestation = dependencies.renderCopilotAttestationConfig(copilot, attestedModels)
+    await writeFile(copilot.proxyConfigPath, `${JSON.stringify(attestation, null, 2)}\n`, { mode: 0o600 })
+    await chmod(copilot.proxyConfigPath, 0o600)
+    const proxyCommand = dependencies.attestedProxyCommand(copilot.proxyConfigPath, { provider: 'copilot', state: copilot })
+    const proxy = startLogged(proxyCommand.command, proxyCommand.args, {
+      env: sidecarProcessEnvironment(),
+      logPath: copilot.proxyLogPath,
+      lifecycle,
+    })
+    try {
+      await waitForAttestationProxy({
+        child: proxy,
+        baseUrl: copilot.proxyBaseUrl,
+        apiKey: copilot.proxyToken,
+        label: 'Copilot attestation proxy',
+        lifecycle,
+        dependencies,
+      })
+      return {
+        children: [proxy, backend],
+        route: dependencies.providerRoute({
+          name: 'github-copilot',
+          prefix: 'copilot',
+          baseUrl: `${copilot.proxyBaseUrl}/v1`,
+          apiKey: copilot.proxyToken,
+          models: attestedModels,
+          transport: 'responses',
+        }),
+        credential,
+      }
+    } catch (error) {
+      await stopOwnedSidecar(proxy, lifecycle)
+      throw error
+    }
+  } catch (error) {
+    await stopOwnedSidecar(backend, lifecycle)
+    throw error
+  }
+}
+
+async function runCopilotPin(paths, model, lifecycle, dependencies) {
+  await dependencies.verifyCopilotApiInstallation()
+  const copilot = await dependencies.ensureCopilotState(paths)
+  const credential = await dependencies.hardenCopilotCredential(copilot)
+  if (!credential.verified) throw new Error('no GitHub Copilot credential is present; run helix-cc-cliproxy copilot-login')
+  if (typeof model !== 'string' || !model || model.length > 256 || /[\u0000-\u001f\u007f/]/.test(model)) {
+    throw new Error('copilot-pin model must be an unprefixed printable ID of at most 256 characters')
+  }
+  const backendCommand = dependencies.copilotBackendCommand(copilot)
+  const backend = startLogged(backendCommand.command, backendCommand.args, {
+    env: { ...sidecarProcessEnvironment(), NODE_ENV: 'production' },
+    logPath: copilot.backendLogPath,
+    lifecycle,
+  })
+  try {
+    await waitForModels({
+      child: backend,
+      baseUrl: copilot.backendBaseUrl,
+      apiKey: copilot.backendToken,
+      label: 'Copilot API',
+      modelFilter: isCopilotResponsesModel,
+      lifecycle,
+      dependencies,
+    })
+    const catalog = await dependencies.probeCopilotCatalog({ baseUrl: copilot.backendBaseUrl, apiKey: copilot.backendToken })
+    if (!catalog.verified || !catalog.models.some(entry => entry.id === model)) {
+      throw new Error(`Copilot Responses catalog did not advertise ${model}`)
+    }
+    const discovered = await discoverCopilotServedModel({
+      baseUrl: copilot.backendBaseUrl,
+      apiKey: copilot.backendToken,
+      model,
+    })
+    return writeCopilotPin(copilot, discovered.requestedModel, discovered.servedModel)
+  } finally {
+    await stopOwnedSidecar(backend, lifecycle)
+  }
+}
+
+async function startAzureProvider(paths, lifecycle, dependencies) {
+  const azure = await dependencies.ensureAzureState(paths)
+  const proxyCommand = dependencies.attestedProxyCommand(azure.configPath, { provider: 'azure', state: azure })
+  const child = startLogged(proxyCommand.command, proxyCommand.args, {
+    env: {
+      ...sidecarProcessEnvironment(),
+      ...(process.env.HELIX_CC_AZURE_API_KEY ? { HELIX_CC_AZURE_API_KEY: process.env.HELIX_CC_AZURE_API_KEY } : {}),
+    },
+    logPath: azure.logPath,
+    lifecycle,
+  })
+  try {
+    await waitForAttestationProxy({ child, baseUrl: azure.baseUrl, apiKey: azure.inboundToken, label: 'Azure attestation proxy', lifecycle, dependencies })
+    return {
+      children: [child],
+      route: dependencies.providerRoute({
+        name: 'azure-foundry',
+        prefix: 'azure',
+        baseUrl: `${azure.baseUrl}/v1`,
+        apiKey: azure.inboundToken,
+        models: azure.routeModels,
+      }),
+      authMode: azure.authMode,
+    }
+  } catch (error) {
+    await stopOwnedSidecar(child, lifecycle)
+    throw error
+  }
+}
+
+async function stopChildren(children, lifecycle) {
+  for (const child of children) await stopOwnedSidecar(child, lifecycle)
+}
+
+async function startProviderRuntime(paths, providers, lifecycle, dependencies) {
+  await dependencies.ensureBinary(paths, {}, { writeConfig: false })
+  const children = []
+  const routes = []
+  const credentials = {}
+  const forceModelPrefix = providers.length > 1 || providers[0] !== 'codex'
+  try {
+    const current = await dependencies.inspectCliProxyState({ paths })
+    const occupied = current.configured
+      ? await dependencies.probeCliProxyModels({ baseUrl: current.baseUrl, apiKey: current.apiKey, timeoutMs: 500 })
+      : { verified: false, state: 'unreachable' }
+    if (occupied.verified) throw new Error(`loopback port ${paths.port} already has a Helix CC gateway; stop it before starting another run`)
+    if (occupied.state !== 'unreachable') throw new Error(`loopback port ${paths.port} is occupied by an incompatible endpoint: ${occupied.state}`)
+    if (providers.includes('codex')) {
+      credentials.codex = await dependencies.requireCodexAuth(paths)
+      await dependencies.setCodexAuthPrefix(paths.authDir, forceModelPrefix ? 'openai' : '')
+    }
+    if (providers.includes('copilot')) {
+      const copilot = await startCopilotProvider(paths, lifecycle, dependencies)
+      children.push(...copilot.children)
+      routes.push(copilot.route)
+      credentials.copilot = copilot.credential
+    }
+    if (providers.includes('azure')) {
+      const azure = await startAzureProvider(paths, lifecycle, dependencies)
+      children.push(...azure.children)
+      routes.push(azure.route)
+      credentials.azure = {
+        verified: false,
+        state: `${azure.authMode}-configured-live-call-unverified`,
+        class: azure.authMode,
+        count: 1,
+      }
+    }
+    const state = await dependencies.ensureCliProxyState({ paths, forceModelPrefix, routes })
+    const gateway = await startSidecar(state, lifecycle, dependencies)
+    children.unshift(gateway.child)
+    const required = routes.flatMap(route => route.models.map(model => `${route.prefix}/${typeof model === 'string' ? model : model.id}`))
+    gateway.probe = await waitForGatewayCatalog({
+      child: gateway.child,
+      baseUrl: state.baseUrl,
+      apiKey: state.apiKey,
+      requiredModels: required,
+      requireOpenAiPrefix: forceModelPrefix && providers.includes('codex'),
+      lifecycle,
+      dependencies,
+    })
+    return { state, gateway, providers, children, credentials }
+  } catch (error) {
+    await stopChildren(children, lifecycle)
+    throw error
+  }
+}
+
+function forwardSanitizedLines(stream, destination, sanitizer = sanitizeCliProxyLoginLine) {
+  let pending = ''
+  stream.setEncoding('utf8')
+  stream.on('data', chunk => {
+    pending += chunk
+    const lines = pending.split(/\r?\n/)
+    pending = lines.pop()
+    for (const line of lines) {
+      const sanitized = sanitizer(line)
+      if (sanitized) destination.write(`${sanitized}\n`)
+    }
+  })
+  stream.on('end', () => {
+    if (!pending) return
+    const sanitized = sanitizer(pending)
+    if (sanitized) destination.write(`${sanitized}\n`)
+  })
+}
+
+async function runCopilotLogin(paths, lifecycle) {
+  await verifyCopilotApiInstallation()
+  const copilot = await ensureCopilotState(paths)
+  const child = spawnOwned(lifecycle, process.execPath, [
+    copilotLauncher,
+    `--api-home=${copilot.apiHome}`,
+    'auth',
+    '--provider=copilot',
+  ], {
+    env: { ...sidecarProcessEnvironment(), NODE_ENV: 'production' },
+    stdio: ['inherit', 'pipe', 'pipe'],
+  })
+  forwardSanitizedLines(child.stdout, process.stdout, sanitizeCopilotLoginLine)
+  forwardSanitizedLines(child.stderr, process.stderr, sanitizeCopilotLoginLine)
+  const [status] = await once(child, 'exit')
+  if (status !== 0) throw new Error(`Copilot authentication exited with status ${status}`)
+  const credential = await hardenCopilotCredential(copilot)
+  if (!credential.verified) throw new Error('Copilot authentication did not produce a valid dedicated credential')
+  return credential
+}
+
+async function runLogin(state, { device, lifecycle }) {
+  const flags = [device ? '-codex-device-login' : '-codex-login', '-config', state.configPath]
+  const child = spawnOwned(lifecycle, state.binaryPath, flags, {
+    env: sidecarProcessEnvironment(),
+    stdio: ['inherit', 'pipe', 'pipe'],
+  })
+  forwardSanitizedLines(child.stdout, process.stdout)
+  forwardSanitizedLines(child.stderr, process.stderr)
+  const [status] = await once(child, 'exit')
+  if (status !== 0) throw new Error(`CLIProxyAPI Codex login exited with status ${status}`)
+}
+
+function parseProofOptions(argv) {
+  let model = 'gpt-5.6-luna'
+  let providers = ['codex']
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    if (!['--model', '--providers'].includes(arg) || !argv[index + 1]) throw new Error(`unknown or incomplete proof option: ${arg}`)
+    if (arg === '--model') model = argv[index + 1]
+    else providers = parseProviderList(argv[index + 1])
+    index += 1
+  }
+  validateProviderModel(providers, model)
+  return { model, providers }
+}
+
+function parseRuntimeOptions(argv, { forwarded = false } = {}) {
+  let providers = ['codex']
+  const remainder = []
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    if (arg === '--') {
+      remainder.push(...argv.slice(index + 1))
+      break
+    }
+    if (arg === '--providers' && argv[index + 1]) {
+      providers = parseProviderList(argv[index + 1])
+      index += 1
+      continue
+    }
+    if (forwarded) {
+      remainder.push(arg)
+      continue
+    }
+    throw new Error(`unknown or incomplete runtime option: ${arg}`)
+  }
+  if (forwarded) {
+    const models = []
+    for (let index = 0; index < remainder.length; index += 1) {
+      if (remainder[index] === '--model') {
+        if (!remainder[index + 1]) throw new Error('provider-backed mode requires --model <id>')
+        models.push(remainder[index + 1])
+        index += 1
+      } else if (remainder[index].startsWith('--model=')) {
+        models.push(remainder[index].slice('--model='.length))
+      }
+    }
+    if (models.length !== 1) throw new Error('provider-backed mode requires exactly one --model value')
+    validateProviderModel(providers, models[0])
+  }
+  return { providers, forwarded: remainder }
+}
+
+function parseMatrixProofOptions(argv) {
+  let providers
+  let models
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    if (!['--providers', '--models'].includes(arg) || !argv[index + 1]) throw new Error(`unknown or incomplete proof-matrix option: ${arg}`)
+    if (arg === '--providers') providers = parseProviderList(argv[index + 1])
+    else models = argv[index + 1].split(',').map(model => model.trim()).filter(Boolean)
+    index += 1
+  }
+  if (!providers || providers.length < 2) throw new Error('proof-matrix requires at least two selected providers')
+  if (!models || models.length < 2 || models.length > 4 || new Set(models).size !== models.length) {
+    throw new Error('proof-matrix models must contain two through four unique IDs')
+  }
+  for (const model of models) {
+    if (model.length > 256 || /[\u0000-\u001f\u007f]/.test(model) || !model.includes('/')) {
+      throw new Error('proof-matrix models must be provider-prefixed printable strings of at most 256 characters')
+    }
+    validateProviderModel(providers, model)
+  }
+  const representedProviders = new Set(models.map(model => model.split('/', 1)[0] === 'openai' ? 'codex' : model.split('/', 1)[0]))
+  for (const provider of providers) {
+    if (!representedProviders.has(provider)) throw new Error(`proof-matrix requires at least one model for selected provider ${provider}`)
+  }
+  return { providers, models }
+}
+
+function structuredProofResult(stdout) {
+  let envelope
+  try {
+    envelope = JSON.parse(stdout)
+  } catch {
+    throw new Error('Claude Code proof did not return a JSON result envelope')
+  }
+  if (envelope?.is_error === true || envelope?.subtype === 'error') throw new Error('Claude Code proof returned an error result')
+  if (envelope?.structured_output && typeof envelope.structured_output === 'object') return envelope.structured_output
+  if (typeof envelope?.result === 'string') {
+    try {
+      return JSON.parse(envelope.result)
+    } catch {
+      throw new Error('Claude Code proof result was not structured JSON')
+    }
+  }
+  throw new Error('Claude Code proof envelope did not contain structured output')
+}
+
+async function runProof(runtime, models, { matrix = false, lifecycle, dependencies } = {}) {
+  const state = runtime.state
+  const sidecar = runtime.gateway
+  const mainModel = models[0]
+  const marker = `helix-cc-${randomBytes(16).toString('hex')}`
+  const startedAt = Date.now()
+  for (const model of models) {
+    if (!sidecar.probe.models.includes(model)) throw new Error(`CLIProxyAPI did not advertise requested model ${model}`)
+  }
+    const schema = JSON.stringify({
+      type: 'object',
+      additionalProperties: false,
+      required: ['workflowCompleted', 'marker'],
+      properties: {
+        workflowCompleted: { const: true },
+        marker: { const: marker },
+      },
+    })
+    const proofWorkflow = join(pluginRoot, 'workflows', matrix ? 'provider-matrix-proof.js' : 'provider-proof.js')
+    const workflowArgs = matrix ? { models, marker } : { model: mainModel, marker }
+    const prompt = [
+      'This is a bounded transport proof. Invoke the Workflow tool exactly once with:',
+      `scriptPath: ${JSON.stringify(proofWorkflow)}`,
+      `args: ${JSON.stringify(workflowArgs)}`,
+      'Do not invoke any other workflow or agent directly. Wait for that background workflow to finish.',
+      `If and only if its returned marker equals ${JSON.stringify(marker)}, return the required JSON object with workflowCompleted true and that marker.`,
+    ].join('\n')
+    const env = claudeGatewayEnvironment({
+      env: process.env,
+      baseUrl: state.baseUrl,
+      apiKey: state.apiKey,
+      claudeConfigDir: state.claudeConfigDir,
+      activeSession: {
+        ownerPid: process.pid,
+        gatewayPid: sidecar.child.pid,
+        providers: runtime.providers,
+        models: sidecar.probe.models,
+      },
+    })
+    const claude = dependencies.claudeCommand([
+      '--plugin-dir', pluginRoot,
+      '--setting-sources', 'user',
+      '--model', mainModel,
+      '--effort', 'low',
+      '--tools', 'Workflow,Monitor',
+      '--allowedTools', 'Workflow,Monitor',
+      '--permission-mode', 'dontAsk',
+      '--output-format', 'json',
+      '--json-schema', schema,
+      '-p', prompt,
+    ])
+    const result = await runForeground(claude.command, claude.args, {
+      cwd: process.cwd(),
+      env,
+      capture: true,
+      timeoutMs: 180000,
+      maxBuffer: 16 * 1024 * 1024,
+      lifecycle,
+    })
+    if (result.interrupted) {
+      const error = new Error(`Claude Code proof was interrupted by ${result.signal || 'a signal'}`)
+      error.exitCode = result.exitCode
+      throw error
+    }
+    if (result.status !== 0) throw new Error(`Claude Code proof exited with status ${result.status}`)
+    const structured = structuredProofResult(result.stdout)
+    if (structured.workflowCompleted !== true || structured.marker !== marker) {
+      throw new Error('Claude Code proof did not return the workflow marker')
+    }
+    const expectedResolvedModels = [...new Set(models.map(dependencies.expectedTranscriptModel))].sort()
+    const transcript = await dependencies.waitForResolvedModels(join(state.claudeConfigDir, 'projects'), {
+      marker,
+      modifiedAfter: startedAt - 1000,
+      expectedTranscripts: models.length,
+      expectedModels: expectedResolvedModels,
+      assertActive: () => lifecycle?.throwIfInterrupted(),
+    })
+    if (transcript.matchedTranscripts !== models.length) {
+      throw new Error(`expected exactly ${models.length} matching Workflow subagent transcripts, found ${transcript.matchedTranscripts}`)
+    }
+    if (!dependencies.resolvedModelsExactlyMatch(transcript.models, expectedResolvedModels)) {
+      throw new Error('Workflow transcript resolved-model set did not exactly match the request')
+    }
+  return {
+      status: 'passed',
+      cliProxyVersion: CLIPROXY_RELEASE.version,
+      providerChain: runtime.providers,
+      upstreamCredentialClasses: runtime.providers.map(provider => provider === 'codex'
+        ? 'codex-oauth-only'
+        : provider === 'copilot'
+          ? 'github-copilot-only'
+          : runtime.credentials.azure.class),
+      upstreamCredentialCount: runtime.providers.reduce(
+        (count, provider) => count + (runtime.credentials[provider]?.count || 0),
+        0,
+      ),
+      mainRequestedModel: mainModel,
+      workflowRequestedModels: models,
+      workflowExpectedResolvedModels: expectedResolvedModels,
+      workflowResolvedModels: transcript.models,
+      workflowAgentTranscripts: transcript.matchedTranscripts,
+      globalSubagentModelOverride: false,
+      markerMatched: true,
+      sidecarReused: false,
+  }
+}
+
+export async function main(lifecycle, {
+  argv: commandArguments = process.argv.slice(2),
+  paths: selectedPaths,
+  dependencies: dependencyOverrides,
+} = {}) {
+  const dependencies = createProviderRuntimeDependencies(dependencyOverrides)
+  const [command, ...argv] = commandArguments
+  if (!command || command === '--help' || command === '-h') {
+    process.stdout.write(usage())
+    return
+  }
+  const paths = selectedPaths || resolveCliProxyPaths()
+  if (command === 'prepare') {
+    const state = await dependencies.ensureBinary(paths)
+    process.stdout.write(`${JSON.stringify({ status: 'prepared', version: CLIPROXY_RELEASE.version, loopbackPort: state.port })}\n`)
+    return
+  }
+  if (command === 'login') {
+    if (argv.some(arg => arg !== '--device') || argv.length > 1) throw new Error(`unknown login option: ${argv[0]}`)
+    const state = await dependencies.ensureBinary(paths)
+    await runLogin(state, { device: argv[0] === '--device', lifecycle })
+    const auth = await requireCodexAuth(state)
+    process.stdout.write(`${JSON.stringify({ status: 'authenticated', provider: 'codex-oauth', credentialCount: auth.count })}\n`)
+    return
+  }
+  if (command === 'copilot-login') {
+    if (argv.length) throw new Error(`unknown copilot-login option: ${argv[0]}`)
+    const credential = await runCopilotLogin(paths, lifecycle)
+    process.stdout.write(`${JSON.stringify({
+      status: 'authenticated',
+      provider: 'github-copilot',
+      credentialCount: credential.count,
+      gatewayVersion: COPILOT_API_RELEASE.version,
+    })}\n`)
+    return
+  }
+  if (command === 'copilot-pin') {
+    if (argv.length !== 2 || argv[0] !== '--model') throw new Error('usage: helix-cc-cliproxy copilot-pin --model <id>')
+    const pin = await runCopilotPin(paths, argv[1], lifecycle, dependencies)
+    process.stdout.write(`${JSON.stringify({ status: 'pinned', ...pin })}\n`)
+    return
+  }
+  if (command === 'serve') {
+    const options = parseRuntimeOptions(argv)
+    const runtime = await startProviderRuntime(paths, options.providers, lifecycle, dependencies)
+    try {
+      const result = await waitForForegroundChild(runtime.gateway.child, { lifecycle })
+      process.exitCode = result.exitCode
+    } finally {
+      await stopChildren(runtime.children, lifecycle)
+    }
+    return
+  }
+  if (command === 'status') {
+    if (argv.length) throw new Error(`unknown status option: ${argv[0]}`)
+    const state = await inspectCliProxyState({ paths })
+    const auth = await verifyCodexOnlyAuthDir(paths.authDir)
+    const copilot = resolveCopilotPaths(paths)
+    const copilotCredential = await verifyCopilotCredential(copilot)
+    const probe = state.configured
+      ? await probeCliProxyModels({ baseUrl: state.baseUrl, apiKey: state.apiKey })
+      : { verified: false, state: 'not-configured', models: [] }
+    process.stdout.write(`${JSON.stringify({
+      status: probe.verified ? 'ready' : probe.state,
+      version: CLIPROXY_RELEASE.version,
+      codexOnlyAuth: auth.verified && auth.count === 1,
+      credentialCount: auth.count,
+      copilotCredential: copilotCredential.state,
+      azureConfigured: Boolean(process.env.HELIX_CC_AZURE_ENDPOINT && process.env.HELIX_CC_AZURE_MODELS),
+      modelCount: probe.models.length,
+      models: probe.models,
+    }, null, 2)}\n`)
+    return
+  }
+  if (command === 'run') {
+    const options = parseRuntimeOptions(argv, { forwarded: true })
+    const runtime = await startProviderRuntime(paths, options.providers, lifecycle, dependencies)
+    try {
+      const env = claudeGatewayEnvironment({
+        env: process.env,
+        baseUrl: runtime.state.baseUrl,
+        apiKey: runtime.state.apiKey,
+        claudeConfigDir: runtime.state.claudeConfigDir,
+        activeSession: {
+          ownerPid: process.pid,
+          gatewayPid: runtime.gateway.child.pid,
+          providers: runtime.providers,
+          models: runtime.gateway.probe.models,
+        },
+      })
+      const claude = dependencies.claudeCommand(['--plugin-dir', pluginRoot, ...options.forwarded])
+      const result = await runForeground(claude.command, claude.args, {
+        stdio: 'inherit',
+        env,
+        cwd: process.cwd(),
+        lifecycle,
+      })
+      process.exitCode = result.exitCode
+    } finally {
+      await stopChildren(runtime.children, lifecycle)
+    }
+    return
+  }
+  if (command === 'proof') {
+    const options = parseProofOptions(argv)
+    const runtime = await startProviderRuntime(paths, options.providers, lifecycle, dependencies)
+    try {
+      const proof = await runProof(runtime, [options.model], { lifecycle, dependencies })
+      process.stdout.write(`${JSON.stringify(proof, null, 2)}\n`)
+    } finally {
+      await stopChildren(runtime.children, lifecycle)
+    }
+    return
+  }
+  if (command === 'proof-matrix') {
+    const options = parseMatrixProofOptions(argv)
+    const runtime = await startProviderRuntime(paths, options.providers, lifecycle, dependencies)
+    try {
+      const proof = await runProof(runtime, options.models, { matrix: true, lifecycle, dependencies })
+      process.stdout.write(`${JSON.stringify(proof, null, 2)}\n`)
+    } finally {
+      await stopChildren(runtime.children, lifecycle)
+    }
+    return
+  }
+  throw new Error(`unknown command: ${command}`)
+}
+
+let directExecution = false
+try {
+  directExecution = Boolean(process.argv[1]) && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
+} catch {
+  directExecution = false
+}
+
+if (directExecution) {
+  const lifecycle = createProcessLifecycleOwner()
+  try {
+    await main(lifecycle)
+  } catch (error) {
+    process.stderr.write(`helix-cc-cliproxy: ${error.message}\n`)
+    process.exitCode = error.exitCode || process.exitCode || 1
+  } finally {
+    await lifecycle.close()
+  }
+}

@@ -1,0 +1,25 @@
+# Local reviewer outputs and scratch material are ignored. Canonical dispatch
+# prompts below are explicitly tracked so they can be shared safely.
+review-prompts/**
+!review-prompts/
+!review-prompts/helix-claude-code-gap-independent-evaluation.md
+!review-prompts/helix-cc-multiprovider-independent-evaluation.md
+!review-prompts/helix-cc-repository-wide-user-test-readiness-review.md
+
+# Ephemeral repository-wide review output belongs outside the tracked,
+# append-only audit ledger under docs/reviews/.
+/reviews/
+
+# Claude Code writes per-machine overrides here. Shared plugin configuration
+# remains tracked through the manifest and MCP configuration.
+/.claude/settings.local.json
+
+# Optional repo-local override for CLIProxyAPI state. The default lives under
+# the user's state directory, but this protects explicit local test overrides.
+.helix-cc-local/
+
+# Installed optional provider gateways are reproducible from package-lock.json.
+node_modules/
+
+# Finder metadata is never repository state.
+.DS_Store

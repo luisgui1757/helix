@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+
+import { readFile } from 'node:fs/promises'
+
+import {
+  createAttestedProxyHandler,
+  createAzureCliTokenProvider,
+  normalizeFoundryEndpoint,
+  startAttestedProxy,
+} from '../lib/attested-proxy.mjs'
+
+async function main() {
+  if (process.argv.length !== 3) throw new Error('usage: helix-cc-attested-proxy <config.json>')
+  let config
+  try {
+    config = JSON.parse(await readFile(process.argv[2], 'utf8'))
+  } catch {
+    throw new Error('proxy config is missing or invalid')
+  }
+  if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('proxy config must be an object')
+
+  let upstreamBaseUrl = config.upstreamBaseUrl
+  let upstreamHeaders
+  if (config.authMode === 'azure-api-key') {
+    upstreamBaseUrl = normalizeFoundryEndpoint(upstreamBaseUrl)
+    const apiKey = process.env.HELIX_CC_AZURE_API_KEY
+    if (!apiKey) throw new Error('HELIX_CC_AZURE_API_KEY is required for azure-api-key mode')
+    upstreamHeaders = async () => ({ 'api-key': apiKey })
+  } else if (config.authMode === 'azure-cli') {
+    upstreamBaseUrl = normalizeFoundryEndpoint(upstreamBaseUrl)
+    upstreamHeaders = createAzureCliTokenProvider()
+  } else if (config.authMode === 'bearer') {
+    if (typeof config.upstreamToken !== 'string' || !config.upstreamToken) throw new Error('bearer mode requires upstreamToken')
+    upstreamHeaders = async () => ({ Authorization: `Bearer ${config.upstreamToken}` })
+  } else {
+    throw new Error('proxy authMode is unsupported')
+  }
+
+  const handler = createAttestedProxyHandler({
+    upstreamBaseUrl,
+    inboundToken: config.inboundToken,
+    expectedModels: config.expectedModels,
+    upstreamHeaders,
+  })
+  await startAttestedProxy({ port: config.port, handler })
+  process.stdout.write('helix-cc attested provider proxy ready\n')
+}
+
+main().catch(error => {
+  process.stderr.write(`helix-cc-attested-proxy: ${error.message}\n`)
+  process.exitCode = 1
+})

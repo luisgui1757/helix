@@ -1,0 +1,8 @@
+{
+  "name": "helix-cc",
+  "version": "0.4.0",
+  "description": "Audited Helix delivery, TDD, reconnaissance, research, review, and pre-PR loops for Claude Code dynamic workflows.",
+  "author": {
+    "name": "Luis Ribeiro"
+  }
+}

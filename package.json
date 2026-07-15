@@ -1,0 +1,33 @@
+{
+  "name": "helix-cc",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Helix delivery, TDD, reconnaissance, research, review, and pre-PR loops mapped onto Claude Code dynamic workflows.",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "claudex": "bin/claudex",
+    "helix-cc-doctor": "bin/helix-cc-doctor",
+    "helix-cc-cliproxy": "bin/helix-cc-cliproxy",
+    "helix-cc-attested-proxy": "bin/helix-cc-attested-proxy",
+    "helix-cc-copilot-api": "bin/helix-cc-copilot-api"
+  },
+  "scripts": {
+    "check": "node scripts/validate-plugin.mjs",
+    "cliproxy:prepare": "node bin/helix-cc-cliproxy prepare",
+    "cliproxy:login": "node bin/helix-cc-cliproxy login",
+    "cliproxy:status": "node bin/helix-cc-cliproxy status",
+    "cliproxy:proof": "node bin/helix-cc-cliproxy proof --model gpt-5.6-luna",
+    "test": "node --test tests/*.test.mjs",
+    "verify": "npm run check && npm test && claude plugin validate --strict ."
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0"
+  },
+  "optionalDependencies": {
+    "@jeffreycao/copilot-api": "1.14.9"
+  }
+}

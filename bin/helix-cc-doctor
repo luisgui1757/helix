@@ -1,0 +1,19 @@
+#!/usr/bin/env node
+
+import { collectDoctor, formatDoctor } from '../lib/doctor.mjs'
+
+const args = new Set(process.argv.slice(2))
+const allowed = new Set(['--human', '--json', '--help', '-h'])
+for (const arg of args) {
+  if (!allowed.has(arg)) {
+    process.stderr.write(`Unknown option: ${arg}\n`)
+    process.exitCode = 2
+  }
+}
+
+if (args.has('--help') || args.has('-h')) {
+  process.stdout.write('Usage: helix-cc-doctor [--human|--json]\n')
+} else if (!process.exitCode) {
+  const report = await collectDoctor()
+  process.stdout.write(args.has('--human') ? `${formatDoctor(report)}\n` : `${JSON.stringify(report, null, 2)}\n`)
+}

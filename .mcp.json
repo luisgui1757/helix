@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "helix-cc-evidence": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/helix-cc-evidence-mcp"],
+      "env": {
+        "CLAUDE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}"
+      },
+      "alwaysLoad": true
+    }
+  }
+}

@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+source_path="${BASH_SOURCE[0]}"
+while [[ -L "$source_path" ]]; do
+  source_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+  link_target="$(readlink "$source_path")"
+  if [[ "$link_target" == /* ]]; then
+    source_path="$link_target"
+  else
+    source_path="$source_dir/$link_target"
+  fi
+done
+plugin_root="$(cd -P "$(dirname "$source_path")/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage: claudex [--native | --providers <list>] [claude arguments]
+
+Launch Claude Code with the Helix CC plugin already loaded.
+
+Modes:
+  --native              Use Claude Code's normal configured backend (default)
+  --providers <list>    Use Helix CC providers: codex, copilot, azure, or a comma list
+  --claudex-help        Show this launcher help
+
+Environment:
+  CLAUDEX_PROVIDERS     Default provider list when --providers is omitted
+  CLAUDEX_MODEL         Explicit gateway model supplied through the environment
+
+Examples:
+  claudex
+  claudex --model fable
+  claudex --providers codex --model gpt-5.6-luna
+  claudex --providers copilot --model copilot/gpt-5.4
+  claudex --providers codex,copilot --model openai/gpt-5.6-luna
+  claudex --providers azure --model azure/<deployment>
+EOF
+}
+
+providers="${CLAUDEX_PROVIDERS:-}"
+mode=""
+forwarded=()
+while (($#)); do
+  case "$1" in
+    --claudex-help)
+      usage
+      exit 0
+      ;;
+    --native)
+      [[ "$mode" != providers ]] || { echo "claudex: --native cannot be combined with --providers" >&2; exit 2; }
+      [[ "$mode" != native ]] || { echo "claudex: --native may be specified only once" >&2; exit 2; }
+      mode=native
+      providers=""
+      shift
+      ;;
+    --providers)
+      [[ $# -ge 2 && -n "$2" ]] || { echo "claudex: --providers requires a value" >&2; exit 2; }
+      [[ "$mode" != native ]] || { echo "claudex: --providers cannot be combined with --native" >&2; exit 2; }
+      [[ "$mode" != providers ]] || { echo "claudex: --providers may be specified only once" >&2; exit 2; }
+      mode=providers
+      providers="$2"
+      shift 2
+      ;;
+    --providers=*)
+      [[ "$mode" != native ]] || { echo "claudex: --providers cannot be combined with --native" >&2; exit 2; }
+      [[ "$mode" != providers ]] || { echo "claudex: --providers may be specified only once" >&2; exit 2; }
+      mode=providers
+      providers="${1#--providers=}"
+      [[ -n "$providers" ]] || { echo "claudex: --providers requires a value" >&2; exit 2; }
+      shift
+      ;;
+    --)
+      shift
+      forwarded+=("$@")
+      break
+      ;;
+    *)
+      forwarded+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ "$mode" == native || -z "$providers" ]]; then
+  command -v claude >/dev/null 2>&1 || {
+    echo "claudex: Claude Code is not installed; run $plugin_root/setup.sh" >&2
+    exit 1
+  }
+  exec claude --plugin-dir "$plugin_root" "${forwarded[@]}"
+fi
+
+command -v node >/dev/null 2>&1 || {
+  echo "claudex: Node.js is required for provider-backed mode; run $plugin_root/setup.sh" >&2
+  exit 1
+}
+
+has_model=false
+for ((index = 0; index < ${#forwarded[@]}; index += 1)); do
+  if [[ "${forwarded[index]}" == --model ]]; then
+    [[ $((index + 1)) -lt ${#forwarded[@]} && -n "${forwarded[index + 1]}" ]] || {
+      echo "claudex: --model requires a value" >&2
+      exit 2
+    }
+    has_model=true
+    break
+  fi
+  if [[ "${forwarded[index]}" == --model=* && -n "${forwarded[index]#--model=}" ]]; then
+    has_model=true
+    break
+  fi
+done
+
+if [[ "$has_model" == false ]]; then
+  model="${CLAUDEX_MODEL:-}"
+  [[ -n "$model" ]] || {
+    echo "claudex: provider-backed mode requires --model <id> or CLAUDEX_MODEL" >&2
+    exit 2
+  }
+  forwarded=(--model "$model" "${forwarded[@]}")
+fi
+
+exec node "$plugin_root/bin/helix-cc-cliproxy" run --providers "$providers" -- "${forwarded[@]}"
