@@ -2,11 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createPiAgentAdapter, piProviderId } from "../dispatch/lib/pi-agent-adapter.mjs";
+import { PI_EFFORT_CODES } from "../dispatch/lib/pi-effort.mjs";
 import { validateRoleEnvelope } from "../dispatch/lib/role-envelope.mjs";
 
 function harness(output) {
   const calls = [];
-  const model = { provider: "openrouter", id: "openai/gpt-oss-20b:free" };
+  const model = {
+    provider: "openrouter",
+    id: "openai/gpt-oss-20b:free",
+    reasoning: true,
+    thinkingLevelMap: { xhigh: "xhigh" },
+  };
   const modelRegistry = {
     authStorage: {},
     find(provider, id) {
@@ -72,6 +78,83 @@ test("judge, synthesis, and verifier prompts receive the exact workflow task", a
   const prompts = calls.filter((call) => call.kind === "prompt").map((call) => call.value);
   assert.equal(prompts.length, 3);
   assert.equal(prompts.every((prompt) => prompt.includes(`Exact workflow task:\n${task}`)), true);
+});
+
+test("candidate, judge, synthesis, and verifier bind requested effort at session creation", async () => {
+  const { adapter, calls, model } = harness(JSON.stringify({
+    status: "ok", uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [],
+  }));
+  await adapter.runCandidate(
+    { role: "builder", provider: model.provider, model: model.id, effort: "low" },
+    { run_id: "r", cwd: "/tmp", prompt: "build" },
+  );
+  await adapter.runJudge({}, {
+    run_id: "r", cwd: "/tmp", task_instruction: "task",
+    judge: { provider: model.provider, model: model.id, effort: "medium" },
+  });
+  await adapter.runSynthesis({}, {
+    run_id: "r", cwd: "/tmp", task_instruction: "task",
+    synthesis: { provider: model.provider, model: model.id, effort: "high" },
+  });
+  await adapter.runVerifier({}, {
+    run_id: "r", cwd: "/tmp", task_instruction: "task",
+    verification: { provider: model.provider, model: model.id, effort: "max" },
+  });
+  const sessions = calls.filter((call) => call.kind === "session");
+  assert.deepEqual(sessions.map((call) => call.effort), ["low", "medium", "high", "max"]);
+  assert.deepEqual(sessions.map((call) => call.thinkingLevel), ["low", "medium", "high", "xhigh"]);
+});
+
+test("runtime-managed effort is intentionally omitted and unsupported explicit effort fails before a session", async () => {
+  const output = JSON.stringify({
+    status: "ok", uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [],
+  });
+  const managed = harness(output);
+  await managed.adapter.runCandidate(
+    { role: "builder", provider: managed.model.provider, model: managed.model.id, effort: "provider-managed" },
+    { run_id: "r", cwd: "/tmp", prompt: "build" },
+  );
+  const managedSession = managed.calls.find((call) => call.kind === "session");
+  assert.equal(managedSession.thinkingLevel, undefined);
+
+  let sessions = 0;
+  const unsupportedModel = { provider: "openrouter", id: "non-reasoning", reasoning: false };
+  const unsupported = createPiAgentAdapter({
+    modelRegistry: {
+      authStorage: {},
+      find: () => unsupportedModel,
+      hasConfiguredAuth: () => true,
+    },
+    sessionFactory: async () => { sessions += 1; throw new Error("must not run"); },
+  });
+  await assert.rejects(
+    unsupported.runCandidate(
+      { role: "builder", provider: unsupportedModel.provider, model: unsupportedModel.id, effort: "high" },
+      { run_id: "r", cwd: "/tmp", prompt: "build" },
+    ),
+    new RegExp(PI_EFFORT_CODES.UNSUPPORTED),
+  );
+  assert.equal(sessions, 0);
+});
+
+test("a Pi level explicitly disabled by model metadata fails instead of being clamped", async () => {
+  const model = {
+    provider: "openrouter",
+    id: "limited",
+    reasoning: true,
+    thinkingLevelMap: { medium: null, xhigh: undefined },
+  };
+  const adapter = createPiAgentAdapter({
+    modelRegistry: { authStorage: {}, find: () => model, hasConfiguredAuth: () => true },
+    sessionFactory: async () => { throw new Error("must not run"); },
+  });
+  await assert.rejects(
+    adapter.runCandidate(
+      { role: "reviewer", provider: model.provider, model: model.id, effort: "medium" },
+      { run_id: "r", cwd: "/tmp", prompt: "review" },
+    ),
+    new RegExp(PI_EFFORT_CODES.UNSUPPORTED),
+  );
 });
 
 test("malformed assistant semantics reject without trusting fabricated envelope fields", async () => {

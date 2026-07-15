@@ -7,6 +7,7 @@
 // loading; AGENTS.md/CLAUDE.md context discovery remains enabled.
 
 import { createHash } from "node:crypto";
+import { PI_EFFORT_CODES, resolvePiThinkingLevel } from "./pi-effort.mjs";
 import { validate } from "./schema.mjs";
 
 const SEMANTIC_SCHEMA = Object.freeze({
@@ -80,7 +81,7 @@ function metaPrompt(task, instruction) {
   return `Exact workflow task:\n${task}\n\n${instruction}`;
 }
 
-async function defaultSessionFactory({ cwd, model, modelRegistry, role }) {
+async function defaultSessionFactory({ cwd, model, modelRegistry, role, thinkingLevel }) {
   const sdk = await import("@earendil-works/pi-coding-agent");
   const agentDir = sdk.getAgentDir();
   const loader = new sdk.DefaultResourceLoader({
@@ -103,6 +104,7 @@ async function defaultSessionFactory({ cwd, model, modelRegistry, role }) {
     resourceLoader: loader,
     tools,
     sessionManager: sdk.SessionManager.inMemory(cwd),
+    ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
   });
   return created.session;
 }
@@ -118,7 +120,7 @@ export function createPiAgentAdapter({
   }
 
   let failureCode = null;
-  const run = async ({ role, provider, model: modelId, stage, prompt, ctx, verdictRole = null }) => {
+  const run = async ({ role, provider, model: modelId, effort = "default", stage, prompt, ctx, verdictRole = null }) => {
     let model;
     let configured = false;
     try {
@@ -130,6 +132,15 @@ export function createPiAgentAdapter({
     }
     if (!model || !configured) {
       failureCode ??= "pi-model-unavailable-or-unauthenticated";
+      throw new Error(failureCode);
+    }
+    let thinkingLevel;
+    try {
+      thinkingLevel = resolvePiThinkingLevel(model, effort);
+    } catch (error) {
+      failureCode ??= Object.values(PI_EFFORT_CODES).includes(error?.message)
+        ? error.message
+        : PI_EFFORT_CODES.INVALID;
       throw new Error(failureCode);
     }
     const fullPrompt = `${prompt ?? "Perform the assigned workflow role."}${outputContract(role, verdictRole)}`;
@@ -158,7 +169,14 @@ export function createPiAgentAdapter({
     const bounded = (promise) => Promise.race([promise, boundary]);
     try {
       try {
-        const creating = Promise.resolve(sessionFactory({ cwd: ctx.cwd, model, modelRegistry, role }));
+        const creating = Promise.resolve(sessionFactory({
+          cwd: ctx.cwd,
+          model,
+          modelRegistry,
+          role,
+          effort,
+          thinkingLevel,
+        }));
         creating.then((lateSession) => {
           if (finished && lateSession) {
             void lateSession.abort?.();
@@ -230,25 +248,25 @@ export function createPiAgentAdapter({
     },
     runCandidate(spec, ctx) {
       return run({
-        role: spec.role, provider: spec.provider, model: spec.model, stage: "candidate",
+        role: spec.role, provider: spec.provider, model: spec.model, effort: spec.effort, stage: "candidate",
         prompt: ctx.prompt, ctx, verdictRole: ctx.verdict_role,
       });
     },
     runJudge(input, ctx) {
       return run({
-        role: "judge", provider: ctx.judge.provider, model: ctx.judge.model, stage: "judge",
+        role: "judge", provider: ctx.judge.provider, model: ctx.judge.model, effort: ctx.judge.effort, stage: "judge",
         prompt: metaPrompt(ctx.task_instruction, `Rank these structural candidate projections:\n${JSON.stringify(input)}`), ctx,
       });
     },
     runSynthesis(input, ctx) {
       return run({
-        role: "synthesizer", provider: ctx.synthesis.provider, model: ctx.synthesis.model, stage: "synthesis",
+        role: "synthesizer", provider: ctx.synthesis.provider, model: ctx.synthesis.model, effort: ctx.synthesis.effort, stage: "synthesis",
         prompt: metaPrompt(ctx.task_instruction, `Synthesize these candidate projections without dropping contradictions:\n${JSON.stringify(input)}`), ctx,
       });
     },
     runVerifier(input, ctx) {
       return run({
-        role: "verifier", provider: ctx.verification.provider, model: ctx.verification.model, stage: "verification",
+        role: "verifier", provider: ctx.verification.provider, model: ctx.verification.model, effort: ctx.verification.effort, stage: "verification",
         prompt: metaPrompt(ctx.task_instruction, `Verify this structural workflow evidence:\n${JSON.stringify(input)}`), ctx,
       });
     },

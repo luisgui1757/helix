@@ -70,6 +70,30 @@ test("any Helix provider builder is accepted — no cost/eligibility gate before
   }
 });
 
+test("revision adapters receive the exact builder provider, model, and effort tuple", async () => {
+  const cwd = tmp("helix-rev-");
+  try {
+    let seen;
+    const builder = { provider: "openrouter", model: "vendor/reasoner", effort: "xhigh" };
+    const revise = makeModelRevision(revisionConfig(cwd, { builder }), {
+      modelAdapter: {
+        runRevision(input) {
+          seen = input;
+          return { edits: [{ path: "proposal.txt", content: "bound\n" }] };
+        },
+      },
+    });
+    const result = await revise(null, { run_id: "bound-run", iteration: 2 });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(
+      { role: seen.role, provider: seen.provider, model: seen.model, effort: seen.effort },
+      { role: "builder", provider: "openrouter", model: "vendor/reasoner", effort: "xhigh" },
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 // ----------------------------------------------------------------------------
 // Config / wiring fail closed with stable codes
 // ----------------------------------------------------------------------------

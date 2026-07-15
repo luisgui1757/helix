@@ -142,7 +142,10 @@ test("profiles: create, setup a cast, show, switch, list — and typos refuse", 
     const setup = executeHelixCommand(
       "setup deep-work plan=overlord implement=openai-codex/gpt-5x:high",
       { mode: "tui", confirm: true },
-      { ...options, modelInventory: [{ provider: "openai-codex", model: "gpt-5x", reasoning: true }] },
+      { ...options, modelInventory: [{
+        provider: "openai-codex", model: "gpt-5x", reasoning: true,
+        supported_efforts: ["default", "provider-managed", "low", "medium", "high"],
+      }] },
     );
     assert.equal(setup.ok, true, JSON.stringify(setup.details));
     assert.equal(setup.details.assignments.plan.preset, "overlord");
@@ -208,7 +211,10 @@ test("setup stores inventory-validated real composite members and run preflight 
   const { root, options } = tempOptions();
   const withInventory = {
     ...options,
-    modelInventory: [{ provider: "openai-codex", model: "gpt-5x", reasoning: true }],
+    modelInventory: [{
+      provider: "openai-codex", model: "gpt-5x", reasoning: true,
+      supported_efforts: ["default", "provider-managed", "low", "medium", "high"],
+    }],
   };
   try {
     assert.equal(executeHelixCommand("profiles create live", { mode: "tui", confirm: true }, options).ok, true);

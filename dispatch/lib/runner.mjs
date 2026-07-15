@@ -2009,7 +2009,14 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       ?? (builderEntries?.every((member) => member.provider === "mock") ? mockRevisionModelAdapter : null);
     if (builderEntries && ctx.pass > 1 && revisionModelAdapter) {
       const revise = makeModelRevision(
-        { cwd: workPath, builder: { provider: builderEntries[0].provider, model: builderEntries[0].model } },
+        {
+          cwd: workPath,
+          builder: {
+            provider: builderEntries[0].provider,
+            model: builderEntries[0].model,
+            effort: builderEntries[0].effort,
+          },
+        },
         { modelAdapter: revisionModelAdapter },
       );
       const revision = await revise(null, {
@@ -2030,13 +2037,13 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
       task: { class_hint: chain.task_class, confident: true },
       candidates: expandCastRoles(candidateRoles),
       ...(cast.panel_roles?.judge && stageRoute(chain, stage, cast).roles.includes("judge")
-        ? { judge: { provider: cast.panel_roles.judge.provider, model: cast.panel_roles.judge.model, rubric_id: `${chain.id}-${stage.id}-rubric-v1` } }
+        ? { judge: { provider: cast.panel_roles.judge.provider, model: cast.panel_roles.judge.model, effort: cast.panel_roles.judge.effort, rubric_id: `${chain.id}-${stage.id}-rubric-v1` } }
         : {}),
       ...(cast.panel_roles?.synthesizer && stageRoute(chain, stage, cast).roles.includes("synthesizer")
-        ? { synthesis: { provider: cast.panel_roles.synthesizer.provider, model: cast.panel_roles.synthesizer.model, rubric_id: `${chain.id}-${stage.id}-rubric-v1` } }
+        ? { synthesis: { provider: cast.panel_roles.synthesizer.provider, model: cast.panel_roles.synthesizer.model, effort: cast.panel_roles.synthesizer.effort, rubric_id: `${chain.id}-${stage.id}-rubric-v1` } }
         : {}),
       ...(cast.roles.verifier
-        ? { verification: { provider: cast.roles.verifier[0].provider, model: cast.roles.verifier[0].model, rubric_id: `${chain.id}-${stage.id}-rubric-v1` } }
+        ? { verification: { provider: cast.roles.verifier[0].provider, model: cast.roles.verifier[0].model, effort: cast.roles.verifier[0].effort, rubric_id: `${chain.id}-${stage.id}-rubric-v1` } }
         : {}),
       run_target: config.run_target,
       input_refs: config.input_refs ?? [],

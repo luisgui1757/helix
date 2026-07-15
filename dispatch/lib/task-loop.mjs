@@ -207,7 +207,12 @@ function structuralEnvelope({ run_id, role, provider, model, stage = "candidate"
 }
 
 function stageConfig(spec, rubricId) {
-  return { provider: spec.provider, model: spec.model, rubric_id: rubricId };
+  return {
+    provider: spec.provider,
+    model: spec.model,
+    ...(spec.effort ? { effort: spec.effort } : {}),
+    rubric_id: rubricId,
+  };
 }
 
 function builderConfig(spec) {

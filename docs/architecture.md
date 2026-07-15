@@ -99,6 +99,20 @@ provider/model ids from Pi's configured `ModelRegistry`, reuses Pi authenticatio
 storage, and creates fresh in-memory Pi agent sessions in the run worktree.
 Helix has no provider-selection or credential layer. Mixed casts route each
 mock member to the deterministic adapter and each configured member to Pi.
+The resolved effort travels with candidate, judge, synthesis, verifier, and
+revision-builder assignments. Before confirmation, the command boundary derives
+a closed supported-effort list from each exact ModelRegistry entry and validates
+every non-mock member in the fully resolved cast. Missing capability metadata or
+one unsupported explicit level refuses the whole run before run-directory,
+session, or provider-prompt effects. Explicit `low` through `xhigh` levels are
+also rechecked and passed as Pi `thinkingLevel` at session creation, while Helix
+`max` maps to Pi `xhigh`. `default` and `provider-managed` deliberately omit an
+explicit Pi level; they mean runtime/provider policy rather than an exact effort
+guarantee. The attended preview renders every resolved stage, role, provider,
+model, effort, and instance count rather than only a preset name.
+The separate OpenRouter revision adapter likewise binds the builder/provider/model
+tuple and requires exact ModelRegistry capability metadata before spawning Pi
+with an explicit thinking level; managed modes omit the level intentionally.
 Writer-bearing stages are forced to sequential candidate execution in their
 shared worktree; read-only panels honor the configured concurrency cap. Planner
 and builder workflow sessions receive mutation tools; other workflow candidate

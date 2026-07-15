@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import helixCommand from "../extensions/helix-command.ts";
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
 import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
+import { saveProfile, switchProfile } from "../extensions/lib/helix-local.mjs";
 
 const COMMAND_NAMES = [
   "helix",
@@ -294,6 +295,78 @@ test("helix-setup projects Pi's available model inventory", async () => {
   assert.match(messages[0].message.content, /CustomProvider\/custom-model/);
 });
 
+test("whole-cast effort preflight refuses one unsupported mixed-panel member before confirmation or any session", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-effort-preflight-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  let confirmations = 0;
+  let sessions = 0;
+  let prompts = 0;
+  try {
+    const overlord = JSON.parse(readFileSync(new URL("../dispatch/config/matrices/overlord.json", import.meta.url), "utf8"));
+    const roles = structuredClone(overlord.roles);
+    roles.reviewer = [
+      {
+        provider: "openrouter", model: "supported-model", effort: "high", instances: 1,
+        effort_vocab: ["high"],
+      },
+      {
+        provider: "openrouter", model: "unsupported-model", effort: "xhigh", instances: 1,
+        effort_vocab: ["xhigh"],
+      },
+    ];
+    assert.equal(saveProfile(stateRoot, {
+      schema_version: 1,
+      profile_id: "mixed-effort",
+      overrides: { presets: { overlord: { roles } } },
+    }).ok, true);
+    assert.equal(switchProfile(stateRoot, "mixed-effort").ok, true);
+
+    const { commands, messages } = loadHelixCommands({
+      async helixSessionFactory() {
+        sessions += 1;
+        return {
+          messages: [],
+          async prompt() { prompts += 1; },
+          async dispose() {},
+        };
+      },
+    });
+    await commandByName(commands, "helix-run").handler("mock-core-loop -- prove preflight atomicity", {
+      mode: "tui",
+      cwd: process.cwd(),
+      modelRegistry: {
+        async getAvailable() {
+          return [
+            { provider: "openrouter", id: "supported-model", reasoning: true },
+            {
+              provider: "openrouter", id: "unsupported-model", reasoning: true,
+              thinkingLevelMap: { xhigh: null },
+            },
+          ];
+        },
+        find() { throw new Error("model lookup must not run"); },
+        hasConfiguredAuth() { throw new Error("auth lookup must not run"); },
+      },
+      ui: {
+        async confirm() { confirmations += 1; return true; },
+        notify() {},
+      },
+    });
+
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].message.details.code, "pi-effort-unsupported");
+    assert.equal(confirmations, 0);
+    assert.equal(sessions, 0);
+    assert.equal(prompts, 0);
+    assert.equal(existsSync(join(stateRoot, "runs")), false);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+});
+
 test("helix-run executes the canonical workflow in-process with the exact user task", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-run-ui-"));
   const previous = process.env.HELIX_STATE_DIR;
@@ -318,13 +391,14 @@ test("helix-run executes the canonical workflow in-process with the exact user t
     },
   });
   const working = [];
+  let confirmation = null;
   try {
     await commandByName(commands, "helix-run").handler("mock-core-loop -- Implement the requested test change", {
       mode: "tui",
       cwd,
       signal: undefined,
       ui: {
-        confirm: async () => true,
+        confirm: async (title, body) => { confirmation = { title, body }; return true; },
         notify() {},
         setWorkingMessage: (message) => working.push(message ?? null),
         setWorkingVisible: (visible) => working.push(visible),
@@ -334,6 +408,9 @@ test("helix-run executes the canonical workflow in-process with the exact user t
     assert.equal(messages.length, 2);
     assert.equal(messages[0].message.details.title, "Helix run preflight");
     assert.equal(messages[1].message.details.title, "Helix run complete");
+    assert.equal(confirmation.title, "Start Helix workflow");
+    assert.match(confirmation.body, /Exact cast:\n  plan \[composite:overlord\]/);
+    assert.match(confirmation.body, /planner: mock\/mock-overlord-planner:max x1/);
     assert.match(messages[1].message.content, /Inspect: \/helix-run-status helix-/);
     assert.equal(invocation, null, "the extension keeps Pi ModelRegistry/AuthStorage in-process");
     assert.deepEqual(working, [
