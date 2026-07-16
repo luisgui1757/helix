@@ -24,6 +24,32 @@ function baseConfig(cwd, overrides = {}) {
   };
 }
 
+function revisionInput(config, overrides = {}) {
+  return {
+    role: "builder",
+    provider: "openrouter",
+    model: config.model,
+    effort: "default",
+    iteration: 1,
+    ...overrides,
+  };
+}
+
+function modelRegistry(config, overrides = {}) {
+  const model = {
+    provider: "openrouter",
+    id: config.model,
+    reasoning: true,
+    thinkingLevelMap: { xhigh: "xhigh" },
+    ...overrides,
+  };
+  return {
+    find(provider, modelId) {
+      return provider === model.provider && modelId === model.id ? model : undefined;
+    },
+  };
+}
+
 test("OpenRouter revision parser accepts strict and fenced JSON edits", () => {
   const strict = parseOpenRouterRevisionResponse(
     '{"edits":[{"path":"proposal.txt","content":"ok\\n"}]}',
@@ -71,14 +97,15 @@ test("OpenRouter adapter runs any model id, including non-:free ids, through the
   try {
     writeFileSync(join(cwd, "proposal.txt"), "base\n", "utf8");
     let seen = null;
-    const paid = createOpenRouterRevisionAdapter(baseConfig(cwd, { model: "openai/gpt-oss-20b" }), {
+    const config = baseConfig(cwd, { model: "openai/gpt-oss-20b" });
+    const paid = createOpenRouterRevisionAdapter(config, {
       runPi(args) {
         seen = args;
         return { status: 0, stdout: '{"edits":[{"path":"proposal.txt","content":"paid ok\\n"}]}' };
       },
     });
 
-    const result = await paid.runRevision({ iteration: 1 }, { run_id: "r" });
+    const result = await paid.runRevision(revisionInput(config), { run_id: "r" });
     assert.deepEqual(result, { edits: [{ path: "proposal.txt", content: "paid ok\n" }] });
     assert.equal(paid.calls, 1);
     assert.equal(seen.model, "openai/gpt-oss-20b");
@@ -92,34 +119,34 @@ test("OpenRouter adapter accepts sensitive-shaped fixture paths but still refuse
   try {
     writeFileSync(join(cwd, ".env"), "SYNTHETIC_FIXTURE=1\n", "utf8");
     let sensitiveCalls = 0;
-    const sensitive = createOpenRouterRevisionAdapter(baseConfig(cwd, { allowed_paths: [".env"] }), {
+    const sensitiveConfig = baseConfig(cwd, { allowed_paths: [".env"] });
+    const sensitive = createOpenRouterRevisionAdapter(sensitiveConfig, {
       runPi(args) {
         sensitiveCalls += 1;
         assert.match(args.prompt, /SYNTHETIC_FIXTURE=1/);
         return { status: 0, stdout: '{"edits":[{"path":".env","content":"SYNTHETIC_FIXTURE=2\\n"}]}' };
       },
     });
-    const result = await sensitive.runRevision({ iteration: 1 }, { run_id: "r" });
+    const result = await sensitive.runRevision(revisionInput(sensitiveConfig), { run_id: "r" });
     assert.deepEqual(result, { edits: [{ path: ".env", content: "SYNTHETIC_FIXTURE=2\n" }] });
     assert.equal(sensitiveCalls, 1);
 
     let unsafeCalls = 0;
     const runner = () => { unsafeCalls += 1; return { status: 0, stdout: "{}" }; };
     for (const path of ["../escape.txt", "/etc/passwd"]) {
-      const unsafe = createOpenRouterRevisionAdapter(baseConfig(cwd, { allowed_paths: [path] }), { runPi: runner });
+      const unsafeConfig = baseConfig(cwd, { allowed_paths: [path] });
+      const unsafe = createOpenRouterRevisionAdapter(unsafeConfig, { runPi: runner });
       await assert.rejects(
-        () => unsafe.runRevision({ iteration: 1 }, { run_id: "r" }),
+        () => unsafe.runRevision(revisionInput(unsafeConfig), { run_id: "r" }),
         (error) => error instanceof OpenRouterRevisionAdapterError
           && error.code === OPENROUTER_REVISION_CODES.UNSAFE_INPUT_PATH,
         path,
       );
     }
-    const locatorModel = createOpenRouterRevisionAdapter(
-      baseConfig(cwd, { model: "https:" + "/example.test/model" }),
-      { runPi: runner },
-    );
+    const locatorConfig = baseConfig(cwd, { model: "https:" + "/example.test/model" });
+    const locatorModel = createOpenRouterRevisionAdapter(locatorConfig, { runPi: runner });
     await assert.rejects(
-      () => locatorModel.runRevision({ iteration: 1 }, { run_id: "r" }),
+      () => locatorModel.runRevision(revisionInput(locatorConfig), { run_id: "r" }),
       (error) => error instanceof OpenRouterRevisionAdapterError
         && error.code === OPENROUTER_REVISION_CODES.INVALID_CONFIG,
     );
@@ -129,12 +156,14 @@ test("OpenRouter adapter accepts sensitive-shaped fixture paths but still refuse
   }
 });
 
-test("OpenRouter adapter builds a synthetic prompt, invokes the injected runner, and returns parsed edits", async () => {
+test("OpenRouter adapter binds the exact provider/model and consumes explicit effort", async () => {
   const cwd = tmp();
   try {
     writeFileSync(join(cwd, "proposal.txt"), "base\n", "utf8");
     let seen = null;
-    const adapter = createOpenRouterRevisionAdapter(baseConfig(cwd), {
+    const config = baseConfig(cwd);
+    const adapter = createOpenRouterRevisionAdapter(config, {
+      modelRegistry: modelRegistry(config),
       runPi(args) {
         seen = args;
         return {
@@ -144,13 +173,139 @@ test("OpenRouter adapter builds a synthetic prompt, invokes the injected runner,
       },
     });
 
-    const result = await adapter.runRevision({ iteration: 1, previous_revision_ref: null }, { run_id: "r-iter1" });
+    const result = await adapter.runRevision(
+      revisionInput(config, { effort: "high", previous_revision_ref: null }),
+      { run_id: "r-iter1" },
+    );
     assert.deepEqual(result, { edits: [{ path: "proposal.txt", content: "base\nmarker\n" }] });
     assert.equal(adapter.calls, 1);
+    assert.equal(seen.provider, "openrouter");
     assert.equal(seen.model, "openai/gpt-oss-20b:free");
+    assert.equal(seen.thinkingLevel, "high");
     assert.match(seen.prompt, /Allowed edit paths: "proposal.txt"/);
     assert.match(seen.prompt, /base/);
     assert.match(seen.prompt, /Return ONLY JSON/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("OpenRouter adapter maps max to xhigh and omits managed thinking levels", async () => {
+  const cwd = tmp();
+  try {
+    writeFileSync(join(cwd, "proposal.txt"), "base\n", "utf8");
+    const config = baseConfig(cwd);
+    const seen = [];
+    const adapter = createOpenRouterRevisionAdapter(config, {
+      modelRegistry: modelRegistry(config),
+      runPi(args) {
+        seen.push(args.thinkingLevel);
+        return { status: 0, stdout: '{"edits":[{"path":"proposal.txt","content":"ok\\n"}]}' };
+      },
+    });
+
+    for (const effort of ["max", "default", "provider-managed"]) {
+      await adapter.runRevision(revisionInput(config, { effort }), { run_id: `r-${effort}` });
+    }
+    assert.deepEqual(seen, ["xhigh", undefined, undefined]);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("OpenRouter adapter refuses unsupported or unavailable explicit effort capability before Pi can clamp it", async () => {
+  const cwd = tmp();
+  try {
+    writeFileSync(join(cwd, "proposal.txt"), "base\n", "utf8");
+    const config = baseConfig(cwd);
+    let runnerCalls = 0;
+    const runPi = () => {
+      runnerCalls += 1;
+      return { status: 0, stdout: '{"edits":[{"path":"proposal.txt","content":"unexpected"}]}' };
+    };
+    const cases = [
+      [
+        createOpenRouterRevisionAdapter(config, { runPi }),
+        OPENROUTER_REVISION_CODES.EFFORT_CAPABILITY_UNAVAILABLE,
+      ],
+      [
+        createOpenRouterRevisionAdapter(config, {
+          modelRegistry: modelRegistry(config, { reasoning: false }),
+          runPi,
+        }),
+        OPENROUTER_REVISION_CODES.EFFORT_UNSUPPORTED,
+      ],
+      [
+        createOpenRouterRevisionAdapter(config, {
+          modelRegistry: modelRegistry(config, { thinkingLevelMap: { high: null, xhigh: "xhigh" } }),
+          runPi,
+        }),
+        OPENROUTER_REVISION_CODES.EFFORT_UNSUPPORTED,
+      ],
+      [
+        createOpenRouterRevisionAdapter(config, {
+          modelRegistry: { find: () => ({ provider: "openrouter", id: "other", reasoning: true }) },
+          runPi,
+        }),
+        OPENROUTER_REVISION_CODES.EFFORT_CAPABILITY_UNAVAILABLE,
+      ],
+      [
+        createOpenRouterRevisionAdapter(config, {
+          modelRegistry: {
+            find() {
+              throw new Error("private-registry-failure");
+            },
+          },
+          runPi,
+        }),
+        OPENROUTER_REVISION_CODES.EFFORT_CAPABILITY_UNAVAILABLE,
+      ],
+    ];
+
+    for (const [adapter, code] of cases) {
+      await assert.rejects(
+        () => adapter.runRevision(revisionInput(config, { effort: "high" }), { run_id: "r" }),
+        (error) => error instanceof OpenRouterRevisionAdapterError && error.code === code,
+      );
+      assert.equal(adapter.calls, 0);
+    }
+    assert.equal(runnerCalls, 0);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("OpenRouter adapter rejects assignment drift and invalid effort before provider invocation", async () => {
+  const cwd = tmp();
+  try {
+    writeFileSync(join(cwd, "proposal.txt"), "base\n", "utf8");
+    const config = baseConfig(cwd);
+    let runnerCalls = 0;
+    const adapter = createOpenRouterRevisionAdapter(config, {
+      runPi() {
+        runnerCalls += 1;
+        return { status: 0, stdout: '{"edits":[{"path":"proposal.txt","content":"unexpected"}]}' };
+      },
+    });
+
+    for (const input of [
+      revisionInput(config, { role: "reviewer" }),
+      revisionInput(config, { provider: "openai" }),
+      revisionInput(config, { model: "openai/other-model" }),
+    ]) {
+      await assert.rejects(
+        () => adapter.runRevision(input, { run_id: "r" }),
+        (error) => error instanceof OpenRouterRevisionAdapterError
+          && error.code === OPENROUTER_REVISION_CODES.ASSIGNMENT_MISMATCH,
+      );
+    }
+    await assert.rejects(
+      () => adapter.runRevision(revisionInput(config, { effort: "ultra" }), { run_id: "r" }),
+      (error) => error instanceof OpenRouterRevisionAdapterError
+        && error.code === OPENROUTER_REVISION_CODES.INVALID_EFFORT,
+    );
+    assert.equal(adapter.calls, 0);
+    assert.equal(runnerCalls, 0);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -161,7 +316,8 @@ test("OpenRouter adapter refuses an oversized outbound prompt before invoking th
   try {
     writeFileSync(join(cwd, "proposal.txt"), "x".repeat(1024 * 1024), "utf8");
     let runnerCalls = 0;
-    const adapter = createOpenRouterRevisionAdapter(baseConfig(cwd, { max_input_bytes: 1024 }), {
+    const config = baseConfig(cwd, { max_input_bytes: 1024 });
+    const adapter = createOpenRouterRevisionAdapter(config, {
       runPi() {
         runnerCalls += 1;
         return { status: 0, stdout: '{"edits":[{"path":"proposal.txt","content":"ok"}]}' };
@@ -169,7 +325,7 @@ test("OpenRouter adapter refuses an oversized outbound prompt before invoking th
     });
 
     await assert.rejects(
-      () => adapter.runRevision({ iteration: 1 }, { run_id: "r" }),
+      () => adapter.runRevision(revisionInput(config), { run_id: "r" }),
       (error) => error instanceof OpenRouterRevisionAdapterError
         && error.code === OPENROUTER_REVISION_CODES.INPUT_TOO_LARGE,
     );
@@ -186,24 +342,25 @@ test("OpenRouter adapter runner and parse failures expose only stable codes", as
     writeFileSync(join(cwd, "proposal.txt"), "base\n", "utf8");
     const PRIVATE = "PRIVATE_RESPONSE_PAYLOAD_123";
 
-    const badOutput = createOpenRouterRevisionAdapter(baseConfig(cwd), {
+    const config = baseConfig(cwd);
+    const badOutput = createOpenRouterRevisionAdapter(config, {
       runPi() {
         return { status: 0, stdout: `not-json ${PRIVATE}` };
       },
     });
     await assert.rejects(
-      () => badOutput.runRevision({ iteration: 1 }, { run_id: "r" }),
+      () => badOutput.runRevision(revisionInput(config), { run_id: "r" }),
       (error) => error.code === OPENROUTER_REVISION_CODES.RESPONSE_NOT_JSON
         && !String(error.message).includes(PRIVATE),
     );
 
-    const failedRunner = createOpenRouterRevisionAdapter(baseConfig(cwd), {
+    const failedRunner = createOpenRouterRevisionAdapter(config, {
       runPi() {
         return { status: 1, stdout: "", stderr: PRIVATE };
       },
     });
     await assert.rejects(
-      () => failedRunner.runRevision({ iteration: 1 }, { run_id: "r" }),
+      () => failedRunner.runRevision(revisionInput(config), { run_id: "r" }),
       (error) => error.code === OPENROUTER_REVISION_CODES.RUNNER_FAILED
         && !String(error.message).includes(PRIVATE),
     );

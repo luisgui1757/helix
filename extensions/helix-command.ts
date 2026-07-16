@@ -23,6 +23,7 @@ import {
   saveOnboardingState,
 } from "./lib/helix-onboarding.mjs";
 import { createPiAgentAdapter } from "../dispatch/lib/pi-agent-adapter.mjs";
+import { supportedPiEfforts } from "../dispatch/lib/pi-effort.mjs";
 import { preflightObjectiveGate } from "../dispatch/lib/task-loop.mjs";
 import {
   WORKFLOW_ROLE_BLOCKS,
@@ -191,7 +192,12 @@ async function availableModelInventory(args: string, ctx: ExtensionCommandContex
       const rawProvider = String(model?.provider ?? "");
       const provider = PROVIDER_TO_HELIX[rawProvider] ?? (isHelixProvider(rawProvider) ? rawProvider : null);
       if (!provider || typeof model?.id !== "string") return [];
-      return [{ provider, model: model.id, reasoning: model.reasoning === true }];
+      return [{
+        provider,
+        model: model.id,
+        reasoning: model.reasoning === true,
+        supported_efforts: supportedPiEfforts(model),
+      }];
     });
   } catch {
     return null;
@@ -766,6 +772,25 @@ function parseRunArgs(args: string) {
     : { workflowId: args.slice(0, separator).trim(), task: args.slice(separator + 4).trim() };
 }
 
+function confirmationCastLines(cast: any): string[] {
+  if (!Array.isArray(cast)) return ["  unavailable"];
+  return cast.flatMap((stage: any) => {
+    const lines = [`  ${stage.stage_id} [${stage.executor_ref}]`];
+    for (const [role, members] of Object.entries(stage.roles ?? {})) {
+      for (const member of Array.isArray(members) ? members : []) {
+        lines.push(`    ${role}: ${member.provider}/${member.model}:${member.effort} x${member.instances}`);
+      }
+    }
+    for (const [role, member] of Object.entries(stage.panel_roles ?? {})) {
+      if (member && typeof member === "object") {
+        const typed = member as any;
+        lines.push(`    ${role} (panel): ${typed.provider}/${typed.model}:${typed.effort} x${typed.instances}`);
+      }
+    }
+    return lines;
+  });
+}
+
 async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args: string) {
   if (ctx.mode !== "tui" || typeof ctx.ui?.confirm !== "function") {
     sendOutput(pi, executeHelixCommand("run " + parseRunArgs(args).workflowId, { mode: ctx.mode }));
@@ -801,9 +826,10 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
   const executionBindingRef = String(preflight.details?.execution_binding_ref ?? "");
   const named = resolveWorkflow(helixStateRoot(), workflowId, registries.chains, registries.runs);
   const gate = named.ok ? objectiveGateSummary(named.workflow.stop.objective_gate) : "unavailable";
+  const exactCast = confirmationCastLines(preflight.details?.cast).join("\n");
   const approved = await ctx.ui.confirm(
     "Start Helix workflow",
-    `Workflow: ${configId}\nStages: ${preflight.details?.chain?.stages?.map((stage: any) => stage.id).join(" → ")}\nProviders: ${providers.join(", ")}\nObjective check: ${gate}\nMaximum passes: ${preflight.details?.rail?.max_iterations}\nRuntime: ${maxRuntimeMs}ms total; ${callTimeoutMs}ms per provider call\nTask: ${task}\nRepository: ${ctx.cwd}\nIsolation: ${worktreeEnabled ? "per-run Git worktree" : "OFF — the current checkout will be mutated"}\n\nPi tools use the normal Pi trust boundary. A worktree protects Git state; it is not an OS sandbox.`,
+    `Workflow: ${configId}\nStages: ${preflight.details?.chain?.stages?.map((stage: any) => stage.id).join(" → ")}\nExact cast:\n${exactCast}\nProviders: ${providers.join(", ")}\nObjective check: ${gate}\nMaximum passes: ${preflight.details?.rail?.max_iterations}\nRuntime: ${maxRuntimeMs}ms total; ${callTimeoutMs}ms per provider call\nTask: ${task}\nRepository: ${ctx.cwd}\nIsolation: ${worktreeEnabled ? "per-run Git worktree" : "OFF — the current checkout will be mutated"}\n\nPi tools use the normal Pi trust boundary. A worktree protects Git state; it is not an OS sandbox.`,
   );
   if (!approved) {
     ctx.ui.notify("Helix run cancelled; no workflow was started", "info");

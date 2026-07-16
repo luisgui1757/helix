@@ -46,11 +46,14 @@ configuration.
 ### `/helix-run [workflow-id] -- <task>`
 
 Preflights a named workflow. With no workflow or task, the TUI prompts for them.
-The preflight resolves the stages, active-profile cast, exact providers,
-feature toggles, concurrency, objective gate, pass ceilings, 10-minute default
-whole-run deadline, 2-minute default per-provider-call deadline, repository,
-and worktree setting. It then asks for attended confirmation and executes the
-workflow in-process. Non-interactive modes stop after preflight.
+The preflight resolves the stages, active-profile cast, exact providers, models,
+efforts, instance counts, feature toggles, concurrency, objective gate, pass
+ceilings, 10-minute default whole-run deadline, 2-minute default
+per-provider-call deadline, repository, and worktree setting. It validates every
+explicit effort across the full cast before confirmation; an unavailable
+capability refuses the entire run before any Pi session or provider prompt. The
+attended confirmation displays those exact cast tuples before execution.
+Non-interactive modes stop after preflight.
 
 The recommended objective check is a bounded argv command such as `npm test`.
 Helix verifies that its executable exists before save and run, displays the
@@ -231,6 +234,11 @@ inventory. Assign a preset or model to a stage:
 ```
 
 Composite members use `<preset>.<role>=<provider>/<model>[:effort][*instances]`.
+Effort accepts `default`, `low`, `medium`, `high`, `xhigh`, `max`, or
+`provider-managed`. On live Pi sessions, `low` through `xhigh` are exact
+requests and `max` means Pi `xhigh`; Helix refuses an explicit level the model
+declares unsupported instead of allowing Pi to clamp it. `default` and
+`provider-managed` intentionally defer the level to Pi/provider policy.
 Helix validates the complete change before atomically saving and activating the
 profile. Profiles are global overlays; when a named workflow has different
 stage ids, irrelevant stage overrides are ignored with an explicit preflight

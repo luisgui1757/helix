@@ -16,6 +16,13 @@ import { dirname, isAbsolute, join, sep } from "node:path";
 import { validate } from "./schema.mjs";
 import { REVISION_OUTPUT_SCHEMA } from "./revision-effect.mjs";
 import { MODEL_ID_PATTERN } from "./public-values.mjs";
+import {
+  PI_EFFORT_CODES,
+  piThinkingLevelForEffort,
+  resolvePiThinkingLevel,
+} from "./pi-effort.mjs";
+
+const OPENROUTER_PROVIDER = "openrouter";
 
 export const OPENROUTER_REVISION_CODES = Object.freeze({
   INVALID_CONFIG: "openrouter-revision-invalid-config",
@@ -28,6 +35,10 @@ export const OPENROUTER_REVISION_CODES = Object.freeze({
   RESPONSE_NOT_JSON: "openrouter-revision-response-not-json",
   RESPONSE_MALFORMED: "openrouter-revision-response-malformed",
   RESPONSE_UNALLOWED_PATH: "openrouter-revision-response-unallowed-path",
+  ASSIGNMENT_MISMATCH: "openrouter-revision-assignment-mismatch",
+  INVALID_EFFORT: "openrouter-revision-invalid-effort",
+  EFFORT_UNSUPPORTED: "openrouter-revision-effort-unsupported",
+  EFFORT_CAPABILITY_UNAVAILABLE: "openrouter-revision-effort-capability-unavailable",
 });
 
 export const OPENROUTER_REVISION_ADAPTER_CONFIG_SCHEMA = Object.freeze({
@@ -251,11 +262,12 @@ function appendCapped(current, chunk, maxBytes) {
   return { text: next.slice(0, maxBytes), tooLarge: true };
 }
 
-function defaultRunPi({ model, prompt, timeout_ms, max_output_bytes }) {
+function defaultRunPi({ provider, model, thinkingLevel, prompt, timeout_ms, max_output_bytes }) {
   return new Promise((resolve) => {
     const args = [
-      "--provider", "openrouter",
+      "--provider", provider,
       "--model", model,
+      ...(thinkingLevel === undefined ? [] : ["--thinking", thinkingLevel]),
       "--approve",
       "--no-session",
       "--no-tools",
@@ -324,6 +336,7 @@ function defaultRunPi({ model, prompt, timeout_ms, max_output_bytes }) {
  * @param {number} [config.max_output_bytes=65536]
  * @param {object} [deps]
  * @param {Function} [deps.runPi] injectable runner for tests
+ * @param {object} [deps.modelRegistry] Pi ModelRegistry used to validate explicit thinking capability
  * @returns {{runRevision:function,calls:number}}
  */
 export function createOpenRouterRevisionAdapter(config, deps = {}) {
@@ -336,12 +349,48 @@ export function createOpenRouterRevisionAdapter(config, deps = {}) {
       if (!validate(OPENROUTER_REVISION_ADAPTER_CONFIG_SCHEMA, config, "$").valid) {
         fail(OPENROUTER_REVISION_CODES.INVALID_CONFIG);
       }
+      if (revisionInput?.role !== "builder"
+        || revisionInput?.provider !== OPENROUTER_PROVIDER
+        || revisionInput?.model !== config.model) {
+        fail(OPENROUTER_REVISION_CODES.ASSIGNMENT_MISMATCH);
+      }
+      let thinkingLevel;
+      try {
+        thinkingLevel = piThinkingLevelForEffort(revisionInput.effort ?? "default");
+      } catch {
+        fail(OPENROUTER_REVISION_CODES.INVALID_EFFORT);
+      }
+      if (thinkingLevel !== undefined) {
+        if (typeof deps.modelRegistry?.find !== "function") {
+          fail(OPENROUTER_REVISION_CODES.EFFORT_CAPABILITY_UNAVAILABLE);
+        }
+        let exactModel;
+        try {
+          exactModel = deps.modelRegistry.find(OPENROUTER_PROVIDER, config.model);
+        } catch {
+          fail(OPENROUTER_REVISION_CODES.EFFORT_CAPABILITY_UNAVAILABLE);
+        }
+        if (!exactModel
+          || exactModel.provider !== OPENROUTER_PROVIDER
+          || exactModel.id !== config.model) {
+          fail(OPENROUTER_REVISION_CODES.EFFORT_CAPABILITY_UNAVAILABLE);
+        }
+        try {
+          thinkingLevel = resolvePiThinkingLevel(exactModel, revisionInput.effort);
+        } catch (error) {
+          fail(error?.message === PI_EFFORT_CODES.UNSUPPORTED
+            ? OPENROUTER_REVISION_CODES.EFFORT_UNSUPPORTED
+            : OPENROUTER_REVISION_CODES.EFFORT_CAPABILITY_UNAVAILABLE);
+        }
+      }
 
       const prompt = buildPrompt(config, revisionInput, ctx);
       const runner = deps.runPi ?? defaultRunPi;
       calls += 1;
       const result = await runner({
+        provider: OPENROUTER_PROVIDER,
         model: config.model,
+        thinkingLevel,
         prompt,
         timeout_ms: config.timeout_ms ?? 120_000,
         max_output_bytes: config.max_output_bytes ?? 65_536,

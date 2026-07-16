@@ -46,6 +46,7 @@ const JUDGE_SPEC_SCHEMA = Object.freeze({
   properties: {
     provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
+    effort: { type: "string", enum: EFFORTS },
     rubric_id: { type: "string", minLength: 1 },
     eligible_alternatives: { type: "array", items: { type: "string", minLength: 1 } },
     // Explicit permutation override (fixtures/tests); defaults to a
@@ -75,6 +76,7 @@ const SYNTHESIS_SPEC_SCHEMA = Object.freeze({
   properties: {
     provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
+    effort: { type: "string", enum: EFFORTS },
     rubric_id: { type: "string", minLength: 1 },
   },
 });
@@ -87,6 +89,7 @@ const VERIFICATION_SPEC_SCHEMA = Object.freeze({
   properties: {
     provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
+    effort: { type: "string", enum: EFFORTS },
     rubric_id: { type: "string", minLength: 1 },
   },
 });

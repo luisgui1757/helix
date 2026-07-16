@@ -74,18 +74,18 @@ toggle, and Esc to close.
 [x] Visual cues
 ```
 
-The onboarding marker, settings, profiles, workflows, and run records live under
-`~/.pi/agent/helix`. Set `PI_CODING_AGENT_DIR` to move Pi's full agent directory
-or `HELIX_STATE_DIR` to move Helix state only. Helix needs no project `.pi` directory.
+The onboarding marker, settings, profiles, workflows, and run records live under `~/.pi/agent/helix`.
+Set `PI_CODING_AGENT_DIR` to move Pi's full agent directory or `HELIX_STATE_DIR` to move Helix state only; Helix needs no project `.pi` directory.
 
-Before using a real cast, configure or sign in to the provider in Pi. Provider
-selection and credentials are Pi's concern: Helix consumes only exact
-provider/model entries that Pi reports as configured and available. OpenRouter
-free models and any other configured Pi provider follow the same path.
+Before using a real cast, configure or sign in to the provider in Pi. Helix uses
+only exact provider/model entries Pi reports as configured and available. Before
+confirmation, it validates every explicit effort across the fully resolved cast;
+one unsupported member refuses the whole run before any session or provider
+prompt. `low` through `xhigh` bind to Pi session creation, `max` maps to `xhigh`,
+and `default`/`provider-managed` defer to Pi/provider policy.
 
-In Pi's TUI, `/helix-run` shows the workflow, stage panel, exact cast, pass and
-time rails, task, repository, and worktree setting before it starts. Mock casts
-remain deterministic. Real casts create fresh in-process Pi agent sessions; no
+In Pi's TUI, `/helix-run` shows the workflow, stage panel, every resolved role/provider/model/effort/instance tuple,
+rails, task, repository, and worktree setting before it starts. Mock casts remain deterministic. Real casts create fresh in-process Pi agent sessions; no
 real cast silently falls back to mock, while partially configured casts route
 their remaining mock members to the deterministic adapter. The confirmed
 workflow/profile/toggle/preset binding is rechecked before any run directory or

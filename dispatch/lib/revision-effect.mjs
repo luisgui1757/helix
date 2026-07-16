@@ -198,8 +198,8 @@ function applyWritesAllOrNothing(root, writes) {
  * @param {object} deps injected effects:
  *   modelAdapter: { runRevision(revisionInput, ctx) → { edits: [{path, content}] } }
  *     — the REAL adapter boundary (may be async). It receives a structural,
- *     provider-bound revision input ({ role:"builder", run_id, iteration,
- *     previous_revision_ref }) and returns the next proposal as whole-file
+ *     provider-bound revision input ({ role:"builder", provider, model, effort?,
+ *     run_id, iteration, previous_revision_ref }) and returns the next proposal as whole-file
  *     edits. A live adapter prompts a builder model and parses its edits here.
  * @returns {(revisionState:object|null, ctx:object) => Promise<{ok:boolean, revision_ref?:string, code:string}>}
  *   The shape `runDebate` injects as `deps.revise`. On success returns
@@ -229,6 +229,9 @@ export function makeModelRevision(config, deps = {}) {
     // --- model call (real adapter boundary) ------------------------------------
     const revisionInput = {
       role: "builder",
+      provider: config.builder.provider,
+      model: config.builder.model,
+      ...(config.builder.effort ? { effort: config.builder.effort } : {}),
       run_id: ctx?.run_id ?? null,
       iteration: ctx?.iteration ?? null,
       previous_revision_ref: revisionState && typeof revisionState.revision_ref === "string" ? revisionState.revision_ref : null,

@@ -10,7 +10,8 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "../../dispatch/lib/schema.mjs";
 import { reduceEventLifecycle, validateCheckpointEventBinding, validateEventHistory } from "../../dispatch/lib/events.mjs";
-import { routeForClass } from "../../dispatch/lib/routes.mjs";
+import { EFFORTS, routeForClass } from "../../dispatch/lib/routes.mjs";
+import { PI_EFFORT_CODES } from "../../dispatch/lib/pi-effort.mjs";
 import { resolveRunConfig, validateRunConfigRegistry } from "../../dispatch/lib/run-configs.mjs";
 import { listRuns, pruneRun, statusRun, validateRunId } from "../../dispatch/lib/run-manager.mjs";
 import { assertPublicSafe, hashRef, stableStringify } from "../../dispatch/lib/run-record.mjs";
@@ -190,6 +191,14 @@ const REFUSAL_GUIDANCE = Object.freeze({
   "preset-member-unavailable": {
     reason: "A requested provider/model is not in Pi's currently available inventory.",
     next: "Log in to that provider or choose an exact model shown by /helix-setup.",
+  },
+  "pi-effort-capability-unavailable": {
+    reason: "Pi did not expose enough model capability metadata to prove an explicit effort before launch.",
+    next: "Refresh Pi's model inventory or choose default/provider-managed effort, then retry.",
+  },
+  "pi-effort-unsupported": {
+    reason: "At least one resolved model does not support its requested explicit effort.",
+    next: "Inspect the exact cast and choose an effort supported by that model, then retry.",
   },
   "helix-runner-result-invalid": {
     reason: "The packaged runner returned an incomplete or unsafe structural result.",
@@ -521,6 +530,52 @@ function castLiveStatus(cast) {
   return allMock ? "no-live (mock providers only)" : "live via Pi configured providers";
 }
 
+function structuralCastMember(member) {
+  return {
+    provider: member.provider,
+    model: member.model,
+    effort: member.effort,
+    instances: member.instances,
+  };
+}
+
+function structuralCast(cast) {
+  return cast.map((stage) => ({
+    stage_id: stage.stage_id,
+    executor_ref: stage.executor_ref,
+    roles: Object.fromEntries(Object.entries(stage.roles ?? {}).map(([role, members]) => [
+      role,
+      members.map(structuralCastMember),
+    ])),
+    panel_roles: Object.fromEntries(Object.entries(stage.panel_roles ?? {}).map(([role, member]) => [
+      role,
+      structuralCastMember(member),
+    ])),
+  }));
+}
+
+function structuralCastLines(cast) {
+  return structuralCast(cast).flatMap((stage) => {
+    const lines = [`  ${stage.stage_id} [${stage.executor_ref}]`];
+    for (const [role, members] of Object.entries(stage.roles)) {
+      for (const member of members) {
+        lines.push(`    ${role}: ${member.provider}/${member.model}:${member.effort} x${member.instances}`);
+      }
+    }
+    for (const [role, member] of Object.entries(stage.panel_roles)) {
+      lines.push(`    ${role} (panel): ${member.provider}/${member.model}:${member.effort} x${member.instances}`);
+    }
+    return lines;
+  });
+}
+
+function castMembers(cast) {
+  return cast.flatMap((stage) => [
+    ...Object.values(stage.roles ?? {}).flat(),
+    ...Object.values(stage.panel_roles ?? {}),
+  ]);
+}
+
 function inventoryAvailability(deps) {
   if (!Array.isArray(deps.modelInventory)) return null;
   const available = new Set(deps.modelInventory
@@ -539,7 +594,38 @@ function publicModelInventory(deps) {
     } catch {
       return false;
     }
-  }).map((model) => ({ provider: model.provider, model: model.model, reasoning: model.reasoning === true }));
+  }).map((model) => {
+    const supportedEfforts = Array.isArray(model.supported_efforts)
+      ? [...new Set(model.supported_efforts.filter((effort) => EFFORTS.includes(effort)))]
+      : null;
+    return {
+      provider: model.provider,
+      model: model.model,
+      reasoning: model.reasoning === true,
+      ...(supportedEfforts === null ? {} : { supported_efforts: supportedEfforts }),
+    };
+  });
+}
+
+function preflightCastEfforts(cast, deps) {
+  const realMembers = castMembers(cast).filter((member) => member.provider !== "mock");
+  if (realMembers.length === 0) return { ok: true };
+  const inventory = publicModelInventory(deps);
+  if (inventory === null) return { ok: false, code: "helix-model-inventory-unavailable", detail: "resolved-cast" };
+  const byIdentity = new Map(inventory.map((model) => [`${model.provider}/${model.model}`, model]));
+  for (const member of realMembers) {
+    if (member.effort === "default" || member.effort === "provider-managed") continue;
+    const identity = `${member.provider}/${member.model}`;
+    const available = byIdentity.get(identity);
+    if (!available) return { ok: false, code: "preset-member-unavailable", detail: identity };
+    if (!Array.isArray(available.supported_efforts)) {
+      return { ok: false, code: PI_EFFORT_CODES.CAPABILITY_UNAVAILABLE, detail: `${identity}:${member.effort}` };
+    }
+    if (!available.supported_efforts.includes(member.effort)) {
+      return { ok: false, code: PI_EFFORT_CODES.UNSUPPORTED, detail: `${identity}:${member.effort}` };
+    }
+  }
+  return { ok: true };
 }
 
 function buildPreflight(configId, deps) {
@@ -619,6 +705,15 @@ function buildPreflight(configId, deps) {
     availability: inventoryAvailability(deps),
   });
   if (!castResult.ok) return { ok: false, code: castResult.code, detail: castResult.detail, config, profile_applied: profileApplied };
+  const effortPreflight = preflightCastEfforts(castResult.cast, deps);
+  if (!effortPreflight.ok) {
+    return {
+      ...effortPreflight,
+      config,
+      chain,
+      profile_applied: profileApplied,
+    };
+  }
 
   const providers = castProviders(castResult.cast);
   const gatePreflight = preflightObjectiveGate(deps.cwd, config.objective_gate);
@@ -661,6 +756,7 @@ function renderPreflight(preflight, requestedId) {
   }
   const { config, chain, cast, warnings } = preflight;
   const stageCast = cast.map((c) => `${c.stage_id}=${c.executor_ref}`).join(" ");
+  const exactCast = structuralCast(cast);
   return result({
     title: "Helix run preflight",
     lines: [
@@ -668,6 +764,8 @@ function renderPreflight(preflight, requestedId) {
       `Chain: ${chain.id} (${chain.task_class}, ${chain.stages.length} stage(s))`,
       `Cast source: ${preflight.profile_applied ? `profile ${preflight.profile_applied.profile_id} (${preflight.profile_applied.overridden.join("+")})` : "tracked config"}`,
       `Cast: ${stageCast}`,
+      "Exact cast:",
+      ...structuralCastLines(cast),
       `Assignments: ${config.assignments && Object.keys(config.assignments).length ? Object.entries(config.assignments).map(([stage, a]) => `${stage}=${assignmentLabel(a)}`).join(" ") : "(defaults)"}`,
       `Providers: ${preflight.cast_providers.join(", ")}`,
       `Live: ${preflight.live_status}`,
@@ -687,7 +785,7 @@ function renderPreflight(preflight, requestedId) {
       requested_config_id: requestedId,
       config_id: config.id,
       chain: summarizeChain(chain),
-      cast: cast.map((c) => ({ stage_id: c.stage_id, executor_ref: c.executor_ref })),
+      cast: exactCast,
       providers: preflight.cast_providers,
       objective_gate: structuralObjectiveGate(config.objective_gate),
       rail: {

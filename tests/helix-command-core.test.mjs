@@ -122,6 +122,11 @@ test("helix run preflight renders the resolved installed-package workflow", () =
   assert.deepEqual(out.details.rail, { max_iterations: 5, parallel: { max_concurrency: 2 } });
   assert.deepEqual(out.details.runtime_limits, { max_runtime_ms: 600_000, call_timeout_ms: 120_000 });
   assert.match(out.details.execution_binding_ref, /^sha256:[0-9a-f]{64}$/);
+  assert.deepEqual(out.details.cast[0].roles.planner[0], {
+    provider: "mock", model: "mock-overlord-planner", effort: "max", instances: 1,
+  });
+  assert.match(out.text, /Exact cast:\n  plan \[composite:overlord\]/);
+  assert.match(out.text, /planner: mock\/mock-overlord-planner:max x1/);
   const rendered = JSON.stringify(out.details);
   assert.equal(rendered.includes("profile"), false);
   assert.equal(rendered.includes("write_allowlist"), false);
@@ -207,7 +212,12 @@ test("workflow deployment testing requires live model inventory for real casts",
 
   const available = executeHelixCommand("workflows test real-cast-flow", { mode: "print" }, {
     stateRoot,
-    modelInventory: [{ provider: "openrouter", model: "cohere/north-mini-code:free" }],
+    modelInventory: [{
+      provider: "openrouter",
+      model: "cohere/north-mini-code:free",
+      reasoning: true,
+      supported_efforts: ["default", "provider-managed", "low", "medium", "high"],
+    }],
   });
   assert.equal(available.ok, true, JSON.stringify(available));
 });

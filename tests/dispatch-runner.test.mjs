@@ -174,6 +174,53 @@ test("role prompts include the exact objective marker and declared durable outpu
   }
 });
 
+test("resolved candidate, judge, synthesis, and verifier efforts reach their adapter boundaries", async () => {
+  const repo = tempRepo();
+  try {
+    const effortChainRegistry = structuredClone(chainRegistry);
+    const effortChain = effortChainRegistry.chains.find((chain) => chain.id === "full-cycle");
+    for (const stage of effortChain.stages) {
+      stage.steps.push({ id: `${stage.id}-verify`, kind: "role", role: "verifier" });
+    }
+    const mock = createStagedMockAdapter();
+    const seen = { candidates: [], judges: [], synthesis: [], verifiers: [] };
+    const adapter = {
+      kind: "test-effort-observer",
+      runCandidate(spec, ctx) {
+        seen.candidates.push({ role: spec.role, effort: spec.effort });
+        return mock.dispatchAdapter.runCandidate(spec, ctx);
+      },
+      runJudge(input, ctx) {
+        seen.judges.push(ctx.judge.effort);
+        return mock.dispatchAdapter.runJudge(input, ctx);
+      },
+      runSynthesis(input, ctx) {
+        seen.synthesis.push(ctx.synthesis.effort);
+        return mock.dispatchAdapter.runSynthesis(input, ctx);
+      },
+      runVerifier(input, ctx) {
+        seen.verifiers.push(ctx.verification.effort);
+        return mock.dispatchAdapter.runVerifier(input, ctx);
+      },
+    };
+    const config = {
+      ...baseConfig,
+      objective_gate: { ...baseConfig.objective_gate, contains: "initial proposal" },
+    };
+    const { deps } = makeDeps(repo, { run_id: "effort-forwarding", adapter });
+    const result = await runStagedTaskLoop(config, { chainRegistry: effortChainRegistry, presets }, deps);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(seen.judges, ["high", "medium"]);
+    assert.deepEqual(seen.synthesis, ["high", "medium"]);
+    assert.deepEqual(seen.verifiers, ["medium", "low"]);
+    assert.equal(seen.candidates.every(({ effort }) => typeof effort === "string"), true);
+    assert.ok(seen.candidates.some(({ role, effort }) => role === "planner" && effort === "max"));
+    assert.ok(seen.candidates.some(({ role, effort }) => role === "builder" && effort === "high"));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("mixed mock and configured-provider casts route each member to its matching adapter", async () => {
   const repo = tempRepo();
   try {
