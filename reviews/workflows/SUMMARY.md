@@ -78,3 +78,17 @@ section appended to this file before push.
   Pi AgentSession, exact consent binding, localhost audit proxy, streamed
   model/route verification, and attestation ownership passed. No prompt,
   response, credential, or account value was retained.
+
+### 2026-07-16 — First exact-head branch CI attempt
+
+- Exact remote SHA `d9b57ffe7696c8e6de52509741c941172d74374e`
+  ran both Node matrix jobs. All 638 tests and every gate through package,
+  dispatch, and revision smoke passed on both Node versions.
+- Both jobs then failed before Pi startup with `rpc-spawn-failed:ENOENT` because
+  CI supplied `node_modules/.bin/pi` and the helper treated a relative path with
+  a slash as a PATH lookup from its isolated temporary working directory.
+- Canonical local correction: resolve slash-containing relative `--pi-bin`
+  values against the verified package root; bare command names still use PATH
+  and absolute paths remain unchanged. A focused regression covers all three
+  shapes. The failed remote commit remains unchanged; no force-push or hidden
+  rerun was attempted.

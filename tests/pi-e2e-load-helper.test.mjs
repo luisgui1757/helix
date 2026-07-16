@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_RUNTIME_RPC_TIMEOUT_MS,
   EXPECTED_HELIX_COMMANDS,
+  resolvePiBinary,
   runPiE2ELoad,
 } from "../tools/smoke/pi-e2e-load.mjs";
 
@@ -89,4 +90,7 @@ test("static Pi load helper rejects skill drift and missing runtime files", () =
 
 test("runtime RPC helper allows a cold Pi startup", () => {
   assert.equal(DEFAULT_RUNTIME_RPC_TIMEOUT_MS, 60_000);
+  assert.equal(resolvePiBinary("/workspace", "node_modules/.bin/pi"), "/workspace/node_modules/.bin/pi");
+  assert.equal(resolvePiBinary("/workspace", "pi"), "pi");
+  assert.throws(() => resolvePiBinary("/workspace", ""), /pi-bin-invalid/);
 });
