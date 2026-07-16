@@ -38,7 +38,11 @@ const EXPECTED_EXTENSIONS = Object.freeze([
 ]);
 const REQUIRED_PACKAGE_FILES = Object.freeze([
   "README.md",
+  "NOTICE",
+  "SECURITY.md",
+  "docs/architecture.md",
   "docs/manual.md",
+  "docs/providers.md",
   "docs/workflows.md",
   "extensions/helix-fence.ts",
   "extensions/helix-answer.ts",
@@ -53,6 +57,12 @@ const REQUIRED_PACKAGE_FILES = Object.freeze([
   "dispatch/lib/runner.mjs",
   "dispatch/lib/stage-schedule.mjs",
   "dispatch/lib/workflows.mjs",
+  "dispatch/kernel/scheduler.mjs",
+  "dispatch/kernel/state.mjs",
+  "dispatch/runtime/contract.mjs",
+  "dispatch/runtime/openrouter-audit-proxy.mjs",
+  "dispatch/runtime/openrouter-runtime.mjs",
+  "dispatch/workflow/schema.mjs",
   "tools/loop/helix-task-loop.mjs",
 ]);
 

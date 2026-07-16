@@ -15,15 +15,21 @@ const expectedPackageFiles = [
   "LICENSE",
   "extensions",
   "dispatch/config",
+  "dispatch/kernel",
   "dispatch/lib",
+  "dispatch/runtime",
+  "dispatch/workflow",
+  "NOTICE",
+  "SECURITY.md",
+  "docs/architecture.md",
   "docs/manual.md",
+  "docs/providers.md",
   "docs/workflows.md",
   "tools/loop/helix-task-loop.mjs",
   "tools/research/helix-research.mjs",
 ];
 const forbiddenShippingArtifacts = [
   ".pi/settings.json",
-  "reviews",
   "skills",
   "themes",
   "ROADMAP.md",
@@ -80,8 +86,8 @@ function checkPackage() {
   if (!sameArray(pkg.keywords, ["pi-package", "pi-extension", "multi-agent", "coding-agent"])) {
     fail("package.json: package discovery keywords drifted");
   }
-  if (pkg.peerDependencies?.["@earendil-works/pi-coding-agent"] !== "*") {
-    fail("package.json: Pi must be declared as an unbundled peer dependency");
+  if (pkg.peerDependencies?.["@earendil-works/pi-coding-agent"] !== ">=0.80.7 <0.81.0") {
+    fail("package.json: Pi peer dependency must match the tested runtime seam");
   }
   for (const key of ["dependencies", "optionalDependencies"]) {
     if (pkg[key] && Object.keys(pkg[key]).length > 0) fail(`package.json: ${key} must stay empty`);
@@ -118,6 +124,9 @@ function checkImportClosure() {
   const codeFiles = [
     ...walk("extensions", (rel) => /\.(?:mjs|ts)$/.test(rel)),
     ...walk("dispatch/lib", (rel) => rel.endsWith(".mjs")),
+    ...walk("dispatch/kernel", (rel) => rel.endsWith(".mjs")),
+    ...walk("dispatch/runtime", (rel) => rel.endsWith(".mjs")),
+    ...walk("dispatch/workflow", (rel) => rel.endsWith(".mjs")),
     "tools/loop/helix-task-loop.mjs",
     "tools/research/helix-research.mjs",
   ];
@@ -133,7 +142,11 @@ function checkImportClosure() {
 }
 
 function checkPublicSafety() {
-  const roots = ["README.md", "package.json", "extensions", "dispatch/config", "docs/manual.md", "docs/workflows.md", "docs/architecture.md"];
+  const roots = [
+    "README.md", "SECURITY.md", "NOTICE", "package.json", "extensions", "dispatch/config",
+    "dispatch/kernel", "dispatch/runtime", "dispatch/workflow", "docs/manual.md", "docs/providers.md",
+    "docs/workflows.md", "docs/architecture.md",
+  ];
   const patterns = [
     /api[_-]?key\s*[:=]/i,
     /secret\s*[:=]/i,

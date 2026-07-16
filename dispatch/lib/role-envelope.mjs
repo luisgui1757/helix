@@ -59,6 +59,28 @@ export const ROLE_ENVELOPE_SCHEMA = Object.freeze({
     role: { type: "string", enum: ROLES },
     provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
     model: { type: "string", pattern: MODEL_ID_PATTERN },
+    requested: {
+      type: "object",
+      additionalProperties: false,
+      required: ["provider", "model", "effort"],
+      properties: {
+        provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
+        model: { type: "string", pattern: MODEL_ID_PATTERN },
+        effort: { type: "string", enum: ["default", "provider-managed", "low", "medium", "high", "xhigh", "max"] },
+      },
+    },
+    effective: {
+      type: "object",
+      additionalProperties: false,
+      required: ["provider", "model", "effort", "evidence"],
+      properties: {
+        provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
+        model: { type: "string", pattern: MODEL_ID_PATTERN },
+        effort: { type: "string", enum: ["default", "provider-managed", "low", "medium", "high", "xhigh", "max"] },
+        evidence: { type: "string", enum: ["verified-response", "verified-deployment", "verified-session", "requested-only"] },
+      },
+    },
+    attestation_ref: { type: "string", pattern: REF_PATTERN },
     // Token counts are CAPACITY telemetry (context-pressure cues), not spend
     // accounting — Helix performs no cost control (backend billing owns spend).
     usage: {

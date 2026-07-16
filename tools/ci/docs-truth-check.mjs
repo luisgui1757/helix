@@ -50,7 +50,10 @@ function requireCommand(errors, manual, command) {
 
 export function checkDocsTruth(root = ROOT) {
   const errors = [];
-  for (const rel of ["README.md", "docs/manual.md", "docs/workflows.md", "docs/architecture.md", "package.json"]) {
+  for (const rel of [
+    "README.md", "SECURITY.md", "NOTICE", "docs/manual.md", "docs/workflows.md",
+    "docs/architecture.md", "docs/providers.md", "package.json",
+  ]) {
     if (!existsSync(join(root, rel))) errors.push(`${rel}: required documentation surface is missing`);
   }
   if (errors.length > 0) return { ok: false, errors };
@@ -68,12 +71,17 @@ export function checkDocsTruth(root = ROOT) {
     "/helix-onboarding",
     "/helix-settings",
     "~/.pi/agent/helix",
+    "WorkflowDefinition v4",
+    "/helix-run-resume",
   ]) requireSnippet(errors, readme, "README.md", snippet);
 
   for (const command of HELIX_COMMANDS) requireCommand(errors, manual, command);
 
   for (const [rel, text] of [["README.md", readme], ["docs/manual.md", manual]]) {
-    for (const stale of ["Stage 1", "Stage 2", "Stage 3", "ROADMAP", "reviews/", "/skill:helix", "helix-rose-pine"]) {
+    for (const stale of [
+      "Stage 1", "Stage 2", "Stage 3", "ROADMAP", "reviews/", "/skill:helix", "helix-rose-pine",
+      "Task-bound resume is unsupported", "workflow-resume-unsupported",
+    ]) {
       rejectSnippet(errors, text, rel, stale);
     }
   }
@@ -83,6 +91,17 @@ export function checkDocsTruth(root = ROOT) {
   }
   if ((pkg.pi?.extensions ?? []).length !== 3) {
     errors.push("package.json: docs contract requires exactly three Pi extensions");
+  }
+  if (pkg.peerDependencies?.["@earendil-works/pi-coding-agent"] !== ">=0.80.7 <0.81.0") {
+    errors.push("package.json: documented Pi runtime range drifted");
+  }
+  const architecture = readText(root, "docs/architecture.md");
+  const providers = readText(root, "docs/providers.md");
+  for (const snippet of ["one product workflow engine", "private checkpoint", "CapabilityAttestation"]) {
+    requireSnippet(errors, architecture, "docs/architecture.md", snippet);
+  }
+  for (const snippet of ["allow_fallbacks", "uncertified-disabled", "CLIProxyAPI"]) {
+    requireSnippet(errors, providers, "docs/providers.md", snippet);
   }
   return { ok: errors.length === 0, errors };
 }

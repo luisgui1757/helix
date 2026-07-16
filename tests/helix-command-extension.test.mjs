@@ -415,11 +415,17 @@ test("helix-run executes the canonical workflow in-process with the exact user t
     assert.equal(invocation, null, "the extension keeps Pi ModelRegistry/AuthStorage in-process");
     assert.deepEqual(working, [
       "Helix is running mock-core-loop", true,
-      "Helix · plan · pass 1/5",
-      "Helix · implement · pass 1/5",
+      "Helix · plan · visit 1",
+      "Helix · plan-decision · visit 1",
+      "Helix · implement · visit 1",
+      "Helix · implement-decision · visit 1",
+      "Helix · objective-gate · visit 1",
       "Helix · objective check fail",
-      "Helix · implement · pass 2/5",
+      "Helix · implement · visit 2",
+      "Helix · implement-decision · visit 2",
+      "Helix · objective-gate · visit 2",
       "Helix · objective check pass",
+      "Helix · succeeded · visit 1",
       false, null,
     ]);
   } finally {

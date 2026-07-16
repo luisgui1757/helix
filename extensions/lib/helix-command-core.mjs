@@ -21,12 +21,16 @@ import { resolveChain, validateChainRegistry } from "../../dispatch/lib/chains.m
 import {
   WORKFLOW_TEMPLATES,
   createWorkflowFromTemplate,
+  isSafeWorkflowPath,
   testWorkflow,
   workflowExecutionBindingRef,
+  workflowLifecycleSnapshot,
   validateWorkflowLifecycleSnapshot,
   workflowRequiredHostEffects,
   workflowToExecution,
 } from "../../dispatch/lib/workflows.mjs";
+import { normalizeWorkflowDefinition } from "../../dispatch/workflow/schema.mjs";
+import { observedWorkflowGraph, plannedWorkflowGraph } from "../../dispatch/workflow/visualize.mjs";
 import { preflightObjectiveGate } from "../../dispatch/lib/task-loop.mjs";
 import { resolveChainCast } from "../../dispatch/lib/presets.mjs";
 import { validateRoleMatrixConfig } from "../../dispatch/lib/role-matrix.mjs";
@@ -75,6 +79,7 @@ import {
   builtInWorkflows,
   resolveWorkflow,
   saveUserWorkflow,
+  saveUserWorkflowV4,
   workflowCatalog,
 } from "./helix-workflows.mjs";
 
@@ -93,6 +98,7 @@ export const HELIX_USAGE = `Usage:
   /helix-models
   /helix-chains
   /helix-workflows [list | show <id> | test <id>]
+  /helix-workflows import <repository-relative-v4.json>
   /helix-workflow-create <id> [implement-review|plan-implement|tdd-fix]
   /helix-workflow-edit [id]
   /helix-workflow-clone [id]
@@ -628,6 +634,27 @@ function preflightCastEfforts(cast, deps) {
   return { ok: true };
 }
 
+function workflowBindingChildren(workflow, deps) {
+  if (workflow?.schema_version !== 4) return { ok: true, definitions: [] };
+  const definitions = [];
+  const seen = new Set();
+  for (const node of Object.values(workflow.nodes)) {
+    if (node.kind !== "subworkflow") continue;
+    const key = `${node.workflow_id}@${node.version}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const resolved = resolveWorkflow(deps.stateRoot, node.workflow_id, deps.chainRegistry, deps.runRegistry);
+    if (!resolved.ok) return { ok: false, code: resolved.code, detail: node.workflow_id };
+    const normalized = normalizeWorkflowDefinition(resolved.workflow);
+    if (!normalized.ok || normalized.definition.version !== node.version
+      || Object.values(normalized.definition.nodes).some((child) => child.kind === "subworkflow")) {
+      return { ok: false, code: "kernel-subworkflow-binding-invalid", detail: node.workflow_id };
+    }
+    definitions.push(normalized.definition);
+  }
+  return { ok: true, definitions };
+}
+
 function buildPreflight(configId, deps) {
   let resolved = resolveRunConfig(deps.runRegistry, configId);
   let workflow = null;
@@ -720,12 +747,15 @@ function buildPreflight(configId, deps) {
   if (!gatePreflight.ok) {
     return { ok: false, code: gatePreflight.code, detail: config.objective_gate.type, config, chain, profile_applied: profileApplied };
   }
+  const bindingChildren = workflow ? workflowBindingChildren(workflow, deps) : { ok: true, definitions: [] };
+  if (!bindingChildren.ok) return bindingChildren;
   const executionBindingRef = workflow
     ? workflowExecutionBindingRef({
       workflow,
       profile: active.profile,
       toggles: effectiveToggles,
       presets: profiledPresets.presets,
+      subworkflows: bindingChildren.definitions,
     })
     : null;
   if (workflow && !executionBindingRef) {
@@ -744,7 +774,9 @@ function buildPreflight(configId, deps) {
     workflow,
     execution_binding_ref: executionBindingRef,
     runtime_limits: workflow
-      ? { max_runtime_ms: workflow.stop.max_runtime_ms, call_timeout_ms: workflow.deployment.call_timeout_ms }
+      ? workflow.schema_version === 4
+        ? { max_runtime_ms: workflow.limits.max_run_ms, call_timeout_ms: workflow.limits.max_call_ms }
+        : { max_runtime_ms: workflow.stop.max_runtime_ms, call_timeout_ms: workflow.deployment.call_timeout_ms }
       : { max_runtime_ms: 10 * 60 * 1000, call_timeout_ms: 2 * 60 * 1000 },
     toggles: effectiveToggles,
   };
@@ -1016,6 +1048,16 @@ function renderChains(deps) {
 }
 
 function workflowLines(workflow) {
+  if (workflow.schema_version === 4) {
+    const graph = plannedWorkflowGraph(workflow);
+    if (!graph.ok) return ["Invalid WorkflowDefinition v4"];
+    return graph.nodes.flatMap((node, index) => [
+      `${index + 1}. ${node.id} (${node.kind})`,
+      `   ${node.targets.length ? `next: ${node.targets.join(" | ")}` : `terminal: ${node.status}`}`,
+      ...(node.role ? [`   role: ${node.role}; mutation: ${node.mutation}`] : []),
+      ...(node.roles ? [`   roles: ${node.roles.join(" -> ")}`] : []),
+    ]);
+  }
   return workflow.stages.flatMap((stage, index) => [
     `${index + 1}. ${stage.id} (max ${stage.max_passes} pass${stage.max_passes === 1 ? "" : "es"})`,
     `   roles: ${stage.steps.filter((step) => step.kind === "role").map((step) => step.role).join(" -> ") || "none"}`,
@@ -1032,6 +1074,16 @@ function workflowLines(workflow) {
 }
 
 function workflowGraphLines(workflow, events = []) {
+  if (workflow.schema_version === 4) {
+    const graph = observedWorkflowGraph(workflow, events);
+    if (!graph.ok) return ["Flow: invalid WorkflowDefinition v4"];
+    return ["Flow:", ...graph.nodes.map((node) => {
+      const marker = node.status === "running" ? "●" : node.status === "pending" ? "○" : node.status === "ok" || node.status === "succeeded" ? "✓" : "!";
+      const visits = node.visits > 0 ? ` · ${node.visits} visit${node.visits === 1 ? "" : "s"}` : "";
+      const targets = node.targets.length ? ` -> ${node.targets.join(" | ")}` : ` [${node.status}]`;
+      return `  ${marker} ${node.id} (${node.kind})${visits}${targets}`;
+    })];
+  }
   const passCounts = Object.fromEntries(workflow.stages.map((stage) => [stage.id, 0]));
   const completed = new Set();
   let current = null;
@@ -1067,6 +1119,26 @@ function workflowGraphLines(workflow, events = []) {
 
 function structuralWorkflow(workflow) {
   const requiredHostEffects = workflowRequiredHostEffects(workflow);
+  if (workflow.schema_version === 4) {
+    const graph = plannedWorkflowGraph(workflow);
+    return {
+      schema_version: 4,
+      id: workflow.id,
+      name: workflow.name,
+      source: workflow.source,
+      version: workflow.version,
+      description_ref: hashRef(workflow.description),
+      runnable: requiredHostEffects.length === 0,
+      required_host_effects: requiredHostEffects,
+      start: workflow.start,
+      limits: structuredClone(workflow.limits),
+      provider_policy: {
+        exact: workflow.provider_policy.exact,
+        require_live_certification: workflow.provider_policy.require_live_certification,
+      },
+      graph: graph.ok ? graph.nodes : [],
+    };
+  }
   return {
     id: workflow.id,
     source: workflow.source,
@@ -1095,8 +1167,65 @@ function structuralWorkflow(workflow) {
   };
 }
 
+function workflowSummary(workflow) {
+  if (workflow.schema_version === 4) {
+    const graph = plannedWorkflowGraph(workflow);
+    return `${workflow.id} [${workflow.source}] v${workflow.version}: ${graph.ok ? `${graph.nodes.length} nodes from ${graph.start}` : "invalid graph"} · max ${workflow.limits.max_total_effects} effects`;
+  }
+  return `${workflow.id} [${workflow.source}]: ${workflow.stages.map((stage) => stage.id).join(" -> ")} · max ${workflow.stop.max_iterations}`;
+}
+
+function workflowStopLines(workflow) {
+  if (workflow.schema_version === 4) {
+    return [
+      `Stop: objective gate passes or max ${workflow.limits.max_total_effects} effects / ${workflow.limits.max_run_ms}ms`,
+      `Provider call timeout: ${workflow.limits.max_call_ms}ms`,
+    ];
+  }
+  return [
+    `Stop: objective gate passes, max_iterations=${workflow.stop.max_iterations}, or ${workflow.stop.max_runtime_ms}ms`,
+    `Provider call timeout: ${workflow.deployment.call_timeout_ms}ms`,
+  ];
+}
+
 function renderWorkflows(deps, tokens) {
   const sub = tokens[1] ?? "list";
+  if (sub === "import") {
+    const relativePath = tokens[2];
+    if (tokens.length !== 3 || !isSafeWorkflowPath(relativePath)) return usage(tokens.join(" "));
+    let definition;
+    try {
+      const path = join(deps.cwd, relativePath);
+      const entry = lstatSync(path);
+      if (entry.isSymbolicLink() || !entry.isFile() || entry.size < 1 || entry.size > 256 * 1024) throw new Error("file");
+      definition = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      return fail("invalid-workflow-v4", "import-file", "Helix workflow import refused");
+    }
+    const normalized = normalizeWorkflowDefinition(definition);
+    if (!normalized.ok || normalized.migrated || normalized.definition.source !== "user") {
+      return fail(normalized.code ?? "invalid-workflow-v4", "import-definition", "Helix workflow import refused");
+    }
+    const tested = testWorkflow(normalized.definition);
+    if (!tested.ok) return fail(tested.code, normalized.definition.id, "Helix workflow import refused");
+    const gate = preflightObjectiveGate(deps.cwd, normalized.definition.objective_gate);
+    if (!gate.ok) return fail(gate.code, normalized.definition.id, "Helix workflow import refused");
+    const saved = saveUserWorkflowV4(deps.stateRoot, normalized.definition, {
+      builtInIds: builtInWorkflows(deps.chainRegistry, deps.runRegistry).map((workflow) => workflow.id),
+    });
+    if (!saved.ok) return fail(saved.code, saved.detail, "Helix workflow import refused");
+    return result({
+      title: "Helix workflow imported",
+      lines: [
+        `Workflow: ${normalized.definition.id} v${normalized.definition.version}`,
+        ...workflowGraphLines(normalized.definition),
+        `Definition transitions tested: ${tested.transitions_tested}/${tested.transitions_total}`,
+        `Run: /helix-run ${normalized.definition.id}`,
+      ],
+      details: { workflow: structuralWorkflow(normalized.definition), mutating: true },
+      mutating: true,
+    });
+  }
   if (sub === "create") {
     const id = tokens[2];
     const template = tokens[3] ?? "implement-review";
@@ -1133,7 +1262,7 @@ function renderWorkflows(deps, tokens) {
       lines: [
         "Named workflows:",
         ...catalog.workflows.map((workflow) =>
-          `  ${workflow.id} [${workflow.source}]: ${workflow.stages.map((stage) => stage.id).join(" -> ")} · max ${workflow.stop.max_iterations} · ${workflowRequiredHostEffects(workflow).length ? `requires host effects: ${workflowRequiredHostEffects(workflow).join(", ")}` : "ready to run"}`),
+          `  ${workflowSummary(workflow)} · ${workflowRequiredHostEffects(workflow).length ? `requires host effects: ${workflowRequiredHostEffects(workflow).join(", ")}` : "ready to run"}`),
         "",
         "Create: /helix-workflow-create",
         "Manage personal workflows: /helix-workflow-edit · /helix-workflow-clone · /helix-workflow-delete",
@@ -1154,8 +1283,7 @@ function renderWorkflows(deps, tokens) {
         ...workflowGraphLines(resolved.workflow),
         "",
         ...workflowLines(resolved.workflow),
-        `Stop: objective gate passes, max_iterations=${resolved.workflow.stop.max_iterations}, or ${resolved.workflow.stop.max_runtime_ms}ms`,
-        `Provider call timeout: ${resolved.workflow.deployment.call_timeout_ms}ms`,
+        ...workflowStopLines(resolved.workflow),
         workflowRequiredHostEffects(resolved.workflow).length
           ? `Deployability: requires host effects (${workflowRequiredHostEffects(resolved.workflow).join(", ")})`
           : "Deployability: ready to run",
@@ -1183,7 +1311,9 @@ function renderWorkflows(deps, tokens) {
         `Transitions tested: ${tested.transitions_tested}/${tested.transitions_total}`,
         `Stage ceilings tested: ${tested.ceilings_tested}`,
         `Durable outputs declared: ${tested.artifacts_declared}`,
-        ...simulated.trace.map((entry) => `${entry.stage_id} pass ${entry.pass} -> ${entry.action}${entry.target ? ` ${entry.target}` : ""}`),
+        ...(simulated.trace ?? []).map((entry) => entry.node_id
+          ? `${entry.node_id} (${entry.kind})`
+          : `${entry.stage_id} pass ${entry.pass} -> ${entry.action}${entry.target ? ` ${entry.target}` : ""}`),
         `Stop: ${simulated.stop_reason}`,
       ],
       details: {
@@ -1540,6 +1670,17 @@ function renderRunsWatch(runId, deps) {
   if (!runId) return fail("missing-run-id", null, "Helix run watch refused");
   const valid = validateRunId(runId);
   if (!valid.ok) return fail(valid.code, valid.detail, "Helix run watch refused");
+  const kernelStatePath = join(deps.runsRoot, runId, `${runId}.state.json`);
+  if (existsSync(kernelStatePath)) {
+    try {
+      const stateEntry = lstatSync(kernelStatePath);
+      if (stateEntry.isSymbolicLink() || !stateEntry.isFile() || stateEntry.size > 64 * 1024) throw new Error("state-file");
+      const state = JSON.parse(readFileSync(kernelStatePath, "utf8"));
+      if (state?.schema_version === 4) return renderKernelRunWatch(runId, deps, state);
+    } catch {
+      return fail("run-record-invalid-or-unsafe", "kernel-state", "Helix run watch refused");
+    }
+  }
   const eventsPath = join(deps.runsRoot, runId, `${runId}.events.jsonl`);
   if (!existsSync(eventsPath)) return fail("run-not-found", "run-events-not-found", "Helix run watch refused");
   let events;
@@ -1641,6 +1782,87 @@ function renderRunsWatch(runId, deps) {
   });
 }
 
+function renderKernelRunWatch(runId, deps, state) {
+  const scannedState = scanOrRefuse(state, "Helix run watch refused");
+  if (scannedState.leak) return scannedState.leak;
+  if (state.run_id !== runId || state.workflow_id == null
+    || !/^sha256:[0-9a-f]{64}$/.test(state.definition_ref ?? "")
+    || !Number.isSafeInteger(state.event_count) || state.event_count < 0
+    || typeof state.completed !== "boolean") {
+    return fail("run-record-invalid-or-unsafe", "kernel-state-structure", "Helix run watch refused");
+  }
+  const definitionPath = join(deps.runsRoot, runId, `${runId}.definition.json`);
+  const lifecyclePath = join(deps.runsRoot, runId, `${runId}.workflow.json`);
+  const eventsPath = join(deps.runsRoot, runId, `${runId}.kernel.events.jsonl`);
+  let definition;
+  let events = [];
+  try {
+    const definitionEntry = lstatSync(definitionPath);
+    if (definitionEntry.isSymbolicLink() || !definitionEntry.isFile() || definitionEntry.size > 256 * 1024) throw new Error("definition-file");
+    definition = JSON.parse(readFileSync(definitionPath, "utf8"));
+    const normalized = normalizeWorkflowDefinition(definition);
+    if (!normalized.ok || normalized.migrated || normalized.definition.id !== state.workflow_id) throw new Error("definition-shape");
+    const lifecycle = workflowLifecycleSnapshot(normalized.definition);
+    if (!lifecycle || lifecycle.definition_ref !== state.definition_ref) throw new Error("definition-binding");
+    const lifecycleEntry = lstatSync(lifecyclePath);
+    if (lifecycleEntry.isSymbolicLink() || !lifecycleEntry.isFile() || lifecycleEntry.size > 64 * 1024) throw new Error("lifecycle-file");
+    const persistedLifecycle = JSON.parse(readFileSync(lifecyclePath, "utf8"));
+    if (!validateWorkflowLifecycleSnapshot(persistedLifecycle)
+      || stableStringify(persistedLifecycle) !== stableStringify(lifecycle)) throw new Error("lifecycle-binding");
+    definition = normalized.definition;
+    if (existsSync(eventsPath)) {
+      const eventEntry = lstatSync(eventsPath);
+      if (eventEntry.isSymbolicLink() || !eventEntry.isFile() || eventEntry.size > 64 * 1024 * 1024) throw new Error("event-file");
+      const text = readFileSync(eventsPath, "utf8");
+      if (text !== "" && !text.endsWith("\n")) throw new Error("partial-events");
+      events = text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    }
+    const nodeIds = new Set(Object.keys(definition.nodes));
+    if (events.some((event, index) => event?.schema_version !== 1 || event.seq !== index + 1
+      || event.run_id !== runId || typeof event.kind !== "string"
+      || (event.node_id != null && !nodeIds.has(event.node_id)))) throw new Error("event-structure");
+    if (state.completed && state.event_count !== events.length) throw new Error("event-count");
+    if (!state.completed && state.event_count > events.length) throw new Error("event-count");
+    const scannedEvents = scanOrRefuse(events, "Helix run watch refused");
+    if (scannedEvents.leak) return scannedEvents.leak;
+  } catch (error) {
+    const stableReasons = new Set([
+      "definition-file", "definition-shape", "definition-binding", "lifecycle-file", "lifecycle-binding",
+      "event-file", "partial-events", "event-structure", "event-count",
+    ]);
+    const reason = stableReasons.has(error?.message) ? error.message : "kernel-run-structure";
+    return fail("run-record-invalid-or-unsafe", reason, "Helix run watch refused");
+  }
+  const graph = observedWorkflowGraph(definition, events);
+  if (!graph.ok) return fail("run-record-invalid-or-unsafe", "kernel-graph", "Helix run watch refused");
+  const lastNode = [...graph.nodes].reverse().find((node) => node.status !== "pending");
+  const lines = [
+    `Run: ${runId} ${state.completed ? `(finished: ${state.status})` : "(in progress or interrupted)"}`,
+    `Workflow: ${state.workflow_id} v${state.workflow_version}`,
+    `Node: ${lastNode ? `${lastNode.id} (${lastNode.kind}, ${lastNode.status})` : "not started"}`,
+    `Effects journaled: ${state.journal_entries}`,
+    `Events: ${events.length}`,
+    "",
+    ...workflowGraphLines(definition, events),
+  ];
+  return result({
+    title: "Helix run watch",
+    lines,
+    details: {
+      run_id: runId,
+      workflow_id: state.workflow_id,
+      workflow_version: state.workflow_version,
+      finished: state.completed,
+      status: state.status,
+      code: state.code,
+      terminal: state.terminal,
+      events: events.length,
+      journal_entries: state.journal_entries,
+      flow: workflowGraphLines(definition, events).slice(1),
+    },
+  });
+}
+
 function renderRunsResume(runId, deps) {
   if (!runId) return fail("missing-run-id", null, "Helix run resume refused");
   const valid = validateRunId(runId);
@@ -1655,6 +1877,35 @@ function renderRunsResume(runId, deps) {
   }
   const scanned = scanOrRefuse(state, "Helix run resume refused");
   if (scanned.leak) return scanned.leak;
+  if (state?.schema_version === 4) {
+    if (state.run_id !== runId || typeof state.completed !== "boolean"
+      || typeof state.workflow_id !== "string" || !/^sha256:[0-9a-f]{64}$/.test(state.definition_ref ?? "")) {
+      return fail("invalid-resume-state", "kernel-state-structure", "Helix run resume refused");
+    }
+    if (state.completed) {
+      return result({
+        title: "Helix run resume",
+        lines: [`Run ${runId} already completed (${state.status}). Resuming is a no-op.`],
+        details: { run_id: runId, completed: true, status: state.status },
+      });
+    }
+    return result({
+      title: "Helix run resume",
+      lines: [
+        `Run ${runId} is structurally resumable from its private kernel checkpoint.`,
+        `Workflow: ${state.workflow_id} v${state.workflow_version}`,
+        "Resume requires the original task and a fresh exact provider attestation in an attended Pi session.",
+      ],
+      details: {
+        run_id: runId,
+        workflow_id: state.workflow_id,
+        workflow_version: state.workflow_version,
+        completed: false,
+        task_required: true,
+        in_process_resume: true,
+      },
+    });
+  }
   const stateShape = validateRunnerState(state, { runId });
   if (!stateShape.valid) return fail("invalid-resume-state", "state-structure", "Helix run resume refused");
   // Pi-started named workflows bind an exact in-memory task into execution_ref.
@@ -1766,7 +2017,7 @@ function renderRunsList(deps) {
       "Structural run records only",
       runs.length ? `Runs: ${runs.length}` : "Runs: none",
       ...runs.map((entry) =>
-        `${entry.run_id}: ${entry.kind} ${entry.status} prune=${entry.prunable ? "available" : "non-prunable-flat-record"} iterations=${entry.iterations_run ?? "n/a"} tokens=${entry.total_tokens ?? "n/a"}`),
+        `${entry.run_id}: ${entry.kind} ${entry.status} prune=${entry.prunable ? "available" : "non-prunable-flat-record"} iterations=${entry.iterations_run ?? "n/a"} tokens=${entry.total_tokens ?? "n/a"}${entry.worktree_branch ? ` worktree=${entry.worktree_branch}` : ""}`),
     ],
     details: { runs },
   });
@@ -1782,7 +2033,7 @@ function renderRunStatus(runId, deps) {
       `Run: ${status.run_id}`,
       "Structural run records only",
       ...status.entries.map((entry) =>
-        `${entry.path}: ${entry.kind} ${entry.status} prune=${entry.prunable ? "available" : "non-prunable-flat-record"} stop=${entry.stop_reason ?? "n/a"} iterations=${entry.iterations_run ?? "n/a"} tokens=${entry.total_tokens ?? "n/a"}`),
+        `${entry.path}: ${entry.kind} ${entry.status} prune=${entry.prunable ? "available" : "non-prunable-flat-record"} stop=${entry.stop_reason ?? "n/a"} iterations=${entry.iterations_run ?? "n/a"} tokens=${entry.total_tokens ?? "n/a"}${entry.worktree_branch ? ` worktree=${entry.worktree_branch}` : ""}`),
     ],
     details: status,
   });
@@ -1821,7 +2072,7 @@ function mutationKind(tokens) {
   if (tokens[0] === "settings" && tokens[1] === "set") return "settings";
   if (tokens[0] === "profiles" && ["create", "switch"].includes(tokens[1])) return "profiles";
   if (tokens[0] === "setup" && tokens.length > 1) return "setup";
-  if (tokens[0] === "workflows" && tokens[1] === "create") return "workflow";
+  if (tokens[0] === "workflows" && ["create", "import"].includes(tokens[1])) return "workflow";
   return null;
 }
 
@@ -1882,6 +2133,7 @@ export function getHelixArgumentCompletions(argumentPrefix = "", options = {}) {
       { value: "workflows show ", label: "show", description: "Inspect stages and transitions" },
       { value: "workflows test ", label: "test", description: "Simulate without provider calls" },
       { value: "workflows create ", label: "create", description: "Create a workflow from a guided template" },
+      { value: "workflows import ", label: "import", description: "Validate and deploy a WorkflowDefinition v4 JSON file" },
     ].filter((item) => item.value.slice("workflows ".length).startsWith(query));
   }
   return null;

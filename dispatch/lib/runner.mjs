@@ -33,6 +33,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   readdirSync,
   readlinkSync,
   realpathSync,
@@ -351,11 +352,40 @@ function checkpointExclusions(root, paths = []) {
 }
 
 function scanCheckout(root, copyRoot = null, excludedPaths = []) {
+  const MAX_CHECKPOINT_FILES = 16_384;
+  const MAX_CHECKPOINT_FILE_BYTES = 16 * 1024 * 1024;
+  const MAX_CHECKPOINT_TOTAL_BYTES = 64 * 1024 * 1024;
   const entries = [];
   const exclusions = checkpointExclusions(root, excludedPaths);
   const hardlinks = new Map();
   const copiedHardlinks = new Map();
   let nextHardlink = 1;
+  let fileCount = 0;
+  let totalBytes = 0;
+  const hashFile = (path, size) => {
+    if (size > MAX_CHECKPOINT_FILE_BYTES) throw new Error("private-checkpoint-file-too-large");
+    totalBytes += size;
+    fileCount += 1;
+    if (fileCount > MAX_CHECKPOINT_FILES || totalBytes > MAX_CHECKPOINT_TOTAL_BYTES) {
+      throw new Error("private-checkpoint-size-limit");
+    }
+    const digest = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      let offset = 0;
+      while (offset < size) {
+        const bytes = readSync(fd, buffer, 0, Math.min(buffer.length, size - offset), offset);
+        if (bytes <= 0) throw new Error("private-checkpoint-read-short");
+        digest.update(buffer.subarray(0, bytes));
+        offset += bytes;
+      }
+      if (fstatSync(fd).size !== size) throw new Error("private-checkpoint-file-changed");
+      return `sha256:${digest.digest("hex")}`;
+    } finally {
+      closeSync(fd);
+    }
+  };
   const walk = (dir, prefix) => {
     const names = readdirSync(dir).sort();
     for (const name of names) {
@@ -391,13 +421,12 @@ function scanCheckout(root, copyRoot = null, excludedPaths = []) {
           hardlinks.set(inode, linkGroup);
         }
       }
-      const content = readFileSync(source);
       entries.push({
         path: rel,
         type: "file",
         mode,
         size: stat.size,
-        content_ref: hashBytes(content),
+        content_ref: hashFile(source, stat.size),
         ...(linkGroup ? { link_group: linkGroup } : {}),
       });
       if (destination) {

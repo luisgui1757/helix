@@ -16,7 +16,7 @@ FROM node:24-bookworm-slim
 
 # Pin to the repo's verified Pi version. Override with --build-arg only when the
 # smoke, runtime load proof, and documentation are re-verified in the same change.
-ARG PI_VERSION=0.80.3
+ARG PI_VERSION=0.80.7
 
 RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
   && pi --version

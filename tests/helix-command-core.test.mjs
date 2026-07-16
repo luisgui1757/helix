@@ -17,6 +17,7 @@ import { PUBLIC_SAFETY_PATTERNS } from "../tools/ci/public-safety-diff-scan.mjs"
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
 import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
 import { saveProfile, switchProfile } from "../extensions/lib/helix-local.mjs";
+import { agent, gate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 
 const root = new URL("..", import.meta.url);
 const testStateRoot = mkdtempSync(join(tmpdir(), "helix-command-state-"));
@@ -587,8 +588,37 @@ test("helix completions expose only the single-command verb set", () => {
     "profiles switch work",
     "setup work plan=daily",
     "workflows create my-flow implement-review",
+    "workflows import flow.json",
   ]) assert.equal(isHelixMutationRequest(args), true, args);
   assert.equal(isHelixMutationRequest("research why --metric x >= 1 --max 1"), false);
+});
+
+test("v4 import is attended, validated, atomic, and immediately graphable", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "helix-v4-import-cwd-"));
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-v4-import-state-"));
+  const objective = { type: "file-contains", path: "result.md", contains: "PASS" };
+  const built = workflow({
+    id: "imported-v4", name: "Imported v4", description: "Imported test workflow.", start: "work",
+    nodes: {
+      work: pipeline([agent({ role: "reviewer", stage_id: "work", mutation: "read-only", timeout_ms: 1_000 })], "objective", { max_visits: 1 }),
+      objective: gate(objective, "success", "failed", { final: true }),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "objective-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true);
+  writeFileSync(join(cwd, "flow.json"), JSON.stringify(built.definition));
+  const options = { stateRoot, cwd };
+  const refused = executeHelixCommand("workflows import flow.json", { mode: "print" }, options);
+  assert.equal(refused.code, "helix-mutation-requires-tui-confirm");
+  const imported = executeHelixCommand("workflows import flow.json", { mode: "tui", confirm: true }, options);
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  const saved = JSON.parse(readFileSync(join(stateRoot, "workflows", "imported-v4.json"), "utf8"));
+  assert.equal(saved.schema_version, 4);
+  const shown = executeHelixCommand("workflows show imported-v4", { mode: "print" }, options);
+  assert.equal(shown.ok, true, JSON.stringify(shown));
+  assert.match(shown.text, /objective \(gate\)/);
 });
 
 test("helix completions fail closed when run config completion input is malformed", () => {

@@ -1,120 +1,89 @@
 # Helix
 
-Helix adds native multi-model workflow controls to [Pi](https://pi.dev). It gives
-each capability its own slash command, keeps risky changes attended, and stores
-only structural run metadata.
+Helix adds typed, multi-model workflows to [Pi](https://pi.dev). A single
+provider-neutral kernel runs guided, imported, and programmatically generated
+workflows with bounded loops, deterministic objective gates, exact casts,
+isolated Git worktrees, crash-safe checkpoints, and planned/observed graphs.
 
 ## Install
 
-Install Pi first:
+Install a supported Pi release, configure or sync your providers in Pi, then
+install Helix:
 
 ```sh
-npm install -g @earendil-works/pi-coding-agent
-```
-
-Then install Helix through Pi's package manager:
-
-```sh
+npm install -g @earendil-works/pi-coding-agent@">=0.80.7 <0.81.0"
 pi install git:github.com/luisgui1757/helix
-```
-
-Before using Helix, configure or sync the providers you want in Pi. Helix uses
-Pi's already available models; it does not log in, choose, or configure
-providers.
-
-This is the [Pi package catalog](https://pi.dev/packages) mechanism. Start Pi and open Helix:
-
-```sh
 pi
 ```
 
-```text
-/helix-help
-```
-
-For local development, load the checkout without installing it:
-
-```sh
-pi -e .
-```
+Helix never logs in to, chooses, or silently substitutes a provider. The first
+cold Pi startup offers a four-step onboarding tour; `/helix-onboarding` reopens
+it at any time. For checkout development, use `pi -e .`.
 
 ## Use
 
-On the first cold Pi startup, Helix offers a compact four-step tour. Choose
-**Later** to see it again at the next startup, or **Don't show again** to hide
-it. Run `/helix-onboarding` whenever you want to reopen it.
-
-Start with `/helix` for the dashboard or `/helix-help` for the command guide.
-
 | Command | Purpose |
 |---|---|
+| `/helix-help` | First steps and refusal guidance |
 | `/helix-onboarding` | Rerun the getting-started tour |
-| `/helix-settings` | Open the interactive feature list |
-| `/helix-run [workflow] -- <task>` | Preflight and start a named workflow |
-| `/helix-workflows` | List, visualize, inspect, and test named workflows |
-| `/helix-workflow-create` | Build a personal workflow from guided blocks |
+| `/helix-run [workflow] -- <task>` | Confirm and start an exact workflow |
+| `/helix-workflows` | List, show, graph, and test workflows |
+| `/helix-workflows import <file.json>` | Validate and atomically deploy v4 JSON |
+| `/helix-workflow-create` | Guided template-based workflow builder |
 | `/helix-workflow-edit`, `-clone`, `-delete` | Manage personal workflows |
-| `/helix-runs` | List structural run records |
-| `/helix-run-watch <id>` | Follow run progress |
-| `/helix-models` | See Pi models and Helix casts |
-| `/helix-chains` | See workflow chains |
-| `/helix-profiles` | Manage saved casts |
-| `/helix-setup` | Configure a cast |
-| `/helix-research …` | Validate an attended research run |
+| `/helix-runs`, `/helix-run-watch <id>` | Inspect structural run progress |
+| `/helix-run-resume <id>` | Revalidate and resume a private checkpoint |
+| `/helix-settings`, `/helix-profiles`, `/helix-setup` | Configure features and casts |
 
-`/helix-settings` is keyboard-native: use ↑/↓ to move, Enter or Space to
-toggle, and Esc to close.
+Before execution, Helix displays the task, workflow graph, objective gate,
+repository, deadlines, and every resolved role/provider/model/effort/instance
+tuple. The binding is rechecked before run-directory, worktree, or provider
+effects. A real path whose model, effort, route, account, or certification
+cannot be proven is exact-disabled; it never degrades to a session default,
+mock, alternate provider, or fallback route.
 
-```text
-[x] Multi-model
-[x] Loops
-[x] Autoresearch
-[x] Context engine
-[x] Worktrees
-[x] Visual cues
-```
+The executable exact real-provider path is currently OpenRouter: attended
+preflight must find one active ZDR, tool-capable route for the configured model,
+bind Pi's configured account, and verify every streamed response through a
+session-local audit proxy. Other provider families remain visibly
+exact-disabled until their official surfaces satisfy the same proof contract.
 
-The onboarding marker, settings, profiles, workflows, and run records live under `~/.pi/agent/helix`.
-Set `PI_CODING_AGENT_DIR` to move Pi's full agent directory or `HELIX_STATE_DIR` to move Helix state only; Helix needs no project `.pi` directory.
+The guided builder covers the common implement/review, plan/implement, and TDD
+loops. Advanced users create the same closed WorkflowDefinition v4 with the
+pure helpers in `dispatch/workflow/builder.mjs`, write the resulting JSON, and
+deploy it with `/helix-workflows import`. Helix executes data, never the builder
+program or arbitrary workflow JavaScript.
 
-Before using a real cast, configure or sign in to the provider in Pi. Helix uses
-only exact provider/model entries Pi reports as configured and available. Before
-confirmation, it validates every explicit effort across the fully resolved cast;
-one unsupported member refuses the whole run before any session or provider
-prompt. `low` through `xhigh` bind to Pi session creation, `max` maps to `xhigh`,
-and `default`/`provider-managed` defer to Pi/provider policy.
+The kernel supports agent, pipeline, bounded parallel/map, reduce, decision,
+gate, checkpoint, version-pinned subworkflow, and terminal nodes. Successful
+completion is reachable only through one final deterministic objective gate.
+Read-only effects may overlap; shared writers serialize; isolated proposals run
+in disposable Git worktrees and promote only from an unchanged base.
 
-In Pi's TUI, `/helix-run` shows the workflow, stage panel, every resolved role/provider/model/effort/instance tuple,
-rails, task, repository, and worktree setting before it starts. Mock casts remain deterministic. Real casts create fresh in-process Pi agent sessions; no
-real cast silently falls back to mock, while partially configured casts route
-their remaining mock members to the deterministic adapter. The confirmed
-workflow/profile/toggle/preset binding is rechecked before any run directory or
-provider call. A Git worktree protects repository state, but it is not an OS
-sandbox and Pi tools keep their normal trust boundary.
+Run records contain structural events and hashes. Raw tasks remain in memory;
+private scheduler checkpoints and bounded workspace snapshots live below
+`~/.pi/agent/helix/private`. Resume requires the original task plus fresh
+workflow, cast, policy, account, and runtime validation. A Git worktree protects
+Git state, but it is not an OS sandbox.
 
-`/helix-workflow-create` starts with a safe template, then lets you compose
-stages, candidate panels, durable outputs, explicit conditions, forward/retry/
-back/stop routes, casts, concurrency, and bounded stopping criteria. A direct
-argv command such as `npm test` is the recommended independent objective check;
-model-written file text is an explicitly weaker fallback. Read-only panels can
-run concurrently, while writer panels serialize. `show` and `watch` render the
-loop, transitions, current stage, and pass counts. Workflow testing separates
-definition simulation, deployment preflight, isolated mock runtime exercise,
-and task-specific proof—only a real run can provide the last one.
+Helix adds no percentage-based compaction trigger. Each runtime keeps its native
+default compaction behavior.
 
-See the [workflow cookbook](docs/workflows.md) for blocks, limits, lifecycle, visuals, tests, and examples.
+See [the manual](docs/manual.md), [workflow guide](docs/workflows.md),
+[provider truth table](docs/providers.md), and
+[architecture](docs/architecture.md).
 
-The exact task stays in memory; only its hash enters structural run state.
-Task-bound resume is unsupported; start a fresh attended run instead.
-
-See the [command manual](docs/manual.md) for every command and refusal contract.
-
-## Develop
+## Verify
 
 ```sh
+npm test
 npm run check:resources
 npm run check:docs-truth
-npm test
+npm run check:no-live-egress
+npm run check:workflow-conformance
+npm run check:provider-contracts
+npm run check:package
 ```
 
-Requires Node.js 22.19 or newer. Licensed under [MIT](LICENSE).
+Active no-egress and opt-in live-provider certification are documented in the
+manual. Requires Node.js 22.19 or newer. Licensed under [MIT](LICENSE).

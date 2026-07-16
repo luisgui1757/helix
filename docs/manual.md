@@ -1,286 +1,158 @@
 # Helix command manual
 
-Helix is a Pi extension package. Its commands inspect or mutate Helix state; they
-do not ask the active model to interpret a pseudo-command.
+Helix is a Pi extension. Configure providers in Pi first; Helix consumes the
+available inventory and never manages credentials or silently chooses a route.
+Supported Pi versions are `>=0.80.7 <0.81.0`.
 
-## Install and open
+## Start
+
+- `/helix` opens the structural dashboard.
+- `/helix-help` shows first steps and stable refusal guidance without loading
+  mutable configuration.
+- `/helix-onboarding` reruns the four-screen tour. On cold startup, **Later**
+  writes nothing, **Don't show again** stores dismissal, and completion stores a
+  completed marker.
+
+Mutable settings, profiles, workflow definitions, and run records live below
+`~/.pi/agent/helix`, `HELIX_STATE_DIR`, or Pi's configured agent directory.
+
+## Build and inspect workflows
+
+`/helix-workflow-create` opens the guided common-case builder. Pick a template,
+objective gate, stages, role panels, retry/back/stop routes, outputs, casts,
+concurrency, and deadlines. The UI validates and simulates before its atomic
+save. `/helix-workflow-edit`, `/helix-workflow-clone`, and
+`/helix-workflow-delete` manage personal definitions; built-ins are immutable.
+
+`/helix-workflows [list | show <id> | test <id>]` lists or graphs definitions
+and performs provider-free schema/simulation checks plus deployment preflight.
+In TUI mode, `test` may also run the existing deterministic mock smoke in an
+isolated disposable worktree. It never claims the user's task succeeded.
+
+`/helix-workflows import <repository-relative-v4.json>` is the expert deploy
+surface. It requires attended confirmation, a regular contained file no larger
+than 256 KiB, schema version 4, `source: "user"`, a runnable objective gate, a
+successful graph simulation, a non-conflicting id, and an atomic destination.
+The pure API in `dispatch/workflow/builder.mjs` produces the same validated JSON;
+Helix does not execute the program that generated it.
+
+## Run, watch, and recover
+
+`/helix-run [workflow-id] -- <task>` resolves the graph, current profile,
+feature toggles, cast, exact provider/model/effort/route/account requirements,
+objective gate, worktree, concurrency, and deadlines. Print/RPC modes stop at
+preflight. TUI mode requires confirmation and rechecks the complete binding
+before creating the run or contacting a provider.
+
+Every named workflow, including legacy saved definitions and tracked built-ins,
+normalizes into WorkflowDefinition v4 and runs through the same kernel. The
+kernel reserves effects, propagates cancellation, serializes shared writers,
+promotes isolated proposals only from an unchanged base, records an append-only
+effect journal, and permits success only through the final objective gate.
+
+- `/helix-runs` lists structural records.
+- `/helix-run-status <run-id>` shows one structural record.
+- `/helix-run-watch <run-id>` validates the pinned definition, lifecycle
+  snapshot, state, event sequence, and graph before rendering stable node ids,
+  visits, effects, gates, and terminal state. Later workflow edits cannot rewrite
+  history.
+- `/helix-run-resume <run-id>` is attended for v4 runs. It asks for the original
+  task, verifies its hash, reloads the pinned definition, revalidates policy and
+  exact cast, restores the retained worktree from the last private bounded
+  snapshot, trims orphan event/journal suffixes, and resumes completed effects
+  without replaying them. Completed runs are a no-op. Old staged-run records
+  remain read-only compatible through their historical validator.
+- `/helix-run-prune <run-id>` removes a structural run directory only after TUI
+  confirmation. It does not guess ownership of retained worktrees or private
+  checkpoints.
+
+A hard process stop can leave events or a journal record newer than the last
+scheduler checkpoint. Resume treats the checkpoint and its exact workspace
+snapshot as the commit point, discards only the uncommitted suffix, and refuses
+truncation, corruption, task drift, workflow drift, runtime drift, account
+drift, missing snapshots, wrong repositories, or worktree ownership mismatch.
+
+## Models and settings
+
+- `/helix-models` shows structural cast presets and the available inventory.
+- `/helix-chains` shows tracked compatibility inputs; chains are not a second
+  runtime engine.
+- `/helix-profiles` manages saved cast overlays.
+- `/helix-setup` builds an exact per-stage cast from Pi's current inventory.
+- `/helix-settings` opens keyboard toggles for multi-model, loops,
+  autoresearch, context engine, worktrees, and visual cues.
+- `/helix-research …` preflights the existing attended metric loop. It remains a
+  separate product command while its historical records stay readable.
+
+Explicit effort is checked before execution and again at the runtime boundary.
+`default` and `provider-managed` are intentionally not claims of a specific
+effective effort. A requested exact effort requires response, deployment, or
+session evidence appropriate to that provider.
+
+## Provider states
+
+Helix distinguishes installed, configured, entitled, exact-capable, and
+live-certified. Configuration is not entitlement; requested values are not
+effective identity. Uncertified paths are visible as exact-disabled and produce
+zero provider calls. See [providers.md](providers.md).
+
+The Pi adapter uses fresh in-memory sessions. The current executable exact path
+is OpenRouter: preflight requires one active ZDR/tool-capable route, binds the
+Pi-synced API-key account, displays the route and account reference for consent,
+and audits every streamed call through a session-local `127.0.0.1` proxy. A
+route/account change before execution refuses without creating a run. Official
+Anthropic, OpenAI Responses, Codex Business/Enterprise, GitHub Copilot,
+Foundry Claude, and Azure OpenAI adapter contracts are installed but remain
+exact-disabled until a short-lived capability attestation proves every required
+field. CLIProxyAPI and Anthropic consumer OAuth are policy-blocked.
+
+## Security and limits
+
+Workflows are closed JSON; conditions cannot execute code. Command gates are
+bounded argv vectors with `shell: false`. File paths are contained and exclude
+`.git`. Definitions cap nodes, effects, map cardinality, pipeline width,
+concurrency, visits, retries, runtime, call time, and serialized bytes. Raw
+tasks, credentials, provider bodies, and private outputs are never rendered by
+run views. Private checkpoints cap file count, individual bytes, and total
+bytes and refuse special files.
+
+Pi tools and objective commands retain the user's local authority. Worktrees
+are Git-state isolation, not an OS sandbox. Read-only agents do not receive
+mutation tools; mutating effects use checkpoint-backed transactions.
+
+Helix installs no arbitrary context-percentage compaction hook and keeps the
+selected runtime's default compaction policy.
+
+## Verification
+
+Deterministic gates:
 
 ```sh
-npm install -g @earendil-works/pi-coding-agent
-pi install git:github.com/luisgui1757/helix
-pi
+npm test
+npm run check:resources
+npm run check:docs-truth
+npm run check:no-live-egress
+npm run check:public-safety-diff
+npm run check:workflow-conformance
+npm run check:provider-contracts
+npm run check:package
 ```
 
-Before using Helix, configure or sync the providers you want in Pi. Helix reads
-Pi's already available model inventory; provider login, selection, and setup
-remain Pi concerns.
+`bash tools/lockdown/no-egress-smoke.sh --active` performs the enforcing Docker
+proof with `--network none`. `tools/ci/run-node-matrix.sh` requires explicit
+preinstalled Node 22 and Node 26 binary paths and performs no installation.
 
-On the first cold Pi startup, Helix offers a four-step keyboard tour covering
-that prerequisite, optional feature settings, casts, and run inspection. Choose
-**Later** to leave no marker and offer the tour again on the next cold startup.
-Choose **Don't show again** to persist a dismissal. Finishing the tour persists
-completion. Run `/helix-help` after installation or `/helix` to return to the
-dashboard.
+Live certification is opt-in and never substitutes a model, route, or account:
 
-## Commands
-
-### `/helix`
-
-Shows the active config, cast, feature toggles, live-transport status, and latest
-structural runs. The older `/helix <verb>` form remains compatible, but dedicated
-commands are the primary interface.
-
-### `/helix-help`
-
-Shows install guidance, the native command map, the live-transport boundary, and
-the next safe action for refusals. It is view-only and does not load mutable
-state.
-
-### `/helix-onboarding`
-
-Reruns the getting-started tour even when it was completed or dismissed. Use ↑
-and ↓ to move between screens, Enter to advance or finish, and Esc to defer.
-The tour does not select a provider or change feature, profile, cast, or workflow
-configuration.
-
-### `/helix-run [workflow-id] -- <task>`
-
-Preflights a named workflow. With no workflow or task, the TUI prompts for them.
-The preflight resolves the stages, active-profile cast, exact providers, models,
-efforts, instance counts, feature toggles, concurrency, objective gate, pass
-ceilings, 10-minute default whole-run deadline, 2-minute default
-per-provider-call deadline, repository, and worktree setting. It validates every
-explicit effort across the full cast before confirmation; an unavailable
-capability refuses the entire run before any Pi session or provider prompt. The
-attended confirmation displays those exact cast tuples before execution.
-Non-interactive modes stop after preflight.
-
-The recommended objective check is a bounded argv command such as `npm test`.
-Helix verifies that its executable exists before save and run, displays the
-exact command in the consent preview, and invokes it directly in the run
-worktree with no shell. A file-text check remains available for repositories
-without an independent command, but the UI labels it weaker because a model can
-write the expected text itself.
-
-Configure or sign in to providers in Pi before running Helix. Helix reuses Pi's
-configured `ModelRegistry` and authentication storage; it does not select,
-configure, or persist provider credentials. OpenRouter free models are treated
-like any other configured and available model. A configured real cast never
-falls back to mock. Partially configured casts are valid: real members route to
-Pi and remaining mock members route to the deterministic adapter.
-
-Planner and builder workflow blocks receive Pi's normal mutation tools;
-other candidate roles are read-only. The selected worktree setting is shown in
-the confirmation. Writer-bearing stages run their panel serially against the
-shared worktree; read-only stages may use the configured concurrency cap. A Git
-worktree protects Git state but is not an OS sandbox.
-
-### `/helix-runs`
-
-Lists structural run records. Prompts, responses, provider payloads, private code,
-and credentials are never rendered or persisted by this surface.
-
-### `/helix-run-status <run-id>`
-
-Shows one run's structural state and gate outcome.
-
-### `/helix-run-watch <run-id>`
-
-Renders the run's event stream as a compact progress view with a stage flow,
-current/completed/pending indicators, pass counts, and forward, retry, and back
-arrows. Each new run stores a hash-bound immutable workflow snapshot; watch uses
-that snapshot, so later edits or deletion of a personal workflow cannot rewrite
-the history being displayed. Legacy records without a snapshot use the current
-definition when it is still available.
-
-### `/helix-run-resume <run-id>`
-
-Validates whether an interrupted legacy config run is resumable and prints its
-bound invocation. New Pi workflow runs bind the exact in-memory task into their
-execution identity and explicitly refuse with `workflow-resume-unsupported`;
-Helix never prints a config-only command that would lose the task. Completed,
-malformed, mismatched, and unsafe records also refuse.
-
-### `/helix-run-prune <run-id>`
-
-Deletes one structural run directory after an attended confirmation. RPC and
-print modes cannot authorize deletion.
-
-### `/helix-models`
-
-Shows Pi's currently available models alongside Helix's composite cast presets.
-Provider/model entries are validated against Pi's inventory before they can be
-saved.
-
-### `/helix-chains`
-
-Shows tracked workflow chains, stages, handoff artifacts, and whether each chain
-is runnable by the loop engine.
-
-Chains are architecture/view data. Only chains with a real run config become a
-built-in named workflow; Helix does not invent gates or deployment settings for
-the other tracked chain shapes.
-
-### `/helix-workflows [list | show <id> | test <id>]`
-
-Lists built-in and user-local named workflows, shows their stage panels and
-explicit transitions, or tests one without provider calls. `show` includes the
-same compact flow diagram used by run watch.
-
-Testing reports proof layers separately:
-
-1. Definition: the closed schema, every authored condition/action/target,
-   retry-at-ceiling refusal, declared outputs, and a deterministic success-path
-   simulation.
-2. Deployment: casts, configured provider availability, repository target,
-   limits, and objective-check executable resolution.
-3. Isolated runtime smoke (optional in TUI): the real staged runner, transitions,
-   checkpoints, outputs, and cleanup in a temporary detached worktree using the
-   deterministic mock cast and simulated gate results.
-4. Task proof: not claimed by testing; only an actual run executes the real
-   objective check against the requested task.
-
-Each stage has one candidate-role panel, a
-finite pass ceiling, and one condition family:
-
-- verdict: `approve`, `revise`, and `revise-jump` from one candidate role;
-- gate: `pass` and `fail` from the deterministic objective gate; or
-- `always`.
-
-Conditions route to advance, retry the current stage, return to a named earlier
-stage, or stop with a stable code. A final `always` may be a fallback. Gate and
-verdict families cannot be mixed in one stage.
-
-### `/helix-workflow-create`
-
-Opens the keyboard-first workflow builder. Choose `implement-review`,
-`plan-implement`, or `tdd-fix` as a safe starting point, then use the building
-block menu to:
-
-- add, remove, and reorder named stages;
-- edit each stage's repository-relative durable output and kind
-  (`.`, empty/trailing segments, traversal, and `.git` are refused);
-- edit panels built from scout, planner, builder, reviewer, red-team, and an
-  optional verifier block;
-- replace a condition family and edit transition actions, back targets, or stop
-  codes;
-- set the default or per-stage cast preset and maximum concurrency;
-- choose a recommended command check or weaker file-text check, then set global
-  passes, per-stage passes, whole-run deadline, and
-  per-call deadline.
-
-Invalid removals or moves that would break a back target are refused in place.
-Every stage retains at least one candidate role and a declared durable output.
-Planner and builder make a stage writer-bearing and therefore serial. A stage
-containing only read-only candidates can use the configured concurrency cap;
-Helix writes its structured aggregate output at the runtime boundary. For a
-file-text objective check, the checked path must be one of the stage outputs.
-Documenter and internal panel-mechanism roles are not offered as stage blocks.
-Named workflows currently target only the confirmed current repository. Before
-save, Helix validates deployability, output obligations, bounds, and objective
-executable availability; tests every transition and ceiling; simulates
-end-to-end success; and shows the complete
-panel, output, transition, deployment, current-repository target, gate, and
-duration preview. Workflows are atomically saved
-under `~/.pi/agent/helix/workflows/` and cannot shadow built-ins.
-
-### `/helix-workflow-edit [id]`
-
-Reopens a personal workflow in the same guided builder. Built-ins are immutable.
-The complete definition and deployment checks run again before an atomic replace.
-
-### `/helix-workflow-clone [id]`
-
-Copies a personal workflow to a new safe name, retargets its chain and structural
-references, opens it in the builder, and saves only after full validation.
-
-### `/helix-workflow-delete [id]`
-
-Deletes one personal definition after attended confirmation. Existing run
-records and their immutable workflow snapshots remain inspectable.
-
-The [workflow cookbook](workflows.md) documents allowed/required blocks,
-defaults, limits, visual notation, direct JSON customization, and examples.
-
-### `/helix-settings [<feature> on|off]`
-
-With no arguments, opens the native checkbox interface:
-
-```text
-[x] Multi-model
-[x] Loops
-[x] Autoresearch
-[x] Context engine
-[x] Worktrees
-[x] Visual cues
+```sh
+HELIX_LIVE_TESTS=1 \
+HELIX_LIVE_PROVIDER=openrouter \
+HELIX_LIVE_MODEL='<exact-free-model>' \
+HELIX_LIVE_ROUTE='<exact-provider-route>' \
+HELIX_LIVE_EXPECTED_ACCOUNT='<opaque-account-handle>' \
+npm run test:live:provider-certification
 ```
 
-Use ↑/↓ to move, Enter or Space to toggle, and Esc to close. Changes save
-immediately because each toggle is local and reversible. An explicit command is
-also available, for example `/helix-settings loops off`.
-
-### `/helix-profiles [show <id> | switch <id> | create <id>]`
-
-Lists, inspects, activates, or creates saved casts. Create and switch operations
-require attended confirmation.
-
-### `/helix-setup [profile assignments…]`
-
-With no arguments, shows profiles, stages, presets, and Pi's available model
-inventory. Assign a preset or model to a stage:
-
-```text
-/helix-setup deep-work plan=overlord implement=openai-codex/gpt-5:high
-```
-
-Composite members use `<preset>.<role>=<provider>/<model>[:effort][*instances]`.
-Effort accepts `default`, `low`, `medium`, `high`, `xhigh`, `max`, or
-`provider-managed`. On live Pi sessions, `low` through `xhigh` are exact
-requests and `max` means Pi `xhigh`; Helix refuses an explicit level the model
-declares unsupported instead of allowing Pi to clamp it. `default` and
-`provider-managed` intentionally defer the level to Pi/provider policy.
-Helix validates the complete change before atomically saving and activating the
-profile. Profiles are global overlays; when a named workflow has different
-stage ids, irrelevant stage overrides are ignored with an explicit preflight
-warning instead of breaking cast resolution.
-
-### `/helix-research <question> --metric <name> <cmp> <target> --max <n> [--plateau <n>]`
-
-Validates an attended research specification and prints the deterministic runner
-invocation. A metric, comparison target, and iteration cap are mandatory. The
-command refuses when Autoresearch is disabled or the session is unattended.
-
-## State and safety
-
-Helix writes `onboarding.json`, `settings.json`, `profiles/`, `workflows/`, and
-`runs/` under
-`~/.pi/agent/helix`. `PI_CODING_AGENT_DIR` changes Pi's agent directory;
-`HELIX_STATE_DIR` overrides only the Helix state root.
-
-`onboarding.json` contains only a schema version and `completed` or `dismissed`
-status. **Later** writes nothing. The tour is offered only for a cold attended
-TUI startup, never for reload, new-session, resume, fork, print, JSON, or RPC
-session starts.
-
-Run launch plus mutating profile, setup, and prune commands require an attended
-Pi confirmation. Settings toggles save directly from the checkbox interface. All malformed,
-unsafe, unavailable, or unsupported inputs fail closed with a stable code,
-reason, and next safe action.
-
-Personal workflow JSON is trusted local configuration, but it is still closed,
-bounded, and revalidated at load, save, test, and run. It cannot contain shell or
-filesystem effect steps. A declared objective command is the sole executable
-workflow-owned check; it is argv-only, bounded by its timeout and the whole-run
-deadline, and receives no shell expansion.
-
-The fence and answer-capture extensions remain independent of command state.
-Helix ships no skill, theme, project settings file, provider credentials, or
-telemetry override.
-
-Helix registers no context-usage threshold, automatic-compaction policy, or
-compaction hook. Every workflow sub-session retains Pi's default compaction
-policy.
-
-The raw workflow task is never written to disk. Only a hash-bound execution
-identity and structural `task_bound: true` marker enter run state. Provider
-prompts and responses are not persisted by the workflow command surface.
+The provider credential must already be available to that explicit tool. The
+model must be a `:free` route. Missing configuration is a refusal, not a skip or
+a fallback to a paid/different path.

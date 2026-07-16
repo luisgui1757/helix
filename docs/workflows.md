@@ -1,210 +1,196 @@
-# Workflow cookbook
+# WorkflowDefinition v4 guide
 
-Helix workflows are named, declarative state machines for Pi. The quickest safe
-path is:
+Helix runs one closed intermediate representation: WorkflowDefinition v4. The
+guided builder and legacy personal definitions are compatibility inputs that
+normalize before hashing, consent, persistence, and execution. JSON import and
+the programmatic builder produce v4 directly. User programs generate data;
+Helix never executes them as workflow code.
+
+## Fast path
 
 ```text
 /helix-workflow-create
 /helix-workflows show quality-loop
 /helix-workflows test quality-loop
-/helix-run quality-loop -- Implement the requested change
+/helix-run quality-loop -- Implement and verify the change
 /helix-run-watch <run-id>
 ```
 
-Saving deploys a personal workflow immediately: it appears in `/helix-run`
-completion and the workflow catalog. Built-ins are immutable. Use
-`/helix-workflow-edit`, `/helix-workflow-clone`, and `/helix-workflow-delete`
-for the rest of the lifecycle.
+Use the guided `implement-review`, `plan-implement`, or `tdd-fix` template unless
+you need parallel, map/reduce, checkpoint, or subworkflow nodes.
 
-## Mental model
+## Required document
 
-Each stage has a panel, a durable output, a pass ceiling, and one condition
-family. A matching condition moves the state machine:
+A v4 definition has exactly these top-level fields and no unknown fields:
 
-```text
-○ plan
-    reviewer=approve → implement
-    reviewer=revise ↻ plan
-○ implement
-    reviewer=approve → complete
-    reviewer=revise ↻ implement
-    reviewer=revise-jump ↩ plan
-```
+- `schema_version: 4`, safe `id`, display `name`, `description`, positive
+  `version`, and `source` (`user` or `built-in`);
+- a closed `inputs` JSON schema, `start`, and keyed `nodes` object;
+- explicit `limits`, `provider_policy`, `workspace_policy`, and
+  `objective_gate`.
 
-`→` advances or stops, `↻` retries the current stage, and `↩` returns to a
-named earlier stage. During a run, `●` marks the current stage, `✓` a completed
-stage, and the line includes its observed pass count.
+There must be exactly one successful terminal. Exactly one `final: true` gate
+must lead to it on pass, and every reachable non-terminal must be able to reach
+that success. Unknown targets, unreachable nodes, recursive/nested-depth-two
+subworkflows, and unbounded cycles refuse.
 
-## Good defaults
+## Nodes
 
-| Choice | Default | Guidance |
+| Kind | Purpose | Important requirements |
 |---|---|---|
-| Template | `implement-review` | Use `plan-implement` for risk or `tdd-fix` for bugs. |
-| Objective check | Command | Prefer a repository-owned check such as `npm test`; file text is weaker. |
-| Stage passes | 3 | Lower for deterministic stages; raise only for a specific retry need. |
-| Total passes | 6 | Must cover all expected stages and backtracking. |
-| Whole-run deadline | 10 minutes | Hard limit for the complete workflow. |
-| Provider-call deadline | 2 minutes | Starts before Pi session/resource creation. |
-| Maximum concurrency | 2 | Applies to read-only panels; writer panels always serialize. |
-| Cast | `daily` | A mock skeleton until the user overlays configured Pi models. |
-| Repository | Current confirmed repository | Other-repository targets are refused. |
+| `agent` | One typed role effect | exact role, stage id, schema, tools, mutation, timeout, retry, next |
+| `pipeline` | Ordered agent handoff | 1–16 inline agents, next, `max_visits` |
+| `parallel` | Bounded fan-out/fan-in | branches, 1–16 concurrency, abort/settle policy |
+| `map` | Agent over a typed array | JSON pointer, 0–256 items, failure policy |
+| `reduce` | Deterministic aggregation | collect, count, or bounded-separator concat |
+| `decision` | Closed routing | typed conditions, default, optional loops-off target |
+| `gate` | Deterministic evidence | file/argv gate, pass/fail targets, optional final flag |
+| `checkpoint` | Attended pause | stable reason and next; resume is the continue action |
+| `subworkflow` | Reuse a named graph | exact id/version, maximum nesting depth one |
+| `terminal` | End state | succeeded, failed, refused, or cancelled |
 
-The builder recommends a command based on `package.json`, `Cargo.toml`, or
-`pyproject.toml`, then falls back to `git diff --check`. It verifies that the
-executable exists before save. Commands are an argv vector, not shell text, so
-tokens such as `&&`, redirection, expansion, and pipelines have no shell meaning
-and are passed only as literal arguments.
+Conditions support `always`, scalar `eq`/`neq`/ordering/`contains`, boolean
+`and`/`or`, and `not` over safe JSON pointers. No JavaScript, shell, template
+evaluation, or implicit truthiness is allowed. Missing paths do not match.
 
-## What is required and allowed
+## Defaults and ceilings
 
-| Block | Required | Allowed |
-|---|---|---|
-| Workflow | Yes | Safe unique id, description, known task class, stages, stop block, deployment block. |
-| Stage | 1–16 | Unique lowercase id, optional label, 1–16 ordered role steps, 1–8 transitions, one output. |
-| Role step | At least one candidate | `scout`, `planner`, `builder`, `reviewer`, `redteam`; optional final `verifier`. |
-| Stage output | Every personal stage | Safe repository-relative path outside `.git`; kind `plan`, `brief`, or `notes`. |
-| Condition family | One per stage | Complete verdict family, complete gate family, or `always` fallback. |
-| Action | Every condition | `advance`, `retry`, `back` to an earlier stage, or `stop` with a stable code. |
-| Objective check | Exactly one | Bounded `command-exit-zero` or contained `file-contains`. |
-| Deployment | Exactly one | Default/per-stage cast, bounded concurrency, current repository, structural refs. |
+| Concern | Default | Absolute ceiling |
+|---|---:|---:|
+| Agent effects | 32 | 1,000 |
+| Concurrency | 4 | 16 |
+| Map items | 16 | 256 |
+| Pipeline agents | — | 16 |
+| Node visits | 3 in builders | 32 |
+| Explicit attempts | 1 | 3 |
+| Whole run | 30 minutes | 8 hours |
+| One call | 10 minutes | 1 hour |
+| Structured repair | 2 declared | 2 |
+| Serialized definition | — | 256 KiB |
 
-Planner and builder are writer roles. Any stage containing one runs its candidate
-panel serially against the shared worktree. Panels made only of scout, reviewer,
-red-team, and verifier roles are read-only and can use bounded concurrency; the
-runner writes their structured aggregate output. A personal workflow cannot
-declare arbitrary shell, filesystem, local-check, or handoff effect steps.
+Retries are effects: every attempt consumes the shared effect/token/cost budget
+and appears in observed events. Loop-disabled mode follows an explicit
+`loops_off` target; it never guesses how to escape a back edge.
 
-Validation also caps ids at 64 characters, descriptions and step notes at 512,
-labels at 128, artifact paths and file markers at 256, stop codes and executable
-names at 128, command arguments at 32 × 256, command timeouts at 10 minutes,
-whole-run time at one hour, and the serialized definition at 64 KiB. Global and
-per-stage pass rails are positive integers no greater than 10,000. The guided UI
-offers deliberately smaller practical choices. On-disk JSON is refused above
-256 KiB before parsing, so whitespace cannot bypass the input boundary.
+Read-only agents may use only read/search tools. `shared-serialized` writers run
+under one writer mutex with private before-state checkpoints.
+`isolated-proposal` writers run in disposable real Git worktrees, then promote
+only when the canonical workspace still has the exact captured fingerprint.
+Conflict or cleanup ambiguity refuses; Helix does not auto-resolve semantics.
 
-## Example 1: implement and review
+## Programmatic example
 
-Run `/helix-workflow-create`, choose **Implement and review**, keep three stage
-passes and six total passes, and choose **Run a command** with `npm` and `test`.
-The generated stage routes reviewer approval forward and both revision verdicts
-back through the implementation stage. This is the smallest evaluator/optimizer
-loop: a builder produces work and a reviewer decides whether to iterate.
+```js
+import {
+  agent, decision, gate, pipeline, terminal, workflow,
+} from "pi-helix/dispatch/workflow/builder.mjs";
 
-## Example 2: plan, implement, and jump back
+const objective = {
+  type: "command-exit-zero",
+  command: "npm",
+  args: ["test"],
+  timeout_ms: 120000,
+};
 
-Choose **Plan, implement, review**. In the implementation stage, set:
+const reviewer = agent({
+  role: "reviewer",
+  stage_id: "review",
+  output_schema: "verdict-v1",
+  mutation: "read-only",
+  timeout_ms: 120000,
+  retry: { max_attempts: 2, backoff_ms: 1000 },
+});
 
-```text
-reviewer=approve     → advance
-reviewer=revise      ↻ retry implement
-reviewer=revise-jump ↩ back to plan
-```
-
-Use `revise-jump` when the defect invalidates the plan rather than just the
-implementation. A back target must already appear earlier in the stage order;
-the builder refuses moves or removals that would make it forward-pointing.
-
-## Example 3: concurrent read-only audit
-
-Add an `audit` stage with `scout`, `reviewer`, `redteam`, and `verifier`, no
-planner or builder, an `AUDIT.json` notes output, and verdict routing from the
-reviewer. Set maximum concurrency to 4. The four model calls may overlap because
-none receives mutation tools. Helix owns the aggregate output and preserves the
-configured cap. Add a later builder stage if the workflow should act on the
-audit.
-
-## Example 4: weaker file-text fallback
-
-If the repository has no independent check, select **Check text in a stage
-output** and choose an exact marker such as `REVIEW_APPROVED`. The checked path
-must be one of the declared outputs. This proves only that the text exists; a
-model can write it, so it is not equivalent to a repository-owned test command.
-
-## Programmatic definition
-
-The guided builder is recommended, but the deployed format is stable JSON. A
-complete one-stage definition looks like this:
-
-```json
-{
-  "schema_version": 1,
-  "id": "quality-loop",
-  "description": "Implement, review, and verify the repository tests",
-  "task_class": "routine-code",
-  "source": "user",
-  "stages": [
-    {
-      "id": "implement",
-      "label": "Implement and review",
-      "max_passes": 3,
-      "steps": [
-        { "id": "implement", "kind": "role", "role": "builder" },
-        { "id": "review", "kind": "role", "role": "reviewer" }
-      ],
-      "transitions": [
-        { "when": { "type": "verdict", "role": "reviewer", "is": "approve" }, "action": "advance" },
-        { "when": { "type": "verdict", "role": "reviewer", "is": "revise" }, "action": "retry" },
-        { "when": { "type": "verdict", "role": "reviewer", "is": "revise-jump" }, "action": "retry" }
-      ],
-      "artifact": { "path": "implementation.md", "kind": "notes" }
-    }
-  ],
-  "stop": {
-    "max_iterations": 6,
-    "max_runtime_ms": 600000,
-    "objective_gate": {
-      "type": "command-exit-zero",
-      "command": "npm",
-      "args": ["test"],
-      "timeout_ms": 120000
-    }
+const built = workflow({
+  id: "quality-loop",
+  name: "Quality loop",
+  description: "Review, remediate, and prove the repository objective.",
+  start: "review",
+  nodes: {
+    review: pipeline([reviewer], "route", { max_visits: 3 }),
+    route: decision([
+      {
+        when: {
+          op: "eq",
+          path: "/outputs/review/by_role/reviewer/recommendation",
+          value: "approve",
+        },
+        target: "objective",
+      },
+      {
+        when: {
+          op: "eq",
+          path: "/outputs/review/by_role/reviewer/recommendation",
+          value: "revise",
+        },
+        target: "review",
+        loop: true,
+      },
+    ], "failed", { loops_off: "objective" }),
+    objective: gate(objective, "succeeded", "review", {
+      final: true,
+      loops_off: "failed",
+    }),
+    succeeded: terminal("succeeded"),
+    failed: terminal("failed", "review-condition-unmatched"),
   },
-  "deployment": {
-    "chain_id": "quality-loop",
-    "call_timeout_ms": 120000,
-    "role_matrix": "mock-core-loop",
-    "assignments": {},
-    "default_assignment": { "kind": "composite", "preset": "daily" },
-    "parallel": { "max_concurrency": 2 },
-    "run_target": { "repo": "self" },
-    "input_refs": [],
-    "claims_ref": "local-ref:claims/quality-loop",
-    "evidence_ref": "local-ref:evidence/quality-loop"
-  }
-}
+  objective_gate: objective,
+});
+
+if (!built.ok) throw new Error(JSON.stringify(built.errors));
+process.stdout.write(`${JSON.stringify(built.definition, null, 2)}\n`);
 ```
 
-`role_matrix` is the required compatibility binding and currently must remain
-`mock-core-loop`; the effective workflow cast comes from `assignments`,
-`default_assignment`, and any active user profile.
+Write that output to a repository-relative file and deploy it in an attended Pi
+TUI:
 
-Deploy it as `quality-loop.json` in
-`~/.pi/agent/helix/workflows/`, or under `$HELIX_STATE_DIR/workflows/` when that
-override is set. The filename must equal `<id>.json`, the entry must be a regular
-file rather than a symlink, the id cannot shadow a built-in, and every file in
-the directory must validate or the catalog refuses closed. Use
-`/helix-workflows test quality-loop` immediately after deployment.
+```text
+/helix-workflows import quality-loop.json
+```
 
-## What “test” proves
+The builder also exports `parallel`, `map`, `reduce`, `checkpoint`, and
+`subworkflow`. All constructors return ordinary JSON and use the same defaults
+as the validator.
 
-| Layer | Executed | Proves |
-|---|---|---|
-| Definition | Always | Shape, bounds, routes, targets, stop codes, ceilings, output declarations, success simulation. |
-| Deployment | Always | Cast/provider resolution, target, runtime limits, objective executable availability. |
-| Runtime smoke | Optional TUI confirmation | Real staged runner, artifacts, transitions, checkpoints, cleanup; zero provider calls and simulated gate outcomes. |
-| Real run | Separate attended action | Provider behavior and the actual objective command/file check for the user task. |
+## Common patterns
 
-Smoke success is not task success. A real run can still fail because a provider,
-tool, repository test, deadline, or user code behaves differently. Conversely,
-a failed definition or deployment check prevents runtime effects entirely.
+### Evaluator/optimizer
 
-## Canonical workflow principles
+Pipeline a mutating builder into a read-only reviewer. A decision routes
+`approve` to the final objective gate and `revise` back to the pipeline. Both the
+pipeline's `max_visits` and global effect ceiling bound the loop.
 
-Helix follows the composable workflow pattern described in
-[Anthropic's workflow documentation](https://code.claude.com/docs/en/workflows)
-and [Building effective agents](https://www.anthropic.com/engineering/building-effective-agents):
-predefined control flow, small reusable role blocks, explicit routing,
-evaluator/optimizer loops, bounded parallelization, objective stopping criteria,
-durable state, and visible progress. Helix deliberately keeps arbitrary code out
-of stage definitions; the repository-owned objective command is a narrow,
-consent-visible checker rather than a general workflow scripting surface.
+### Parallel panel
+
+Use `parallel([scout, reviewer, redteam], "reduce", { max_concurrency: 3 })`.
+Output order follows definition order, not completion order. `failure: "abort"`
+is the safe default; `settle` also requires explicit `allow_failure_codes` and
+preserves those typed child failures but cannot mask
+identity, policy, corruption, workspace, or final-gate failures.
+
+### Map/reduce
+
+Map a read-only agent over `/inputs/items` with an explicit `max_items`, then
+reduce `/outputs/map-node` by `collect`, `count`, or `concat`. Oversized arrays
+refuse before child dispatch.
+
+### Checkpoint and subworkflow
+
+A checkpoint pauses after its durable scheduler/workspace commit. The attended
+resume command supplies the continue action. A subworkflow pins both id and
+version, shares the parent's budget/journal/workspace, emits nested structural
+events, and may not invoke another subworkflow.
+
+## Objective gates
+
+Prefer `command-exit-zero`: Helix executes a bounded argv vector with
+`shell: false`. `file-contains` is useful when no repository checker exists but
+is weaker because a model can write the marker. Only the one final gate can
+produce success.
+
+## What testing proves
+
+`/helix-workflows test` proves the closed definition, reachability, targets,
+bounds, simulation, cast resolution, and objective-gate availability with zero
+provider calls. Optional mock runtime smoke proves local mechanics and cleanup.
+Only an attended real run plus its deterministic gate proves the user's task.

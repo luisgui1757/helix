@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - "**"
 
 permissions:
   contents: read
@@ -26,15 +26,19 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ matrix.node-version }}
+      - run: npm install --ignore-scripts --no-save @earendil-works/pi-coding-agent@0.80.7
       - run: npm test
       - run: npm run check:resources
       - run: npm run check:docs-truth
       - run: npm run check:no-live-egress
       - run: npm run check:public-safety-diff
+      - run: npm run check:workflow-conformance
+      - run: npm run check:provider-contracts
+      - run: npm run check:package
       - run: node tools/smoke/dispatch-smoke.mjs
       - run: node tools/smoke/revision-effect-smoke.mjs
-      - run: node tools/smoke/pi-e2e-load.mjs
-      - run: npm pack --dry-run
+      - run: node tools/smoke/pi-e2e-load.mjs --runtime-rpc --pi-bin node_modules/.bin/pi
+      - run: bash tools/lockdown/no-egress-smoke.sh --active
       - run: git diff --check
 
   test:

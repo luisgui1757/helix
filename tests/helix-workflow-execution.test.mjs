@@ -6,9 +6,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
-import { executeNamedWorkflow } from "../extensions/lib/helix-execution.mjs";
+import { agent, checkpoint, gate, pipeline, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { executeNamedWorkflow, resumeNamedWorkflow } from "../extensions/lib/helix-execution.mjs";
 import { executeHelixCommand } from "../extensions/lib/helix-command-core.mjs";
-import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
+import { saveUserWorkflow, saveUserWorkflowV4 } from "../extensions/lib/helix-workflows.mjs";
 import { smokeTestWorkflowRuntime } from "../extensions/lib/helix-workflow-test.mjs";
 
 const packageRoot = new URL("..", import.meta.url).pathname;
@@ -76,11 +77,12 @@ test("runtime smoke testing exercises the real staged runner and removes its det
   assert.equal(after, before);
 });
 
-function executionBinding(stateRoot, id) {
+function executionBinding(stateRoot, id, modelInventory = null) {
   const preflight = executeHelixCommand(`run ${id}`, { mode: "print" }, {
     stateRoot,
     chainRegistry: chains,
     runRegistry: runs,
+    ...(modelInventory ? { modelInventory } : {}),
   });
   assert.equal(preflight.ok, true, JSON.stringify(preflight));
   assert.match(preflight.details.execution_binding_ref, /^sha256:[0-9a-f]{64}$/);
@@ -113,10 +115,19 @@ test("named user workflow executes canonical blocks and never persists the raw t
     if (statSync(path).isFile()) assert.equal(readFileSync(path, "utf8").includes(task), false, name);
   }
   const state = JSON.parse(readFileSync(join(publicDir, "user-loop-run.state.json"), "utf8"));
-  assert.equal(state.task_bound, true);
-  assert.deepEqual(state.runtime_limits, { max_runtime_ms: 600_000, call_timeout_ms: 120_000 });
+  assert.equal(state.schema_version, 4);
+  assert.equal(state.workflow_id, "user-loop");
+  assert.equal(state.completed, true);
+  assert.match(state.task_ref, /^sha256:[0-9a-f]{64}$/);
   const lifecycle = JSON.parse(readFileSync(join(publicDir, "user-loop-run.workflow.json"), "utf8"));
   assert.equal(lifecycle.workflow_id, "user-loop");
+  assert.equal(lifecycle.schema_version, 2);
+  const listed = executeHelixCommand("runs list", { mode: "print" }, {
+    stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
+  });
+  assert.equal(listed.ok, true);
+  assert.match(listed.text, /user-loop-run: workflow-kernel succeeded/);
+  assert.equal(listed.text.includes("invalid"), false);
 
   const workflowPath = join(stateRoot, "workflows", "user-loop.json");
   const edited = JSON.parse(readFileSync(workflowPath, "utf8"));
@@ -131,7 +142,7 @@ test("named user workflow executes canonical blocks and never persists the raw t
   assert.equal(watched.ok, true, JSON.stringify(watched));
   assert.match(watched.text, /Flow:/);
   assert.match(watched.text, /✓ implement/);
-  lifecycle.max_iterations = 2;
+  lifecycle.workflow_version += 1;
   writeFileSync(join(publicDir, "user-loop-run.workflow.json"), JSON.stringify(lifecycle), "utf8");
   const tampered = executeHelixCommand("runs watch user-loop-run", { mode: "print" }, {
     stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
@@ -183,7 +194,7 @@ test("execution refuses persisted workflows with unsafe outputs before reserving
   }
 });
 
-test("user-workflow resume refuses explicitly and never prints the legacy tracked-config CLI", async () => {
+test("completed failed user workflow resume is a structural no-op and never prints the legacy CLI", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-resume-"));
   const cwd = repo();
   installWorkflow(stateRoot);
@@ -210,12 +221,13 @@ test("user-workflow resume refuses explicitly and never prints the legacy tracke
     chainRegistry: chains,
     runRegistry: runs,
   });
-  assert.equal(resume.code, "workflow-resume-unsupported");
+  assert.equal(resume.ok, true);
+  assert.equal(resume.details.completed, true);
   assert.equal(resume.text.includes("helix-task-loop.mjs"), false);
   assert.equal(resume.details.cli_invocation, undefined);
 });
 
-test("built-in workflow keeps tracked chain identity and task-bound resume never prints a broken CLI", async () => {
+test("built-in workflow keeps pinned workflow identity and completed resume never prints a broken CLI", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-built-in-resume-"));
   const cwd = repo();
   const failed = await executeNamedWorkflow({
@@ -236,9 +248,9 @@ test("built-in workflow keeps tracked chain identity and task-bound resume never
   });
   assert.equal(failed.ok, false);
   const state = JSON.parse(readFileSync(join(stateRoot, "runs", "built-in-task-run", "built-in-task-run.state.json"), "utf8"));
-  assert.equal(state.config_id, "mock-core-loop");
-  assert.equal(state.chain_id, "full-cycle");
-  assert.equal(state.task_bound, true);
+  assert.equal(state.workflow_id, "mock-core-loop");
+  assert.equal(state.schema_version, 4);
+  assert.equal(state.completed, true);
 
   const resume = executeHelixCommand("runs resume built-in-task-run", { mode: "print" }, {
     stateRoot,
@@ -246,7 +258,8 @@ test("built-in workflow keeps tracked chain identity and task-bound resume never
     chainRegistry: chains,
     runRegistry: runs,
   });
-  assert.equal(resume.code, "workflow-resume-unsupported");
+  assert.equal(resume.ok, true);
+  assert.equal(resume.details.completed, true);
   assert.equal(resume.details.cli_invocation, undefined);
   assert.equal(resume.text.includes("helix-task-loop.mjs"), false);
 });
@@ -272,9 +285,129 @@ test("built-in workflow projection preserves the tracked loop's pass, gate, and 
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.total_passes, 3, "plan, implement gate failure, implement revision");
   assert.equal(result.calls.revisions, 1);
-  const events = readFileSync(join(stateRoot, "runs", "built-in-parity-run", "built-in-parity-run.events.jsonl"), "utf8")
+  const events = readFileSync(join(stateRoot, "runs", "built-in-parity-run", "built-in-parity-run.kernel.events.jsonl"), "utf8")
     .trim().split("\n").map((line) => JSON.parse(line));
   assert.deepEqual(events.filter((event) => event.kind === "gate").map((event) => event.result), ["fail", "pass"]);
+});
+
+test("interrupted product workflow resumes from its private effect checkpoint without repeating committed work", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-kernel-resume-"));
+  const cwd = repo();
+  installWorkflow(stateRoot, "resume-loop");
+  const binding = executionBinding(stateRoot, "resume-loop");
+  await assert.rejects(executeNamedWorkflow({
+    workflow_id: "resume-loop",
+    task: "resume this exact task",
+    run_id: "kernel-resume-run",
+    cwd,
+    state_root: stateRoot,
+    package_root: packageRoot,
+    chain_registry: chains,
+    run_registry: runs,
+    expected_binding_ref: binding,
+    onEvent(event) {
+      if (event.kind === "effect-end") throw new Error("synthetic-process-boundary-stop");
+    },
+  }), /synthetic-process-boundary-stop/);
+  const statePath = join(stateRoot, "runs", "kernel-resume-run", "kernel-resume-run.state.json");
+  assert.equal(JSON.parse(readFileSync(statePath, "utf8")).completed, false);
+  const ready = executeHelixCommand("runs resume kernel-resume-run", { mode: "print" }, {
+    stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
+  });
+  assert.equal(ready.ok, true, JSON.stringify(ready));
+  assert.equal(ready.details.in_process_resume, true);
+  const resumed = await resumeNamedWorkflow({
+    run_id: "kernel-resume-run",
+    task: "resume this exact task",
+    cwd,
+    state_root: stateRoot,
+    package_root: packageRoot,
+    chain_registry: chains,
+    run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(resumed.converged, true);
+  assert.equal(JSON.parse(readFileSync(statePath, "utf8")).completed, true);
+});
+
+test("product execution pins and runs a depth-one named subworkflow through the same kernel", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-product-subworkflow-"));
+  const cwd = repo();
+  const childGate = { type: "file-contains", path: "child.md", contains: "CHILD_PASS" };
+  const child = workflow({
+    id: "child-v4", name: "Child", description: "Child workflow.", start: "child-work",
+    nodes: {
+      "child-work": pipeline([agent({ role: "reviewer", stage_id: "child-work", mutation: "read-only", timeout_ms: 1_000 })], "child-objective", { max_visits: 1, artifact: { path: "child.md", kind: "notes" } }),
+      "child-objective": gate(childGate, "child-success", "child-failed", { final: true }),
+      "child-success": terminal("succeeded"),
+      "child-failed": terminal("failed", "child-gate-failed"),
+    },
+    objective_gate: childGate,
+  });
+  const parentGate = { type: "file-contains", path: "parent.md", contains: "PARENT_PASS" };
+  const parent = workflow({
+    id: "parent-v4", name: "Parent", description: "Parent workflow.", start: "parent-work",
+    nodes: {
+      "parent-work": pipeline([agent({ role: "reviewer", stage_id: "parent-work", mutation: "read-only", timeout_ms: 1_000 })], "child", { max_visits: 1, artifact: { path: "parent.md", kind: "notes" } }),
+      child: subworkflow("child-v4", 1, "parent-objective"),
+      "parent-objective": gate(parentGate, "parent-success", "parent-failed", { final: true }),
+      "parent-success": terminal("succeeded"),
+      "parent-failed": terminal("failed", "parent-gate-failed"),
+    },
+    objective_gate: parentGate,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  assert.equal(parent.ok, true, JSON.stringify(parent.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, child.definition).ok, true);
+  assert.equal(saveUserWorkflowV4(stateRoot, parent.definition).ok, true);
+  const result = await executeNamedWorkflow({
+    workflow_id: "parent-v4", task: "run parent and child", run_id: "subworkflow-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "parent-v4"),
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const events = readFileSync(join(stateRoot, "runs", "subworkflow-run", "subworkflow-run.kernel.events.jsonl"), "utf8")
+    .trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(events.some((event) => event.kind === "subworkflow-event" && event.child_kind === "run-end"), true);
+  const watch = executeHelixCommand("runs watch subworkflow-run", { mode: "print" }, {
+    stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
+  });
+  assert.equal(watch.ok, true, JSON.stringify(watch));
+});
+
+test("checkpoint node pauses durably and attended resume is its explicit continue action", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-product-checkpoint-"));
+  const cwd = repo();
+  const objective = { type: "file-contains", path: "checkpoint.md", contains: "PASS" };
+  const built = workflow({
+    id: "checkpoint-v4", name: "Checkpoint", description: "Checkpoint workflow.", start: "work",
+    nodes: {
+      work: pipeline([agent({ role: "reviewer", stage_id: "work", mutation: "read-only", timeout_ms: 1_000 })], "approval", { max_visits: 1, artifact: { path: "checkpoint.md", kind: "notes" } }),
+      approval: checkpoint("operator-approval", "objective"),
+      objective: gate(objective, "success", "failed", { final: true }),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "objective-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const binding = executionBinding(stateRoot, "checkpoint-v4");
+  const paused = await executeNamedWorkflow({
+    workflow_id: "checkpoint-v4", task: "pause and continue", run_id: "checkpoint-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(paused.stop_reason, "paused");
+  assert.equal(JSON.parse(readFileSync(join(stateRoot, "runs", "checkpoint-run", "checkpoint-run.state.json"), "utf8")).completed, false);
+  const resumed = await resumeNamedWorkflow({
+    run_id: "checkpoint-run", task: "pause and continue", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(resumed.converged, true);
 });
 
 test("execution refuses confirmation-source drift before reserving a run or calling an adapter", async () => {
@@ -296,4 +429,58 @@ test("execution refuses confirmation-source drift before reserving a run or call
   assert.equal(result.code, "workflow-preflight-drift");
   assert.equal(calls, 0);
   assert.equal(existsSync(join(stateRoot, "runs", "drift-run")), false);
+});
+
+test("real product execution requires an exact adapter before reserving a run", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-exact-adapter-"));
+  const cwd = repo();
+  const created = createWorkflowFromTemplate({ id: "real-exact-flow", template: "implement-review" });
+  assert.equal(created.ok, true);
+  created.workflow.deployment.default_assignment = {
+    kind: "model", provider: "openrouter", model: "vendor/exact:free", effort: "high",
+  };
+  assert.equal(saveUserWorkflow(stateRoot, created.workflow).ok, true);
+  const inventory = [{
+    provider: "openrouter", model: "vendor/exact:free", reasoning: true,
+    supported_efforts: ["high"],
+  }];
+  const adapter = {
+    kind: "helix-pi-agent", exactMode: false,
+    supportsProvider: () => true,
+    async preflightExact() { throw new Error("must not accept non-exact adapter"); },
+    runCandidate() { throw new Error("must not execute"); },
+  };
+  const result = await executeNamedWorkflow({
+    workflow_id: "real-exact-flow", task: "must not leave preflight", run_id: "exact-adapter-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "real-exact-flow", inventory), adapter,
+  });
+  assert.equal(result.code, "provider-exact-adapter-required");
+  assert.equal(existsSync(join(stateRoot, "runs", "exact-adapter-run")), false);
+
+  const exactAdapter = {
+    kind: "helix-pi-agent", exactMode: true,
+    supportsProvider: () => true,
+    async preflightExact() {
+      return {
+        ok: true,
+        bindings: [{
+          provider: "openrouter", model: "vendor/exact:free", effort: "high",
+          route: "ExactRoute", account_ref: `sha256:${"1".repeat(64)}`,
+        }],
+        binding_ref: `sha256:${"2".repeat(64)}`,
+      };
+    },
+    attests: () => true,
+    runCandidate() { throw new Error("must not execute after consent drift"); },
+  };
+  const drift = await executeNamedWorkflow({
+    workflow_id: "real-exact-flow", task: "must not leave exact consent", run_id: "exact-consent-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "real-exact-flow", inventory),
+    expected_exact_ref: `sha256:${"3".repeat(64)}`,
+    adapter: exactAdapter,
+  });
+  assert.equal(drift.code, "provider-exact-consent-drift");
+  assert.equal(existsSync(join(stateRoot, "runs", "exact-consent-run")), false);
 });

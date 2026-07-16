@@ -311,3 +311,30 @@ The single source for test rules.
 - A recalled memory reflects what was true when written; before acting on one
   that names a file, flag, or value, confirm it still holds.
 <!-- AGENT-RULES:END -->
+
+## Helix workflow-kernel invariants
+
+- Every named workflow executes only after normalization to WorkflowDefinition
+  v4 through `dispatch/kernel/scheduler.mjs`. Legacy stage documents are input
+  adapters and historical readers, never a selectable product engine.
+- A workflow succeeds only through its unique final deterministic objective
+  gate. Model verdicts may route work but cannot declare convergence.
+- A mutating effect is incomplete until workspace commit, journal append,
+  scheduler checkpoint, and bounded private workspace snapshot are durable.
+  Resume restores that exact prefix before reusing completed effects.
+- Read-only effects may overlap. Shared mutations serialize. Isolated proposals
+  promote only from an unchanged canonical fingerprint; conflicts refuse.
+- `dispatch/runtime/pi-runtime.mjs` is the only Pi SDK import seam and supports
+  `>=0.80.7 <0.81.0`. Provider runtimes require structural branding and a
+  short-lived exact CapabilityAttestation; requested-only values never count as
+  effective identity.
+- Provider/model/effort/route/account fallback is forbidden unless modeled as
+  an explicit workflow transition. OpenRouter exact mode always disables
+  fallback and verifies the returned endpoint route.
+- Kernel public events contain structural ids, hashes, counts, status, and
+  stable codes only. Tasks, prompts, responses, provider bodies, account
+  handles, credentials, and workspace content stay out of public projections.
+- Role transitions consume one complete closed JSON object. Do not reintroduce
+  prose, fenced-JSON, or trailing-object scans.
+- Helix adds no threshold-based compaction policy; the selected runtime keeps
+  its native default.

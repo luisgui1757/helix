@@ -79,6 +79,30 @@ function entryFromJson(root, path) {
   const json = readJsonFile(path);
   const rel = publicPathLabel(root, path);
   const prunable = rel.includes(sep);
+  if (basename(path).endsWith(".state.json")) {
+    if (json?.schema_version !== 4) return null;
+    const allowed = new Set([
+      "schema_version", "run_id", "workflow_id", "workflow_version", "definition_ref", "task_ref",
+      "completed", "terminal", "status", "code", "journal_entries", "event_count", "worktree_enabled",
+      "worktree_ref", "worktree_branch", "worktree_owner_ref", "baseline_ref",
+    ]);
+    if (Object.keys(json).some((key) => !allowed.has(key))
+      || basename(path) !== `${json.run_id}.state.json`
+      || !RUN_ID_PATTERN.test(json.run_id) || typeof json.workflow_id !== "string"
+      || typeof json.completed !== "boolean" || !Number.isSafeInteger(json.event_count)
+      || !Number.isSafeInteger(json.journal_entries)) throw new Error("kernel-state-invalid");
+    return {
+      kind: "workflow-kernel",
+      run_id: json.run_id,
+      status: json.completed ? json.status : "interrupted",
+      stop_reason: json.completed ? json.status : null,
+      iterations_run: json.event_count,
+      total_tokens: null,
+      worktree_branch: json.worktree_branch,
+      path: rel,
+      prunable,
+    };
+  }
   if (basename(path).endsWith(".debate.json")) {
     const valid = validateDebateSummary(json);
     if (!valid.valid || basename(path) !== `${json.run_id}.debate.json`) throw new Error("debate-record-invalid");
@@ -131,6 +155,7 @@ function isManagedCompanion(path) {
   const escapedRunId = runId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return name === `${runId}.state.json`
     || name === `${runId}.workflow.json`
+    || name === `${runId}.definition.json`
     || name === `${runId}.disagreements.json`
     || name === `${runId}.research.json`
     || new RegExp(`^${escapedRunId}\\.disagreements\\.[0-9a-f]{64}\\.json$`).test(name);
@@ -142,7 +167,7 @@ export function listRuns(root = DEFAULT_RUN_RECORD_DIR) {
     // These are separately validated by the resume/research surfaces. They are
     // not dispatch or debate records, so listing them as corrupt records would
     // make every valid staged/research run look damaged.
-    if (isManagedCompanion(file)) continue;
+    if (isManagedCompanion(file) && !basename(file).endsWith(".state.json")) continue;
     try {
       const entry = entryFromJson(root, file);
       if (entry) entries.push(entry);

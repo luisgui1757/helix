@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createPiAgentAdapter, piProviderId } from "../dispatch/lib/pi-agent-adapter.mjs";
+import { createPiAgentAdapter, parseSemanticOutput, piProviderId } from "../dispatch/lib/pi-agent-adapter.mjs";
 import { PI_EFFORT_CODES } from "../dispatch/lib/pi-effort.mjs";
 import { validateRoleEnvelope } from "../dispatch/lib/role-envelope.mjs";
 
@@ -40,6 +40,10 @@ function harness(output) {
   return { adapter: createPiAgentAdapter({ modelRegistry, sessionFactory }), calls, model };
 }
 
+function jsonResponse(value, status = 200) {
+  return { ok: status >= 200 && status < 300, status, async text() { return JSON.stringify(value); } };
+}
+
 test("Pi adapter uses an exact configured OpenRouter free model and constructs trusted envelope identity", async () => {
   const { adapter, calls, model } = harness(JSON.stringify({
     status: "ok", uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [],
@@ -64,6 +68,98 @@ test("Pi adapter supports exact custom ModelRegistry provider ids and preserves 
   assert.equal(piProviderId("openai-api"), "openai");
   assert.equal(piProviderId("anthropic"), "anthropic");
   assert.equal(adapter.supportsProvider("claude-local"), false);
+});
+
+test("exact Pi execution pins one active ZDR route and verifies the generation before attesting", async () => {
+  const output = JSON.stringify({
+    status: "ok", uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [],
+  });
+  const model = {
+    provider: "openrouter", id: "vendor/exact:free", name: "Exact", api: "openai-completions",
+    baseUrl: "https://openrouter.ai/api/v1", reasoning: true, thinkingLevelMap: { high: "high" },
+    input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 4096, maxTokens: 1024,
+  };
+  const calls = [];
+  const registry = {
+    authStorage: { async getApiKey() { return "test-credential"; } },
+    find: (_provider, id) => id === model.id ? model : undefined,
+    hasConfiguredAuth: () => true,
+  };
+  const fetchImpl = async (url) => {
+    calls.push({ kind: "fetch", url });
+    if (url.endsWith("/auth/key")) return jsonResponse({ data: { label: "account..label" } });
+    if (url.endsWith("/endpoints/zdr")) return jsonResponse({ data: [{
+      model_id: model.id, provider_name: "ExactRoute", status: 0,
+      supported_parameters: ["max_tokens", "tools", "reasoning_effort"],
+    }] });
+    if (url.includes("/generation?id=")) return jsonResponse({
+      data: { model: "provider-native-canonical-alias", provider_name: "ExactRoute" },
+    });
+    throw new Error("unexpected URL");
+  };
+  let sessionOptions;
+  const adapter = createPiAgentAdapter({
+    modelRegistry: registry,
+    exactMode: true,
+    fetchImpl,
+    now: () => Date.parse("2026-07-16T00:00:00Z"),
+    sessionFactory: async (options) => {
+      sessionOptions = options;
+      return {
+        messages: [{
+          role: "assistant", provider: "openrouter", model: model.id, responseModel: model.id,
+          responseId: "gen-exact", content: [{ type: "text", text: output }], usage: { input: 1, output: 1 },
+        }],
+        async prompt() {}, async dispose() {},
+      };
+    },
+  });
+  const spec = { role: "reviewer", provider: "openrouter", model: model.id, effort: "high" };
+  const preflight = await adapter.preflightExact([spec]);
+  assert.equal(preflight.ok, true, JSON.stringify(preflight));
+  assert.deepEqual(preflight.bindings.map(({ provider, model: id, effort, route }) => ({ provider, model: id, effort, route })), [{
+    provider: "openrouter", model: model.id, effort: "high", route: "ExactRoute",
+  }]);
+  const envelope = await adapter.runCandidate(spec, { run_id: "exact-run", cwd: "/tmp", prompt: "review" });
+  assert.equal(adapter.attests(spec, envelope.attestation_ref), true);
+  assert.equal(sessionOptions.apiKey, "test-credential");
+  assert.deepEqual(sessionOptions.model.compat.openRouterRouting, {
+    only: ["ExactRoute"], order: ["ExactRoute"], allow_fallbacks: false,
+    require_parameters: true, data_collection: "deny", zdr: true,
+  });
+  assert.equal(sessionOptions.model.compat.supportsStore, false);
+  assert.equal(sessionOptions.model.compat.maxTokensField, "max_tokens");
+  assert.equal(calls.filter((call) => call.kind === "fetch").length, 3);
+});
+
+test("exact Pi execution refuses unsupported and ambiguous routes before a session", async () => {
+  const model = { provider: "openrouter", id: "vendor/ambiguous:free", reasoning: false };
+  let sessions = 0;
+  const registry = {
+    authStorage: { async getApiKey() { return "test-credential"; } },
+    find: () => model,
+    hasConfiguredAuth: () => true,
+  };
+  const fetchImpl = async (url) => url.endsWith("/auth/key")
+    ? jsonResponse({ data: { label: "account" } })
+    : jsonResponse({ data: ["A", "B"].map((provider_name) => ({
+      model_id: model.id, provider_name, status: 0, supported_parameters: ["max_tokens", "tools"],
+    })) });
+  const adapter = createPiAgentAdapter({
+    modelRegistry: registry, exactMode: true, fetchImpl,
+    now: () => Date.parse("2026-07-16T00:00:00Z"),
+    sessionFactory: async () => { sessions += 1; throw new Error("must not run"); },
+  });
+  const ambiguous = await adapter.preflightExact([{
+    role: "builder", provider: "openrouter", model: model.id, effort: "default",
+  }]);
+  assert.equal(ambiguous.code, "openrouter-exact-route-ambiguous-or-unavailable");
+  const unsupported = await adapter.preflightExact([{
+    role: "builder", provider: "openai-api", model: "gpt-test", effort: "default",
+  }]);
+  assert.equal(unsupported.code, "provider-exact-path-disabled");
+  assert.equal(sessions, 0);
 });
 
 test("judge, synthesis, and verifier prompts receive the exact workflow task", async () => {
@@ -167,6 +263,16 @@ test("malformed assistant semantics reject without trusting fabricated envelope 
     /pi-agent-semantic-output-invalid/,
   );
   assert.equal(adapter.lastFailureCode(), "pi-agent-semantic-output-invalid");
+});
+
+test("semantic output accepts only one closed JSON object, never prose, fences, or a trailing-object scan", () => {
+  const valid = JSON.stringify({
+    status: "ok", uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [],
+  });
+  assert.equal(parseSemanticOutput(valid).recommendation, "approve");
+  for (const value of [`Here is the result: ${valid}`, `\`\`\`json\n${valid}\n\`\`\``, `{"example":true}\n${valid}`]) {
+    assert.throws(() => parseSemanticOutput(value), /pi-agent-semantic-output-invalid/);
+  }
 });
 
 test("Pi adapter exposes stable unavailable, session, and provider failure codes", async () => {
