@@ -57,6 +57,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     return { ok: false, status: "refused", code: "kernel-effects-missing" };
   }
   const runId = deps.run_id ?? definition.id;
+  const finalGateId = Object.keys(definition.nodes).find((id) => definition.nodes[id].kind === "gate" && definition.nodes[id].final === true);
   const definitionRef = workflowDefinitionHash(definition);
   const runtimeRef = deps.runtime_ref ?? journalRef({ runtime: "kernel-injected", version: 1 });
   const resume = deps.resume ?? null;
@@ -346,10 +347,11 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         outputs[current] = { selected: next };
       } else if (node.kind === "gate") {
         let result;
-        try { result = await deps.runGate(node.gate, { run_id: runId, node_id: current, final: node.final === true, cwd: deps.workspace?.cwd ?? deps.cwd, signal: deps.signal ?? null }); }
+        const objective = node.final === true ? definition.objective_gate : node.gate;
+        try { result = await deps.runGate(objective, { run_id: runId, node_id: current, final: node.final === true, cwd: deps.workspace?.cwd ?? deps.cwd, signal: deps.signal ?? null }); }
         catch { result = null; }
         const pass = result?.result === "pass";
-        outputs[current] = { result: pass ? "pass" : "fail", evidence_ref: result?.evidence_ref ?? null };
+        outputs[current] = { result: pass ? "pass" : "fail", evidence_ref: result?.evidence_ref ?? null, final: node.final === true };
         emit("gate", {
           node_id: current,
           result: pass ? "pass" : "fail",
@@ -385,6 +387,26 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         outputs[current] = { status: result.status, terminal: result.terminal };
         next = node.next;
       } else {
+        if (node.status === "succeeded"
+          && (visits[finalGateId] < 1 || outputs[finalGateId]?.result !== "pass" || outputs[finalGateId]?.final !== true)) {
+          emit("node-end", { node_id: current, status: "refused", code: "kernel-objective-gate-evidence-missing" });
+          emit("run-end", { node_id: current, status: "refused", code: "kernel-objective-gate-evidence-missing" });
+          active = null;
+          const terminalCheckpoint = await checkpoint();
+          if (!terminalCheckpoint.ok) return { ok: false, status: "failed", code: terminalCheckpoint.code, events, outputs };
+          return {
+            ok: false,
+            status: "refused",
+            code: "kernel-objective-gate-evidence-missing",
+            terminal: current,
+            outputs,
+            visits,
+            events,
+            budget: budget.snapshot(),
+            journal: journal.records(),
+            elapsed_ms: (deps.now?.() ?? Date.now()) - startedAt,
+          };
+        }
         nodeStatus = node.status;
         emit("node-end", { node_id: current, status: nodeStatus });
         emit("run-end", { node_id: current, status: nodeStatus, ...(node.code ? { code: node.code } : {}) });

@@ -505,6 +505,7 @@ export function createPiAgentAdapter({
   return {
     kind: "helix-pi-agent",
     exactMode,
+    liveCertification: false,
     preflightExact,
     lastIdentityCode() { return identityCode; },
     lastIdentityState() { return identityState ? { ...identityState } : null; },

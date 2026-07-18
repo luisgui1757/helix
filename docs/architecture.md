@@ -26,15 +26,17 @@ request/response identity checks.
 
 Stable policy imports no UI or provider transport. Runtimes never choose graph
 transitions. UI cannot fabricate readiness. The compatibility stage runner
-remains only for historical records, research, and its isolated smoke suite; no
-named workflow selects it.
+remains only for historical records and research; named execution and optional
+workflow runtime smoke both use HWK.
 
 ## Definition and scheduling
 
 WorkflowDefinition v4 is closed and byte-bounded. Reachability validation
-requires exactly one successful terminal behind exactly one final objective
-gate. Cycles are explicit and bounded. Conditions read safe JSON pointers and
-cannot execute user code.
+requires exactly one successful terminal whose only incoming edge is the
+unique final objective gate's `on_pass`. That node cannot carry a second gate;
+the scheduler executes the top-level `objective_gate`, and terminal success
+also requires recorded final-gate pass evidence. Cycles are explicit and
+bounded. Conditions read safe JSON pointers and cannot execute user code.
 
 The scheduler uses stable node/instance/attempt ids. Parallel and map output is
 definition-ordered. Explicit attempts are budgeted effects. One run abort signal

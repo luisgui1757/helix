@@ -318,7 +318,10 @@ The single source for test rules.
   v4 through `dispatch/kernel/scheduler.mjs`. Legacy stage documents are input
   adapters and historical readers, never a selectable product engine.
 - A workflow succeeds only through its unique final deterministic objective
-  gate. Model verdicts may route work but cannot declare convergence.
+  gate. Its `on_pass` is the successful terminal's only incoming edge, the
+  final node cannot redefine the top-level objective, and resume requires its
+  recorded pass evidence. Model verdicts may route work but cannot declare
+  convergence.
 - A mutating effect is incomplete until workspace commit, journal append,
   scheduler checkpoint, and bounded private workspace snapshot are durable.
   Resume restores that exact prefix before reusing completed effects.

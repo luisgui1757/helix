@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
-import { agent, decision, gate, map, parallel, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { agent, decision, map, objectiveGate, parallel, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { createEffectJournal, journalRef } from "../dispatch/kernel/journal.mjs";
 import { runWorkflowKernel } from "../dispatch/kernel/scheduler.mjs";
 import { createCanonicalWorkspace } from "../dispatch/kernel/workspace.mjs";
@@ -39,7 +39,7 @@ function readOnlyDeps(overrides = {}) {
 test("objective-gated pipeline converges with structural events", async () => {
   const graph = definition({
     work: pipeline([reviewer()], "objective", { max_visits: 1 }),
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   });
@@ -50,6 +50,62 @@ test("objective-gated pipeline converges with structural events", async () => {
   assert.equal(result.outputs.objective.result, "pass");
 });
 
+test("the final gate executes only the workflow-level objective", async () => {
+  const graph = definition({
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "objective");
+  let received = null;
+  const result = await runWorkflowKernel(graph, { task: "prove one objective authority" }, readOnlyDeps({
+    async runGate(gateDefinition) {
+      received = structuredClone(gateDefinition);
+      return { result: "pass", evidence_ref: journalRef("gate") };
+    },
+  }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(received, graph.objective_gate);
+  assert.equal(Object.hasOwn(graph.nodes.objective, "gate"), false);
+});
+
+test("a resumed succeeded terminal refuses without recorded final-gate pass evidence", async () => {
+  const graph = definition({
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "objective");
+  const checkpoints = [];
+  const runtimeRef = journalRef("runtime");
+  const taskRef = journalRef("task");
+  const workspaceRef = journalRef("workspace");
+  const deps = readOnlyDeps({
+    runtime_ref: runtimeRef,
+    task_ref: taskRef,
+    workspace: { currentRef: () => workspaceRef, verifyRef: (ref) => ref === workspaceRef },
+    async onCheckpoint(snapshot) {
+      checkpoints.push(structuredClone(snapshot));
+      return { ok: true };
+    },
+  });
+  const first = await runWorkflowKernel(graph, { task: "resume proof" }, deps);
+  assert.equal(first.ok, true);
+  const forged = structuredClone(checkpoints.findLast((snapshot) => snapshot.current === "success"));
+  delete forged.outputs.objective;
+  let gateCalls = 0;
+  const resumed = await runWorkflowKernel(graph, { task: "resume proof" }, {
+    ...deps,
+    resume: forged,
+    async runGate() {
+      gateCalls += 1;
+      return { result: "pass" };
+    },
+  });
+  assert.equal(resumed.ok, false);
+  assert.equal(resumed.status, "refused");
+  assert.equal(resumed.code, "kernel-objective-gate-evidence-missing");
+  assert.equal(gateCalls, 0);
+});
+
 test("decision retries are bounded and loops-off advances explicitly", async () => {
   let calls = 0;
   const graph = definition({
@@ -57,7 +113,7 @@ test("decision retries are bounded and loops-off advances explicitly", async () 
     route: { ...decision([
       { when: { op: "eq", path: "/outputs/work/by_role/reviewer/recommendation", value: "revise" }, target: "work", loop: true },
     ], "objective"), loops_off: "objective" },
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   });
@@ -75,7 +131,7 @@ test("agent retries are explicit, budgeted, and stop at the declared ceiling", a
   const retrying = { ...reviewer(), retry: { max_attempts: 3, backoff_ms: 0 } };
   const graph = definition({
     work: pipeline([retrying], "objective", { max_visits: 1 }),
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   });
@@ -98,7 +154,7 @@ test("parallel preserves order and bounds in-flight effects", async () => {
   const branches = Array.from({ length: 6 }, (_, index) => ({ ...reviewer(), label: `r${index}` }));
   const graph = definition({
     work: parallel(branches, "objective", { max_concurrency: 2 }),
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   });
@@ -121,7 +177,7 @@ test("settled failures require an explicit code and can never mask identity fail
     work: parallel([reviewer(), reviewer()], "objective", {
       max_concurrency: 2, failure: "settle", allow_failure_codes: [optionalCode],
     }),
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   });
@@ -145,7 +201,7 @@ test("map passes exact ordered items and reduce consumes its output", async () =
   const graph = definition({
     work: map("/inputs/items", reviewer(), "collect", { max_items: 3 }),
     collect: reduce("/outputs/work", "count", "objective"),
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   });
@@ -165,7 +221,7 @@ test("mutating effects serialize and journal only after workspace commit", async
   const refs = new Set();
   const graph = definition({
     work: parallel([builder(), builder()], "objective", { max_concurrency: 2 }),
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   });
@@ -200,7 +256,7 @@ test("read-only cache reuses output but mutating cache requires workspace verifi
     let calls = 0;
     const graph = definition({
       work: pipeline([reviewer()], "objective", { max_visits: 1 }),
-      objective: gate(objective, "success", "failed", { final: true }),
+      objective: objectiveGate("success", "failed"),
       success: terminal("succeeded"),
       failed: terminal("failed", "objective-failed"),
     });
@@ -215,7 +271,7 @@ test("read-only cache reuses output but mutating cache requires workspace verifi
 test("effect-boundary checkpoint resumes without repeating a completed effect", async () => {
   const graph = definition({
     work: pipeline([reviewer()], "objective", { max_visits: 1 }),
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   });
@@ -257,7 +313,7 @@ test("effect-boundary checkpoint resumes without repeating a completed effect", 
 test("budget exhaustion and cancellation are terminal, never allowed failures", async () => {
   const graph = definition({
     work: parallel([reviewer(), reviewer()], "objective", { max_concurrency: 2 }),
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   }, "work", { max_total_effects: 1 });
@@ -305,7 +361,7 @@ test("version-pinned subworkflow shares budgets and emits nested structural prog
     id: "child-flow", name: "Child", description: "Child workflow.", start: "work",
     nodes: {
       work: pipeline([reviewer()], "objective", { max_visits: 1 }),
-      objective: gate(objective, "success", "failed", { final: true }),
+      objective: objectiveGate("success", "failed"),
       success: terminal("succeeded"),
       failed: terminal("failed", "child-objective-failed"),
     },
@@ -314,7 +370,7 @@ test("version-pinned subworkflow shares budgets and emits nested structural prog
   assert.equal(childBuilt.ok, true);
   const parent = definition({
     work: subworkflow("child-flow", 1, "objective"),
-    objective: gate(objective, "success", "failed", { final: true }),
+    objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "parent-objective-failed"),
   });

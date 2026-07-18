@@ -46,8 +46,12 @@ export function decision(transitions, fallback, { label, loops_off } = {}) {
   return { kind: "decision", transitions, default: fallback, ...(label ? { label } : {}), ...(loops_off ? { loops_off } : {}) };
 }
 
-export function gate(objective, on_pass, on_fail, { label, final = false, loops_off } = {}) {
-  return { kind: "gate", gate: objective, on_pass, on_fail, final, ...(label ? { label } : {}), ...(loops_off ? { loops_off } : {}) };
+export function gate(objective, on_pass, on_fail, { label, loops_off } = {}) {
+  return { kind: "gate", gate: objective, on_pass, on_fail, ...(label ? { label } : {}), ...(loops_off ? { loops_off } : {}) };
+}
+
+export function objectiveGate(on_pass, on_fail, { label, loops_off } = {}) {
+  return { kind: "gate", on_pass, on_fail, final: true, ...(label ? { label } : {}), ...(loops_off ? { loops_off } : {}) };
 }
 
 export function checkpoint(reason, next, { label } = {}) {

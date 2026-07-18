@@ -6,7 +6,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
-import { agent, checkpoint, gate, pipeline, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { normalizeWorkflowDefinition } from "../dispatch/workflow/schema.mjs";
+import { agent, checkpoint, decision, objectiveGate, pipeline, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { executeNamedWorkflow, resumeNamedWorkflow } from "../extensions/lib/helix-execution.mjs";
 import { executeHelixCommand } from "../extensions/lib/helix-command-core.mjs";
 import { saveUserWorkflow, saveUserWorkflowV4 } from "../extensions/lib/helix-workflows.mjs";
@@ -57,7 +58,7 @@ test("every stock workflow template runs end-to-end with a mock cast in an empty
   }
 });
 
-test("runtime smoke testing exercises the real staged runner and removes its detached worktree", async () => {
+test("runtime smoke testing exercises the real v4 kernel and removes its detached worktree", async () => {
   const cwd = repo();
   const created = createWorkflowFromTemplate({ id: "smoke-flow", template: "plan-implement" });
   assert.equal(created.ok, true);
@@ -68,13 +69,46 @@ test("runtime smoke testing exercises the real staged runner and removes its det
   const outcome = await smokeTestWorkflowRuntime({ workflow: created.workflow, cwd, package_root: packageRoot });
   assert.deepEqual(outcome, {
     ok: true,
+    runner: "workflow-kernel-v4",
     provider_calls: 0,
     objective_check: "simulated",
-    total_passes: 2,
-    stages_exercised: 2,
+    nodes_exercised: 6,
+    effects_exercised: 5,
+    transitions_exercised: 5,
+    objective_gate_exercised: true,
   });
   const after = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd, encoding: "utf8" });
   assert.equal(after, before);
+});
+
+test("native v4 runtime smoke follows a real kernel decision and reports only observed work", async () => {
+  const cwd = repo();
+  const objective = { type: "file-contains", path: "result.md", contains: "PASS" };
+  const built = workflow({
+    id: "native-smoke", name: "Native smoke", description: "Native v4 smoke workflow.", start: "review",
+    nodes: {
+      review: pipeline([agent({ role: "reviewer", stage_id: "review", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 })], "route", { max_visits: 1 }),
+      route: decision([{ when: { op: "eq", path: "/outputs/review/by_role/reviewer/recommendation", value: "approve" }, target: "objective" }], "failed"),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "review-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  const observed = [];
+  const outcome = await smokeTestWorkflowRuntime({
+    workflow: built.definition,
+    cwd,
+    onEvent(event) { observed.push(event); },
+  });
+  assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  assert.deepEqual(observed.filter((event) => event.kind === "node-start").map((event) => event.node_id), [
+    "review", "route", "objective", "success",
+  ]);
+  assert.equal(outcome.nodes_exercised, 4);
+  assert.equal(outcome.effects_exercised, 1);
+  assert.equal(outcome.transitions_exercised, 3);
 });
 
 function executionBinding(stateRoot, id, modelInventory = null) {
@@ -339,7 +373,7 @@ test("product execution pins and runs a depth-one named subworkflow through the 
     id: "child-v4", name: "Child", description: "Child workflow.", start: "child-work",
     nodes: {
       "child-work": pipeline([agent({ role: "reviewer", stage_id: "child-work", mutation: "read-only", timeout_ms: 1_000 })], "child-objective", { max_visits: 1, artifact: { path: "child.md", kind: "notes" } }),
-      "child-objective": gate(childGate, "child-success", "child-failed", { final: true }),
+      "child-objective": objectiveGate("child-success", "child-failed"),
       "child-success": terminal("succeeded"),
       "child-failed": terminal("failed", "child-gate-failed"),
     },
@@ -351,7 +385,7 @@ test("product execution pins and runs a depth-one named subworkflow through the 
     nodes: {
       "parent-work": pipeline([agent({ role: "reviewer", stage_id: "parent-work", mutation: "read-only", timeout_ms: 1_000 })], "child", { max_visits: 1, artifact: { path: "parent.md", kind: "notes" } }),
       child: subworkflow("child-v4", 1, "parent-objective"),
-      "parent-objective": gate(parentGate, "parent-success", "parent-failed", { final: true }),
+      "parent-objective": objectiveGate("parent-success", "parent-failed"),
       "parent-success": terminal("succeeded"),
       "parent-failed": terminal("failed", "parent-gate-failed"),
     },
@@ -385,7 +419,7 @@ test("checkpoint node pauses durably and attended resume is its explicit continu
     nodes: {
       work: pipeline([agent({ role: "reviewer", stage_id: "work", mutation: "read-only", timeout_ms: 1_000 })], "approval", { max_visits: 1, artifact: { path: "checkpoint.md", kind: "notes" } }),
       approval: checkpoint("operator-approval", "objective"),
-      objective: gate(objective, "success", "failed", { final: true }),
+      objective: objectiveGate("success", "failed"),
       success: terminal("succeeded"),
       failed: terminal("failed", "objective-failed"),
     },
@@ -483,4 +517,42 @@ test("real product execution requires an exact adapter before reserving a run", 
   });
   assert.equal(drift.code, "provider-exact-consent-drift");
   assert.equal(existsSync(join(stateRoot, "runs", "exact-consent-run")), false);
+});
+
+test("live-certification policy refuses before provider preflight when the adapter cannot prove it", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-live-cert-"));
+  const cwd = repo();
+  const created = createWorkflowFromTemplate({ id: "live-cert-flow", template: "implement-review" });
+  assert.equal(created.ok, true);
+  created.workflow.deployment.default_assignment = {
+    kind: "model", provider: "openrouter", model: "vendor/exact:free", effort: "high",
+  };
+  const normalized = normalizeWorkflowDefinition(created.workflow);
+  assert.equal(normalized.ok, true);
+  normalized.definition.provider_policy.require_live_certification = true;
+  assert.equal(saveUserWorkflowV4(stateRoot, normalized.definition).ok, true);
+  const inventory = [{
+    provider: "openrouter", model: "vendor/exact:free", reasoning: true,
+    supported_efforts: ["high"],
+  }];
+  let preflightCalls = 0;
+  const adapter = {
+    kind: "helix-pi-agent",
+    exactMode: true,
+    liveCertification: false,
+    supportsProvider: () => true,
+    attests: () => true,
+    async preflightExact() {
+      preflightCalls += 1;
+      return { ok: true, bindings: [] };
+    },
+  };
+  const result = await executeNamedWorkflow({
+    workflow_id: "live-cert-flow", task: "must refuse before provider egress", run_id: "live-cert-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "live-cert-flow", inventory), adapter,
+  });
+  assert.equal(result.code, "provider-live-certification-required");
+  assert.equal(preflightCalls, 0);
+  assert.equal(existsSync(join(stateRoot, "runs", "live-cert-run")), false);
 });

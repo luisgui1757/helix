@@ -25,14 +25,17 @@ save. `/helix-workflow-edit`, `/helix-workflow-clone`, and
 `/helix-workflow-delete` manage personal definitions; built-ins are immutable.
 
 `/helix-workflows [list | show <id> | test <id>]` lists or graphs definitions
-and performs provider-free schema/simulation checks plus deployment preflight.
-In TUI mode, `test` may also run the existing deterministic mock smoke in an
-isolated disposable worktree. It never claims the user's task succeeded.
+and performs provider-free schema checks plus deployment preflight. V4 edges
+are reported as structurally validated, not executed. In TUI mode, `test` may
+also normalize the definition and run one deterministic path through the real
+v4 kernel in an isolated disposable worktree. It reports only observed
+nodes/effects/transitions and never claims every branch or the user's task
+succeeded.
 
 `/helix-workflows import <repository-relative-v4.json>` is the expert deploy
 surface. It requires attended confirmation, a regular contained file no larger
 than 256 KiB, schema version 4, `source: "user"`, a runnable objective gate, a
-successful graph simulation, a non-conflicting id, and an atomic destination.
+closed single-gated graph, a non-conflicting id, and an atomic destination.
 The pure API in `dispatch/workflow/builder.mjs` produces the same validated JSON;
 Helix does not execute the program that generated it.
 
@@ -49,6 +52,8 @@ normalizes into WorkflowDefinition v4 and runs through the same kernel. The
 kernel reserves effects, propagates cancellation, serializes shared writers,
 promotes isolated proposals only from an unchanged base, records an append-only
 effect journal, and permits success only through the final objective gate.
+The final node has no second objective: it executes the top-level
+`objective_gate`, and the successful terminal has no other incoming edge.
 
 - `/helix-runs` lists structural records.
 - `/helix-run-status <run-id>` shows one structural record.

@@ -78,6 +78,16 @@ The standalone tool proves the provider-specific runtime. Release verification
 also exercises the production Pi AgentSession path through its localhost audit
 proxy in a disposable supported-Pi installation.
 
+`provider_policy.require_live_certification: true` is fail-closed product
+policy, not documentation metadata. Before any provider preflight or run
+artifact, Helix requires an adapter that explicitly supplies current
+`live-certified` evidence; the shipped Pi adapter intentionally advertises no
+such reusable proof, so that policy currently refuses with
+`provider-live-certification-required`. The default remains `false`; exact
+OpenRouter execution still performs attended control-plane checks and verifies
+the effective model/route on every generation. A standalone certification run
+does not silently authorize later product runs.
+
 Official sources:
 
 - [Anthropic Messages API](https://platform.claude.com/docs/en/api/messages)

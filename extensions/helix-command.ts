@@ -861,6 +861,10 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
       exactMode: true,
       ...((pi as any).helixSessionFactory ? { sessionFactory: (pi as any).helixSessionFactory } : {}),
     });
+    if (preflight.details?.require_live_certification === true && adapter.liveCertification !== true) {
+      sendProviderRefusal(pi, "provider-live-certification-required");
+      return;
+    }
     const exact = await adapter.preflightExact(confirmationCastSpecs(preflight.details?.cast), { signal: ctx.signal });
     if (!exact.ok) {
       sendProviderRefusal(pi, exact.code ?? "provider-exact-preflight-failed");
@@ -980,6 +984,10 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
       exactMode: true,
       ...((pi as any).helixSessionFactory ? { sessionFactory: (pi as any).helixSessionFactory } : {}),
     });
+    if (preflight.details?.require_live_certification === true && adapter.liveCertification !== true) {
+      sendProviderRefusal(pi, "provider-live-certification-required");
+      return;
+    }
     const exact = await adapter.preflightExact(confirmationCastSpecs(preflight.details?.cast), { signal: ctx.signal });
     if (!exact.ok) {
       sendProviderRefusal(pi, exact.code ?? "provider-exact-preflight-failed");
@@ -1054,7 +1062,7 @@ async function testWorkflowCommand(pi: ExtensionAPI, ctx: ExtensionCommandContex
   if (!resolved.ok) return true;
   const approved = await ctx.ui.confirm(
     `Run isolated runtime smoke test for ${id}?`,
-    "Helix will create a temporary detached Git worktree, execute every stage with the deterministic mock cast, simulate objective-check outcomes, and remove the worktree. No provider is called and this does not claim the task-specific objective passes.",
+    "Helix will normalize the definition to v4, execute one deterministic path through the real Workflow Kernel in a temporary detached Git worktree, simulate agent and objective effects, and remove the worktree. No provider is called and this does not claim the task-specific objective passes or every branch was covered.",
   );
   if (!approved) {
     ctx.ui.notify("Runtime smoke test skipped; definition and deployment checks remain valid", "info");
@@ -1070,7 +1078,7 @@ async function testWorkflowCommand(pi: ExtensionAPI, ctx: ExtensionCommandContex
       package_root: PACKAGE_ROOT,
       signal: ctx.signal,
       onEvent(event: any) {
-        if (event.kind === "pass-start") ctx.ui.setWorkingMessage?.(`Helix smoke · ${event.stage_id} · pass ${event.pass}`);
+        if (event.kind === "node-start") ctx.ui.setWorkingMessage?.(`Helix smoke · ${event.node_id} · visit ${event.visit}`);
       },
     });
   } catch {

@@ -29,10 +29,12 @@ A v4 definition has exactly these top-level fields and no unknown fields:
 - explicit `limits`, `provider_policy`, `workspace_policy`, and
   `objective_gate`.
 
-There must be exactly one successful terminal. Exactly one `final: true` gate
-must lead to it on pass, and every reachable non-terminal must be able to reach
-that success. Unknown targets, unreachable nodes, recursive/nested-depth-two
-subworkflows, and unbounded cycles refuse.
+There must be exactly one successful terminal and exactly one `final: true`
+gate. Its `on_pass` is the successful terminal's only incoming edge; every
+reachable non-terminal must be able to reach it. The final gate has no local
+`gate` field: it always executes the one top-level `objective_gate`. Unknown
+targets, unreachable nodes, recursive/nested-depth-two subworkflows, and
+unbounded cycles refuse.
 
 ## Nodes
 
@@ -44,7 +46,7 @@ subworkflows, and unbounded cycles refuse.
 | `map` | Agent over a typed array | JSON pointer, 0–256 items, failure policy |
 | `reduce` | Deterministic aggregation | collect, count, or bounded-separator concat |
 | `decision` | Closed routing | typed conditions, default, optional loops-off target |
-| `gate` | Deterministic evidence | file/argv gate, pass/fail targets, optional final flag |
+| `gate` | Deterministic evidence | non-final: local file/argv gate; final: top-level objective only |
 | `checkpoint` | Attended pause | stable reason and next; resume is the continue action |
 | `subworkflow` | Reuse a named graph | exact id/version, maximum nesting depth one |
 | `terminal` | End state | succeeded, failed, refused, or cancelled |
@@ -82,7 +84,7 @@ Conflict or cleanup ambiguity refuses; Helix does not auto-resolve semantics.
 
 ```js
 import {
-  agent, decision, gate, pipeline, terminal, workflow,
+  agent, decision, objectiveGate, pipeline, terminal, workflow,
 } from "pi-helix/dispatch/workflow/builder.mjs";
 
 const objective = {
@@ -127,8 +129,7 @@ const built = workflow({
         loop: true,
       },
     ], "failed", { loops_off: "objective" }),
-    objective: gate(objective, "succeeded", "review", {
-      final: true,
+    objective: objectiveGate("succeeded", "review", {
       loops_off: "failed",
     }),
     succeeded: terminal("succeeded"),
@@ -148,9 +149,9 @@ TUI:
 /helix-workflows import quality-loop.json
 ```
 
-The builder also exports `parallel`, `map`, `reduce`, `checkpoint`, and
-`subworkflow`. All constructors return ordinary JSON and use the same defaults
-as the validator.
+The builder also exports non-final `gate`, plus `parallel`, `map`, `reduce`,
+`checkpoint`, and `subworkflow`. All constructors return ordinary JSON and use
+the same defaults as the validator.
 
 ## Common patterns
 
@@ -186,11 +187,15 @@ events, and may not invoke another subworkflow.
 Prefer `command-exit-zero`: Helix executes a bounded argv vector with
 `shell: false`. `file-contains` is useful when no repository checker exists but
 is weaker because a model can write the marker. Only the one final gate can
-produce success.
+produce success. Every other node field—including final-gate `on_fail` and
+`loops_off`—is structurally forbidden from targeting the successful terminal.
 
 ## What testing proves
 
 `/helix-workflows test` proves the closed definition, reachability, targets,
-bounds, simulation, cast resolution, and objective-gate availability with zero
-provider calls. Optional mock runtime smoke proves local mechanics and cleanup.
-Only an attended real run plus its deterministic gate proves the user's task.
+bounds, cast resolution, and objective-gate availability with zero provider
+calls. It reports v4 edges as structurally validated, never as executed. The
+optional smoke normalizes to v4 and executes one deterministic path through the
+real Workflow Kernel in a disposable worktree; it reports the nodes, effects,
+and edges actually observed and does not claim unvisited branches. Only an
+attended real run plus its deterministic gate proves the user's task.

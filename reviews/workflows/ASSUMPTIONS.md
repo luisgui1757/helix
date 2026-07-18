@@ -38,3 +38,28 @@ Rejected findings / false alarms:
   it Git-state isolation and leaves tool/process authority explicit.
 - “Requested model/effort proves effective identity”: rejected. Requested-only
   evidence exact-disables the path.
+
+## 2026-07-18
+
+New durable invariants:
+
+- The top-level `objective_gate` is the sole final objective authority. A final
+  gate node contains routing only; no other node field may target the succeeded
+  terminal, and terminal/resume success requires its recorded pass evidence.
+- V4 definition checks distinguish structurally validated edges from edges
+  actually observed in a kernel run. One deterministic smoke path is not branch
+  coverage and is never presented as such.
+- A standalone live-certification proof is not ambient product authorization.
+  `require_live_certification: true` refuses before provider preflight unless
+  the selected adapter can present current live-certified evidence.
+
+Rejected findings / bounded false alarms:
+
+- “Stock templates currently bypass the final gate”: rejected. Their v1-to-v4
+  migration already produced a single-gated graph. The defect was reachable
+  through supported native-v4 import and programmatic construction, so the
+  validator/runtime fix was still mandatory.
+- “The first full-suite deadline failure proves a scheduler regression”:
+  rejected after the unchanged test returned the correct timeout code, passed
+  alone in 1.23s, and passed in the next complete 647-test run. No timing
+  threshold, test, or legacy runner behavior was changed.

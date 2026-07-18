@@ -137,15 +137,16 @@ function validateAgent(node, path, errors, { inline = false } = {}) {
     || Object.keys(node.output_schema).some((key) => key !== "id")) {
     errors.push(issue(`${path}.output_schema`, "must name a supported closed output schema"));
   }
-  if (!Array.isArray(node.tools) || node.tools.length > 16
-    || new Set(node.tools).size !== node.tools.length
-    || node.tools.some((tool) => !["read", "grep", "find", "ls", "bash", "edit", "write"].includes(tool))) {
+  const toolsValid = Array.isArray(node.tools) && node.tools.length <= 16
+    && new Set(node.tools).size === node.tools.length
+    && node.tools.every((tool) => ["read", "grep", "find", "ls", "bash", "edit", "write"].includes(tool));
+  if (!toolsValid) {
     errors.push(issue(`${path}.tools`, "must be a unique bounded tool allowlist"));
   }
   const expectedMutation = MUTATING_ROLES.has(node.role) ? "shared-serialized" : "read-only";
   if (!["read-only", "shared-serialized", "isolated-proposal"].includes(node.mutation)) {
     errors.push(issue(`${path}.mutation`, "must be read-only, shared-serialized, or isolated-proposal"));
-  } else if (node.mutation === "read-only" && node.tools.some((tool) => ["bash", "edit", "write"].includes(tool))) {
+  } else if (toolsValid && node.mutation === "read-only" && node.tools.some((tool) => ["bash", "edit", "write"].includes(tool))) {
     errors.push(issue(`${path}.tools`, "read-only agents cannot receive mutation tools"));
   } else if (expectedMutation === "read-only" && node.mutation !== "read-only") {
     errors.push(issue(`${path}.mutation`, `role '${node.role}' is not a mutating workflow role`));
@@ -281,12 +282,17 @@ function validateNode(node, id, path, errors) {
     return;
   }
   if (node.kind === "gate") {
-    if (!exactKeys(node, ["kind", "gate", "on_pass", "on_fail"], ["label", "final", "loops_off"])) {
-      errors.push(issue(path, "gate requires gate, on_pass, and on_fail"));
+    if (node.final === true) {
+      if (!exactKeys(node, ["kind", "on_pass", "on_fail", "final"], ["label", "loops_off"])) {
+        errors.push(issue(path, "final gate requires on_pass and on_fail and cannot redefine the workflow objective gate"));
+      }
+      return;
+    }
+    if (!exactKeys(node, ["kind", "gate", "on_pass", "on_fail"], ["label", "loops_off"])) {
+      errors.push(issue(path, "non-final gate requires gate, on_pass, and on_fail"));
       return;
     }
     validateGate(node.gate, `${path}.gate`, errors);
-    if (node.final != null && typeof node.final !== "boolean") errors.push(issue(`${path}.final`, "must be boolean"));
     return;
   }
   if (node.kind === "checkpoint") {
@@ -309,10 +315,27 @@ function validateNode(node, id, path, errors) {
   }
 }
 
-function nodeTargets(node) {
-  if (["agent", "parallel", "map", "pipeline", "reduce", "checkpoint", "subworkflow"].includes(node.kind)) return [node.next];
-  if (node.kind === "decision") return [...node.transitions.map((entry) => entry.target), node.default, ...(node.loops_off ? [node.loops_off] : [])];
-  if (node.kind === "gate") return [node.on_pass, node.on_fail, ...(node.loops_off ? [node.loops_off] : [])];
+function nodeEdges(node) {
+  if (!plain(node)) return [];
+  if (["agent", "parallel", "map", "pipeline", "reduce", "checkpoint", "subworkflow"].includes(node.kind)) {
+    return [{ field: "next", target: node.next }];
+  }
+  if (node.kind === "decision") {
+    return [
+      ...(Array.isArray(node.transitions)
+        ? node.transitions.map((entry, index) => ({ field: `transitions[${index}].target`, target: entry?.target }))
+        : []),
+      { field: "default", target: node.default },
+      ...(node.loops_off == null ? [] : [{ field: "loops_off", target: node.loops_off }]),
+    ];
+  }
+  if (node.kind === "gate") {
+    return [
+      { field: "on_pass", target: node.on_pass },
+      { field: "on_fail", target: node.on_fail },
+      ...(node.loops_off == null ? [] : [{ field: "loops_off", target: node.loops_off }]),
+    ];
+  }
   return [];
 }
 
@@ -322,7 +345,7 @@ function reverseReachable(nodes, target) {
   while (changed) {
     changed = false;
     for (const [id, node] of Object.entries(nodes)) {
-      if (!seen.has(id) && nodeTargets(node).some((next) => seen.has(next))) {
+      if (!seen.has(id) && nodeEdges(node).some((edge) => seen.has(edge.target))) {
         seen.add(id);
         changed = true;
       }
@@ -351,35 +374,51 @@ export function validateWorkflowDefinition(definition) {
   if (!plain(definition.nodes) || Object.keys(definition.nodes).length < 1 || Object.keys(definition.nodes).length > MAX_NODES) {
     errors.push(issue("$.nodes", "must contain 1..256 nodes"));
   }
-  const nodeIds = Object.keys(definition.nodes ?? {});
+  const nodes = plain(definition.nodes) ? definition.nodes : {};
+  const nodeIds = Object.keys(nodes);
   for (const id of nodeIds) {
     if (!safeId(id, NODE_ID)) errors.push(issue(`$.nodes.${id}`, "node id is unsafe"));
-    validateNode(definition.nodes[id], id, `$.nodes.${id}`, errors);
+    validateNode(nodes[id], id, `$.nodes.${id}`, errors);
   }
-  if (!Object.hasOwn(definition.nodes, definition.start)) errors.push(issue("$.start", "must reference an existing node"));
-  for (const [id, node] of Object.entries(definition.nodes ?? {})) {
-    for (const target of nodeTargets(node)) {
-      if (!safeId(target, NODE_ID) || !Object.hasOwn(definition.nodes, target)) errors.push(issue(`$.nodes.${id}`, `references unknown target '${target}'`));
+  if (!Object.hasOwn(nodes, definition.start)) errors.push(issue("$.start", "must reference an existing node"));
+  for (const [id, node] of Object.entries(nodes)) {
+    for (const edge of nodeEdges(node)) {
+      if (!safeId(edge.target, NODE_ID) || !Object.hasOwn(nodes, edge.target)) {
+        errors.push(issue(`$.nodes.${id}.${edge.field}`, `references unknown target '${String(edge.target)}'`));
+      }
     }
   }
   const reachable = new Set();
-  const queue = Object.hasOwn(definition.nodes ?? {}, definition.start) ? [definition.start] : [];
+  const queue = Object.hasOwn(nodes, definition.start) ? [definition.start] : [];
   while (queue.length) {
     const id = queue.shift();
     if (reachable.has(id)) continue;
     reachable.add(id);
-    for (const target of nodeTargets(definition.nodes[id])) if (!reachable.has(target)) queue.push(target);
+    for (const { target } of nodeEdges(nodes[id])) {
+      if (Object.hasOwn(nodes, target) && !reachable.has(target)) queue.push(target);
+    }
   }
   for (const id of nodeIds) if (!reachable.has(id)) errors.push(issue(`$.nodes.${id}`, "is unreachable from start"));
-  const successIds = nodeIds.filter((id) => definition.nodes[id]?.kind === "terminal" && definition.nodes[id].status === "succeeded");
+  const successIds = nodeIds.filter((id) => nodes[id]?.kind === "terminal" && nodes[id].status === "succeeded");
+  const finalGates = nodeIds.filter((id) => nodes[id]?.kind === "gate" && nodes[id].final === true);
+  if (finalGates.length !== 1) errors.push(issue("$.nodes", "must contain exactly one final objective gate"));
   if (successIds.length !== 1) errors.push(issue("$.nodes", "must contain exactly one succeeded terminal"));
   else {
-    const finalGates = nodeIds.filter((id) => definition.nodes[id]?.kind === "gate" && definition.nodes[id].final === true
-      && definition.nodes[id].on_pass === successIds[0]);
-    if (finalGates.length !== 1) errors.push(issue("$.nodes", "successful terminal must be reached by exactly one final objective gate"));
-    const canReachSuccess = reverseReachable(definition.nodes, successIds[0]);
+    const successId = successIds[0];
+    const finalGateId = finalGates.length === 1 ? finalGates[0] : null;
+    if (finalGateId && nodes[finalGateId].on_pass !== successId) {
+      errors.push(issue(`$.nodes.${finalGateId}.on_pass`, "final objective gate must pass directly to the succeeded terminal"));
+    }
+    for (const [id, node] of Object.entries(nodes)) {
+      for (const edge of nodeEdges(node)) {
+        if (edge.target === successId && !(id === finalGateId && edge.field === "on_pass")) {
+          errors.push(issue(`$.nodes.${id}.${edge.field}`, "succeeded terminal is reachable only from the final objective gate on_pass edge"));
+        }
+      }
+    }
+    const canReachSuccess = reverseReachable(nodes, successId);
     for (const id of nodeIds) {
-      const node = definition.nodes[id];
+      const node = nodes[id];
       if (node.kind !== "terminal" && !canReachSuccess.has(id) && reachable.has(id)) {
         errors.push(issue(`$.nodes.${id}`, "cannot reach the successful objective-gated terminal"));
       }
@@ -447,11 +486,7 @@ function actionTarget(action, { stageId, previousStage, nextStage, finalGate, st
   return stopTerminal;
 }
 
-/** Losslessly normalize the current saved workflow shape into v4. */
-export function migrateWorkflowV1(workflow) {
-  if (!plain(workflow) || workflow.schema_version !== 1 || !Array.isArray(workflow.stages)) {
-    return { ok: false, code: "workflow-migration-input-invalid" };
-  }
+function migrateWorkflowV1Checked(workflow) {
   const nodes = {};
   const stopTerminal = "stopped";
   const hasStop = workflow.stages.some((stage) => stage.transitions.some((entry) => entry.action === "stop"));
@@ -511,7 +546,6 @@ export function migrateWorkflowV1(workflow) {
   const lastStage = workflow.stages.at(-1)?.id ?? failedTerminal;
   nodes[finalGate] = {
     kind: "gate",
-    gate: structuredClone(workflow.stop.objective_gate),
     on_pass: successTerminal,
     on_fail: lastStage,
     final: true,
@@ -563,15 +597,33 @@ export function migrateWorkflowV1(workflow) {
   return valid.valid ? { ok: true, definition } : { ok: false, code: "workflow-migration-invalid", errors: valid.errors };
 }
 
-export function normalizeWorkflowDefinition(workflow) {
-  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
-    const valid = validateWorkflowDefinition(workflow);
-    return valid.valid
-      ? { ok: true, definition: structuredClone(workflow), migrated: false }
-      : { ok: false, code: "invalid-workflow-v4", errors: valid.errors };
+/** Losslessly normalize the current saved workflow shape into v4. */
+export function migrateWorkflowV1(workflow) {
+  if (!plain(workflow) || workflow.schema_version !== 1 || !Array.isArray(workflow.stages)) {
+    return { ok: false, code: "workflow-migration-input-invalid" };
   }
-  const migrated = migrateWorkflowV1(workflow);
-  return migrated.ok ? { ...migrated, migrated: true } : migrated;
+  try {
+    return migrateWorkflowV1Checked(workflow);
+  } catch {
+    return { ok: false, code: "workflow-migration-input-invalid" };
+  }
+}
+
+export function normalizeWorkflowDefinition(workflow) {
+  try {
+    if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+      const valid = validateWorkflowDefinition(workflow);
+      return valid.valid
+        ? { ok: true, definition: structuredClone(workflow), migrated: false }
+        : { ok: false, code: "invalid-workflow-v4", errors: valid.errors };
+    }
+    const migrated = migrateWorkflowV1(workflow);
+    return migrated.ok ? { ...migrated, migrated: true } : migrated;
+  } catch {
+    return { ok: false, code: workflow?.schema_version === WORKFLOW_SCHEMA_VERSION
+      ? "invalid-workflow-v4"
+      : "workflow-migration-input-invalid" };
+  }
 }
 
 export function workflowDefinitionHash(definition) {

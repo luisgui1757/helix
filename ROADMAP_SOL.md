@@ -23,6 +23,20 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > about its own future push. The implementation ledger is
 > `reviews/workflows/SUMMARY.md`.
 
+> **Exact-head audit remediation status (2026-07-18):** the independent audits
+> found that native v4 input could bypass or redefine the final objective gate,
+> malformed imports could throw through the validation boundary, v4 definition
+> checks mislabeled structural edge counts as executed transitions, and the
+> live-certification policy bit was not enforced by the product path. The
+> remediation makes the top-level objective the sole convergence authority,
+> forbids every other incoming success edge, requires recorded final-gate pass
+> evidence at the terminal (including resume), makes migration/import total,
+> runs optional smoke tests through HWK, reports only observed coverage, and
+> exact-disables unprovable live-certification policy before provider preflight.
+> The complete local suite passed at 647/647 plus worktree 12/12 and objective
+> loop 8/8. Exact-head remote CI is the delivery gate; its authoritative result
+> is the GitHub check attached to the remediation commit.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:

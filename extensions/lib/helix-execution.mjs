@@ -82,7 +82,10 @@ function nonMockSpecs(castContexts) {
   ]).filter((spec) => spec.provider !== "mock");
 }
 
-async function certifyCast(adapter, specs, signal) {
+async function certifyCast(adapter, specs, signal, { require_live = false } = {}) {
+  if (require_live && adapter?.liveCertification !== true) {
+    return { ok: false, code: "provider-live-certification-required" };
+  }
   if (specs.length === 0) return { ok: true, bindings: [] };
   if (adapter?.kind !== "helix-pi-agent" || adapter.exactMode !== true
     || typeof adapter.preflightExact !== "function" || typeof adapter.attests !== "function"
@@ -90,7 +93,10 @@ async function certifyCast(adapter, specs, signal) {
     return { ok: false, code: "provider-exact-adapter-required" };
   }
   try {
-    const result = await adapter.preflightExact(specs, { signal });
+    const result = await adapter.preflightExact(specs, { signal, require_live });
+    if (require_live && result?.certification !== "live-certified") {
+      return { ok: false, code: "provider-live-certification-required" };
+    }
     return result?.ok === true ? result : { ok: false, code: result?.code ?? "provider-exact-preflight-failed" };
   } catch {
     return { ok: false, code: "provider-exact-preflight-failed" };
@@ -535,7 +541,9 @@ export async function executeNamedWorkflow({
     ...childWorkflows.bundles,
   ], profiled.presets, toggles);
   if (!castResolution.ok) return { ok: false, status: "fail-closed", code: castResolution.code };
-  const certified = await certifyCast(adapter, nonMockSpecs(castResolution.contexts), signal);
+  const certified = await certifyCast(adapter, nonMockSpecs(castResolution.contexts), signal, {
+    require_live: castResolution.contexts.some((entry) => entry.definition.provider_policy.require_live_certification === true),
+  });
   if (!certified.ok) return { ok: false, status: "fail-closed", code: certified.code };
   if (certified.bindings.length > 0
     && (typeof expected_exact_ref !== "string" || certified.binding_ref !== expected_exact_ref)) {
@@ -678,7 +686,9 @@ export async function resumeNamedWorkflow({
     ...childWorkflows.bundles,
   ], profiled.presets, toggles);
   if (!castResolution.ok) return { ok: false, status: "fail-closed", code: castResolution.code };
-  const certified = await certifyCast(adapter, nonMockSpecs(castResolution.contexts), signal);
+  const certified = await certifyCast(adapter, nonMockSpecs(castResolution.contexts), signal, {
+    require_live: castResolution.contexts.some((entry) => entry.definition.provider_policy.require_live_certification === true),
+  });
   if (!certified.ok) return { ok: false, status: "fail-closed", code: certified.code };
   if (certified.bindings.length > 0
     && (typeof expected_exact_ref !== "string" || certified.binding_ref !== expected_exact_ref)) {

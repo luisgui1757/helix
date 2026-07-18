@@ -17,7 +17,7 @@ import { PUBLIC_SAFETY_PATTERNS } from "../tools/ci/public-safety-diff-scan.mjs"
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
 import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
 import { saveProfile, switchProfile } from "../extensions/lib/helix-local.mjs";
-import { agent, gate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { agent, objectiveGate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 
 const root = new URL("..", import.meta.url);
 const testStateRoot = mkdtempSync(join(tmpdir(), "helix-command-state-"));
@@ -270,20 +270,25 @@ test("workflow runtime test renderer accepts only the proved smoke contract", ()
     workflowId: "my-flow",
     outcome: {
       ok: true,
+      runner: "workflow-kernel-v4",
       provider_calls: 0,
       objective_check: "simulated",
-      stages_exercised: 2,
-      total_passes: 3,
+      nodes_exercised: 4,
+      effects_exercised: 2,
+      transitions_exercised: 3,
+      objective_gate_exercised: true,
     },
   });
   assert.equal(complete.ok, true);
   assert.equal(complete.details.provider_calls, 0);
 
   for (const outcome of [
-    { ok: true, provider_calls: 1, objective_check: "simulated", stages_exercised: 2, total_passes: 3 },
-    { ok: true, provider_calls: 0, objective_check: "real", stages_exercised: 2, total_passes: 3 },
-    { ok: true, provider_calls: 0, objective_check: "simulated", stages_exercised: 0, total_passes: 3 },
-    { ok: true, provider_calls: 0, objective_check: "simulated", stages_exercised: 2, total_passes: Number.NaN },
+    { ok: true, runner: "staged-v1", provider_calls: 0, objective_check: "simulated", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 1, objective_check: "simulated", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "real", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "simulated", nodes_exercised: 0, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "simulated", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: Number.NaN, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "simulated", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: false },
   ]) {
     assert.equal(renderWorkflowRuntimeTest({ workflowId: "my-flow", outcome }).code, "workflow-runtime-smoke-invalid");
   }
@@ -601,7 +606,7 @@ test("v4 import is attended, validated, atomic, and immediately graphable", () =
     id: "imported-v4", name: "Imported v4", description: "Imported test workflow.", start: "work",
     nodes: {
       work: pipeline([agent({ role: "reviewer", stage_id: "work", mutation: "read-only", timeout_ms: 1_000 })], "objective", { max_visits: 1 }),
-      objective: gate(objective, "success", "failed", { final: true }),
+      objective: objectiveGate("success", "failed"),
       success: terminal("succeeded"),
       failed: terminal("failed", "objective-failed"),
     },
@@ -619,6 +624,30 @@ test("v4 import is attended, validated, atomic, and immediately graphable", () =
   const shown = executeHelixCommand("workflows show imported-v4", { mode: "print" }, options);
   assert.equal(shown.ok, true, JSON.stringify(shown));
   assert.match(shown.text, /objective \(gate\)/);
+});
+
+test("malformed v4 import returns a stable boundary refusal and writes nothing", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "helix-v4-malformed-cwd-"));
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-v4-malformed-state-"));
+  writeFileSync(join(cwd, "malformed.json"), JSON.stringify({
+    schema_version: 4,
+    id: "malformed",
+    name: "Malformed",
+    description: "Malformed workflow.",
+    version: 1,
+    source: "user",
+    inputs: {},
+    start: "work",
+    nodes: null,
+    limits: {},
+    provider_policy: {},
+    workspace_policy: {},
+    objective_gate: {},
+  }));
+  const imported = executeHelixCommand("workflows import malformed.json", { mode: "tui", confirm: true }, { stateRoot, cwd });
+  assert.equal(imported.ok, false);
+  assert.equal(imported.code, "invalid-workflow-v4");
+  assert.equal(existsSync(join(stateRoot, "workflows", "malformed.json")), false);
 });
 
 test("helix completions fail closed when run config completion input is malformed", () => {

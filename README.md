@@ -56,7 +56,9 @@ program or arbitrary workflow JavaScript.
 
 The kernel supports agent, pipeline, bounded parallel/map, reduce, decision,
 gate, checkpoint, version-pinned subworkflow, and terminal nodes. Successful
-completion is reachable only through one final deterministic objective gate.
+completion is reachable only through one final deterministic objective gate;
+its `on_pass` is the successful terminal's only incoming edge, and it executes
+the single top-level objective definition.
 Read-only effects may overlap; shared writers serialize; isolated proposals run
 in disposable Git worktrees and promote only from an unchanged base.
 

@@ -826,6 +826,8 @@ function renderPreflight(preflight, requestedId) {
       },
       runtime_limits: { ...preflight.runtime_limits },
       execution_binding_ref: preflight.execution_binding_ref,
+      require_live_certification: preflight.workflow?.schema_version === 4
+        && preflight.workflow.provider_policy.require_live_certification === true,
       live_status: preflight.live_status,
       warnings,
       worktree_enabled: preflight.toggles.worktree !== false,
@@ -883,32 +885,41 @@ export function renderWorkflowRuntimeTest({ workflowId, outcome }) {
     return fail(isPublicCode(outcome.code) ? outcome.code : "workflow-runtime-smoke-failed", workflowId,
       "Helix workflow runtime test failed");
   }
-  if (outcome.provider_calls !== 0
+  if (outcome.runner !== "workflow-kernel-v4"
+    || outcome.provider_calls !== 0
     || outcome.objective_check !== "simulated"
-    || !Number.isSafeInteger(outcome.stages_exercised)
-    || outcome.stages_exercised < 1
-    || !Number.isSafeInteger(outcome.total_passes)
-    || outcome.total_passes < 1) {
+    || !Number.isSafeInteger(outcome.nodes_exercised)
+    || outcome.nodes_exercised < 1
+    || !Number.isSafeInteger(outcome.effects_exercised)
+    || outcome.effects_exercised < 0
+    || !Number.isSafeInteger(outcome.transitions_exercised)
+    || outcome.transitions_exercised < 1
+    || outcome.objective_gate_exercised !== true) {
     return fail("workflow-runtime-smoke-invalid", workflowId, "Helix workflow runtime test failed");
   }
   return result({
     title: "Helix workflow runtime test passed",
     lines: [
       `Workflow: ${workflowId}`,
-      "Runner: real staged execution in a temporary detached Git worktree",
-      "Providers: 0 calls (deterministic mock cast)",
-      "Objective check: simulated to exercise routing without claiming task success",
-      `Stages exercised: ${outcome.stages_exercised}`,
-      `Total passes: ${outcome.total_passes}`,
+      "Runner: real Workflow Kernel v4 execution in a temporary detached Git worktree",
+      "Providers: 0 calls (deterministic agent boundary)",
+      "Objective check: simulated; this proves kernel routing, not the task-specific objective",
+      `Nodes exercised: ${outcome.nodes_exercised}`,
+      `Agent effects exercised: ${outcome.effects_exercised}`,
+      `Transitions exercised: ${outcome.transitions_exercised}`,
+      "Final objective-gate route: exercised",
       "Cleanup: temporary worktree removed",
     ],
     details: {
       workflow_id: workflowId,
       runtime_tested: true,
+      runner: outcome.runner,
       provider_calls: outcome.provider_calls,
       objective_check_simulated: true,
-      stages_exercised: outcome.stages_exercised,
-      total_passes: outcome.total_passes,
+      nodes_exercised: outcome.nodes_exercised,
+      effects_exercised: outcome.effects_exercised,
+      transitions_exercised: outcome.transitions_exercised,
+      objective_gate_exercised: true,
       cleanup: "complete",
       view_only: true,
     },
@@ -1202,7 +1213,12 @@ function renderWorkflows(deps, tokens) {
     } catch {
       return fail("invalid-workflow-v4", "import-file", "Helix workflow import refused");
     }
-    const normalized = normalizeWorkflowDefinition(definition);
+    let normalized;
+    try {
+      normalized = normalizeWorkflowDefinition(definition);
+    } catch {
+      return fail("invalid-workflow-v4", "import-definition", "Helix workflow import refused");
+    }
     if (!normalized.ok || normalized.migrated || normalized.definition.source !== "user") {
       return fail(normalized.code ?? "invalid-workflow-v4", "import-definition", "Helix workflow import refused");
     }
@@ -1219,7 +1235,7 @@ function renderWorkflows(deps, tokens) {
       lines: [
         `Workflow: ${normalized.definition.id} v${normalized.definition.version}`,
         ...workflowGraphLines(normalized.definition),
-        `Definition transitions tested: ${tested.transitions_tested}/${tested.transitions_total}`,
+        `Definition transitions validated: ${tested.transitions_validated}/${tested.transitions_total}`,
         `Run: /helix-run ${normalized.definition.id}`,
       ],
       details: { workflow: structuralWorkflow(normalized.definition), mutating: true },
@@ -1300,6 +1316,7 @@ function renderWorkflows(deps, tokens) {
       return fail("helix-model-inventory-unavailable", id, "Helix workflow deployment check failed");
     }
     const simulated = tested.simulation;
+    const nativeV4 = resolved.workflow.schema_version === 4;
     return result({
       title: "Helix workflow checks passed",
       lines: [
@@ -1308,8 +1325,12 @@ function renderWorkflows(deps, tokens) {
         "Deployment: cast, providers, objective-check executable, and environment resolved",
         "Runtime effects: not executed (run the workflow for task-specific proof)",
         "Provider calls: 0",
-        `Transitions tested: ${tested.transitions_tested}/${tested.transitions_total}`,
-        `Stage ceilings tested: ${tested.ceilings_tested}`,
+        nativeV4
+          ? `Transitions structurally validated: ${tested.transitions_validated}/${tested.transitions_total}`
+          : `Transitions behavior-tested: ${tested.transitions_tested}/${tested.transitions_total}`,
+        nativeV4
+          ? `Node ceilings structurally validated: ${tested.ceilings_validated}`
+          : `Stage ceilings behavior-tested: ${tested.ceilings_tested}`,
         `Durable outputs declared: ${tested.artifacts_declared}`,
         ...(simulated.trace ?? []).map((entry) => entry.node_id
           ? `${entry.node_id} (${entry.kind})`
@@ -1319,9 +1340,10 @@ function renderWorkflows(deps, tokens) {
       details: {
         workflow_id: id,
         provider_calls: 0,
-        transitions_tested: tested.transitions_tested,
+        ...(nativeV4
+          ? { transitions_validated: tested.transitions_validated, ceilings_validated: tested.ceilings_validated }
+          : { transitions_tested: tested.transitions_tested, ceilings_tested: tested.ceilings_tested }),
         transitions_total: tested.transitions_total,
-        ceilings_tested: tested.ceilings_tested,
         artifacts_declared: tested.artifacts_declared,
         definition_tested: true,
         deployment_checked: true,

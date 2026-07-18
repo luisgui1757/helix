@@ -607,7 +607,7 @@ function successSignals(workflow) {
   });
 }
 
-/** Validate and simulate the definition. This performs no deployment or artifact effects. */
+/** Validate the definition. This performs no runtime, deployment, or artifact effects. */
 export function testWorkflow(workflow) {
   if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
     const valid = validateWorkflowDefinition(workflow);
@@ -617,11 +617,12 @@ export function testWorkflow(workflow) {
       ok: true,
       workflow_id: workflow.id,
       transitions_total: graph.nodes.reduce((sum, node) => sum + node.targets.length, 0),
-      transitions_tested: graph.nodes.reduce((sum, node) => sum + node.targets.length, 0),
-      ceilings_tested: graph.nodes.filter((node) => node.max_visits != null || node.max_items != null).length,
-      exhaustions_tested: graph.nodes.filter((node) => node.max_visits != null || node.max_items != null).length,
+      transitions_validated: graph.nodes.reduce((sum, node) => sum + node.targets.length, 0),
+      ceilings_validated: graph.nodes.filter((node) => node.max_visits != null || node.max_items != null).length,
       artifacts_declared: Object.values(workflow.nodes).filter((node) => node.artifact != null).length,
-      simulation: { ok: true, stop_reason: "structural-v4-simulation", nodes: graph.nodes.length },
+      definition_tested: true,
+      runtime_tested: false,
+      simulation: { ok: true, converged: false, stop_reason: "structural-v4-validation", planned_nodes: graph.nodes.length, trace: [] },
     };
   }
   const valid = validateWorkflow(workflow);
@@ -693,14 +694,15 @@ export function simulateWorkflow(workflow, signals = [], { final_gate = "pass", 
     if (!valid.valid) return { ok: false, code: "invalid-workflow-v4", errors: valid.errors };
     return {
       ok: true,
-      converged: final_gate === "pass",
-      stop_reason: final_gate === "pass" ? "structural-v4-simulation" : "objective-gate-failed",
-      code: final_gate === "pass" ? null : "objective-gate-failed",
-      trace: plannedWorkflowGraph(workflow).nodes.map((node) => ({ node_id: node.id, kind: node.kind })),
+      converged: false,
+      stop_reason: "structural-v4-validation",
+      code: null,
+      trace: [],
       total_passes: 0,
-      final_gate: { result: final_gate },
-      loops,
-      signals_consumed: signals.length,
+      final_gate: null,
+      loops_applied: false,
+      signals_consumed: 0,
+      planned_nodes: plannedWorkflowGraph(workflow).nodes.length,
     };
   }
   const valid = validateWorkflow(workflow);
