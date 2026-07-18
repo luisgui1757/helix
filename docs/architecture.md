@@ -39,28 +39,40 @@ also requires recorded final-gate pass evidence. Cycles are explicit and
 bounded. Conditions read safe JSON pointers and cannot execute user code.
 
 The scheduler uses stable node/instance/attempt ids. Parallel and map output is
-definition-ordered. Explicit attempts are budgeted effects. One run abort signal
-propagates through nodes, provider calls, objective commands, and workspaces.
-Read-only work may overlap; mutating work enters one writer queue.
+definition-ordered. Every actual model invocation is a budgeted, journaled
+effect; multi-member panels reserve the complete first wave atomically before
+dispatch, then journal each member and retry independently. Resume reuses
+completed member attempts before reserving only the unfinished first wave. One run abort
+signal propagates through nodes, provider calls, objective commands, and
+workspaces. Scheduler-owned races bound even a non-cooperative injected gate,
+artifact, checkpoint, or child-resolution promise; child workflows receive the
+parent abort signal. Read-only work may overlap; mutating work enters one writer queue.
 
 Every model effect identity binds the workflow hash, node/attempt, canonical
 inputs/upstream outputs, runtime/cast ref, tool and mutation policy, and current
 workspace fingerprint. A result becomes complete only after response
-validation, workspace commit, budget reconciliation, journal append, scheduler
-checkpoint, and bounded workspace snapshot.
+validation, workspace apply and fingerprint, budget reconciliation, journal
+append, scheduler checkpoint, and bounded workspace snapshot. Recovery material
+is finalized only after that durable checkpoint; a cleanup failure is itself
+checkpointed and retried idempotently on resume.
 
 ## Workspace model
 
 Each run owns one canonical Git worktree with a deterministic branch and owner
-ref. `shared-serialized` effects checkpoint the exact tracked, untracked, index,
-and file state outside Git objects before mutation. Failure restores it.
+ref. Named workflows require this policy and refuse before consent when the
+worktree feature is disabled. `shared-serialized` effects checkpoint the exact
+tracked, untracked, index, and file state outside Git objects before mutation.
+Failure restores it and retains the recovery snapshot unless restoration is
+verified.
 
 `isolated-proposal` creates a disposable real Git worktree, copies a bounded
 regular-file view of the exact canonical state, and runs the effect there.
 Promotion requires the canonical fingerprint to remain unchanged. Tree copy or
-promotion failure restores the private checkpoint. Symlinks, special files,
-oversized trees, conflicts, and ambiguous cleanup refuse. This is Git-state
-isolation, not an OS sandbox.
+promotion failure restores the private checkpoint. Proposal and before-state
+material are deleted only after durable journal/checkpoint completion; failed
+restoration preserves both and returns a non-maskable workspace refusal.
+Symlinks, special files, oversized trees, conflicts, and ambiguous cleanup
+refuse. This is Git-state isolation, not an OS sandbox.
 
 ## Recovery
 
@@ -78,9 +90,11 @@ workspace. Completed attempts recorded in the checkpoint are not re-executed.
 Corrupt, missing, stale, or mismatched state refuses.
 
 Checkpoint nodes use the same mechanism: the first encounter pauses; an
-attended resume is the explicit continue action. Version-pinned subworkflows
-share parent budget, journal, cancellation, and canonical workspace, have depth
-one, and project child events into parent structural events.
+attended resume is the explicit continue action. Child checkpoint state is
+stored under its parent node and child-run namespace, so one attended resume
+continues exactly that checkpoint. Version-pinned subworkflows share parent
+budget, journal, cancellation, and canonical workspace, have depth one, and
+project child events into parent structural events.
 
 ## Runtime and identity
 
@@ -95,7 +109,10 @@ class, policy state, certification state, session binding, and certification
 key. Exact execution refuses requested-only evidence, account mismatch,
 response/deployment substitution, expired policy, stale certification, or
 unobservable fields before egress where possible and after response where only
-the response proves identity.
+the response proves identity. Exact mode always requires an opaque account
+binding. Provider and model may be response-verified; effort is labeled
+session-verified when the session configuration is the strongest available
+evidence and is never promoted to response evidence by association.
 
 Provider-specific adapters independently shape Anthropic Messages, OpenAI
 Responses, Codex app-server, Copilot SDK, OpenRouter Chat Completions, Foundry

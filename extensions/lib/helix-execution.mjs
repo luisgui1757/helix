@@ -20,11 +20,11 @@ import { compileStepPrompt } from "../../dispatch/lib/prompt-compiler.mjs";
 import { assertRoleEnvelope } from "../../dispatch/lib/role-envelope.mjs";
 import { makeObjectiveGate } from "../../dispatch/lib/task-loop.mjs";
 import { appendText } from "../../dispatch/lib/persistence.mjs";
-import { normalizeWorkflowDefinition, workflowDefinitionHash } from "../../dispatch/workflow/schema.mjs";
+import { normalizeWorkflowDefinition, normalizeWorkflowInput, workflowDefinitionHash } from "../../dispatch/workflow/schema.mjs";
 import { runWorkflowKernel } from "../../dispatch/kernel/scheduler.mjs";
 import { createCanonicalWorkspace } from "../../dispatch/kernel/workspace.mjs";
 import { createEffectJournal } from "../../dispatch/kernel/journal.mjs";
-import { validateKernelCheckpoint } from "../../dispatch/kernel/state.mjs";
+import { kernelResultIsComplete, validateKernelCheckpoint } from "../../dispatch/kernel/state.mjs";
 import { frameContent } from "../../dispatch/kernel/content.mjs";
 import {
   workflowExecutionBindingRef,
@@ -42,14 +42,6 @@ import { resolveWorkflow } from "./helix-workflows.mjs";
 function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : null;
-}
-
-function aggregateRecommendation(envelopes) {
-  const values = envelopes.map((entry) => entry.recommendation);
-  if (values.includes("revise-jump")) return "revise-jump";
-  if (values.includes("revise")) return "revise";
-  if (values.length > 0 && values.every((value) => value === "approve")) return "approve";
-  return values.at(-1) ?? "missing";
 }
 
 function membersFor(stageCast, role) {
@@ -126,7 +118,7 @@ function publicKernelState({ runId, definition, definitionRef, result, worktree 
 }
 
 async function executeKernelDefinition({
-  definition, definitionRef, execution, config, presets, toggles, adapter, task, runId, cwd,
+  definition, definitionRef, execution, config, presets, toggles, adapter, input, runId, cwd,
   prepared, packageRoot, stateRoot, signal, onEvent, castContexts, resumeDocument = null, subworkflows = [],
 }) {
   if (!Array.isArray(castContexts) || castContexts.length !== subworkflows.length + 1) {
@@ -143,7 +135,8 @@ async function executeKernelDefinition({
   if (exactSpecs.length > 0 && (adapter?.exactMode !== true || typeof adapter.attests !== "function")) {
     return { ok: false, status: "fail-closed", code: "provider-exact-adapter-required" };
   }
-  const taskRef = hashRef(task);
+  const task = input.task;
+  const taskRef = hashRef(stableStringify(input));
   const runtimeRef = hashRef(stableStringify({
     definition_ref: definitionRef,
     casts: castContexts.map((entry) => ({ workflow_id: entry.definition.id, version: entry.definition.version, cast: entry.cast })),
@@ -214,10 +207,17 @@ async function executeKernelDefinition({
     }
     onEvent?.(event);
   };
-  const executeAgent = async (node, ctx) => {
+  const expandAgent = (node, ctx) => {
     const stageCast = castsByDefinition.get(ctx.definition_id)?.get(node.stage_id);
-    const specs = membersFor(stageCast, node.role);
-    if (specs.length === 0) return { ok: false, code: "kernel-agent-cast-missing" };
+    return membersFor(stageCast, node.role).map((member, index) => ({
+      ...node,
+      _helix_member: member,
+      _helix_member_index: index,
+    }));
+  };
+  const executeAgent = async (node, ctx) => {
+    const spec = node._helix_member;
+    if (!spec) return { ok: false, code: "kernel-agent-cast-missing" };
     let compiled;
     try {
       compiled = compileStepPrompt({
@@ -237,16 +237,12 @@ async function executeKernelDefinition({
       });
     } catch { compiled = null; }
     if (!compiled?.ok) return { ok: false, code: compiled?.code ?? "prompt-compile-failed" };
-    const envelopes = [];
-    for (const [index, spec] of specs.entries()) {
-      const selected = spec.provider === "mock" && adapter == null ? mock.dispatchAdapter : adapter;
-      if (!selected || typeof selected.runCandidate !== "function") {
-        return { ok: false, code: "kernel-agent-adapter-missing" };
-      }
-      let envelope;
-      try {
-        envelope = await selected.runCandidate(spec, {
-          run_id: `${runId}-${ctx.node_id}-${index}`,
+    const selected = spec.provider === "mock" && adapter == null ? mock.dispatchAdapter : adapter;
+    if (!selected || typeof selected.runCandidate !== "function") return { ok: false, code: "kernel-agent-adapter-missing" };
+    let envelope;
+    try {
+      envelope = await selected.runCandidate(spec, {
+          run_id: `${runId}-${ctx.node_id}-${node._helix_member_index}`,
           stage_id: node.stage_id,
           verdict_role: node.role === "reviewer" ? "reviewer" : null,
           prompt: compiled.prompt,
@@ -254,35 +250,25 @@ async function executeKernelDefinition({
           pass: 1,
           attempt: 1,
           signal: ctx.signal,
-        });
-        assertRoleEnvelope(envelope);
-      } catch { return { ok: false, code: "kernel-agent-envelope-invalid" }; }
-      if (spec.provider !== "mock") {
-        if (!envelope.effective || envelope.effective.evidence === "requested-only"
-          || envelope.effective.provider !== spec.provider || envelope.effective.model !== spec.model
-          || envelope.effective.effort !== spec.effort
-          || adapter.attests(spec, envelope.attestation_ref) !== true) {
-          return { ok: false, code: "provider-identity-unverified" };
-        }
+      });
+      assertRoleEnvelope(envelope);
+    } catch { return { ok: false, code: "kernel-agent-envelope-invalid" }; }
+    if (spec.provider !== "mock") {
+      if (!envelope.effective || Object.values(envelope.effective.evidence).includes("requested-only")
+        || envelope.effective.provider !== spec.provider || envelope.effective.model !== spec.model
+        || envelope.effective.effort !== spec.effort
+        || adapter.attests(spec, envelope.attestation_ref) !== true) {
+        return { ok: false, code: "provider-identity-unverified" };
       }
-      envelopes.push(envelope);
     }
-    const value = envelopes.length === 1 ? envelopes[0] : {
-      values: envelopes,
-      recommendation: aggregateRecommendation(envelopes),
-      uncertainty: envelopes.flatMap((entry) => entry.uncertainty),
-      risks: envelopes.flatMap((entry) => entry.risks),
-      proposed_actions: envelopes.flatMap((entry) => entry.proposed_actions),
-      open_questions: envelopes.flatMap((entry) => entry.open_questions),
-    };
     return {
       ok: true,
-      value,
+      value: envelope,
       usage: {
-        tokens: envelopes.reduce((sum, entry) => sum + entry.usage.input_tokens + entry.usage.output_tokens, 0),
+        tokens: envelope.usage.input_tokens + envelope.usage.output_tokens,
         cost_micros: 0,
       },
-      attestation_ref: envelopes.length === 1 ? envelopes[0].attestation_ref ?? null : hashRef(stableStringify(envelopes.map((entry) => entry.attestation_ref ?? "mock"))),
+      attestation_ref: envelope.attestation_ref ?? null,
     };
   };
   const verifyArtifact = async (artifact, ctx) => {
@@ -387,7 +373,7 @@ async function executeKernelDefinition({
     }))}\n`);
     return { ok: true };
   };
-  const result = await runWorkflowKernel(definition, { task }, {
+  const result = await runWorkflowKernel(definition, input, {
     run_id: runId,
     cwd: created.path,
     workspace,
@@ -396,11 +382,15 @@ async function executeKernelDefinition({
     task_ref: taskRef,
     ...(resumeDocument ? { resume: resumeDocument.scheduler } : {}),
     onCheckpoint,
+    expandAgent,
     executeAgent,
     verifyArtifact,
     runGate,
-    checkpoint: ({ node_id }) => ({
-      continue: resumeDocument?.scheduler?.current === node_id,
+    checkpoint: ({ node_id, child_run_id = null }) => ({
+      continue: child_run_id == null
+        ? resumeDocument?.scheduler?.current === node_id
+        : resumeDocument?.scheduler?.active?.child?.run_id === child_run_id
+          && resumeDocument.scheduler.active.child.scheduler?.current === node_id,
     }),
     resolveSubworkflow: (workflowId, version) => definitionsByKey.get(`${workflowId}@${version}`) ?? null,
     depth: 0,
@@ -410,7 +400,7 @@ async function executeKernelDefinition({
   });
   const completed = {
     task_ref: taskRef,
-    completed: !["paused", "running"].includes(result.status),
+    completed: kernelResultIsComplete(result, { has_checkpoint: previousSnapshot !== null }),
     terminal: result.terminal ?? null,
     status: result.status,
     code: result.code ?? null,
@@ -441,6 +431,7 @@ async function executeKernelDefinition({
     open_disagreements: 0,
     warnings: [],
     calls: nonMock.length === 0 ? mock.calls : null,
+    resumable: !completed.completed,
   };
 }
 
@@ -473,6 +464,7 @@ function resolveSubworkflowBundles(definition, { stateRoot, chainRegistry, runRe
 export async function executeNamedWorkflow({
   workflow_id,
   task,
+  input = null,
   run_id,
   cwd,
   state_root,
@@ -490,7 +482,7 @@ export async function executeNamedWorkflow({
     return { ok: false, status: "fail-closed", code: "workflow-execution-path-invalid" };
   }
   if (!validateRunId(run_id).ok) return { ok: false, status: "fail-closed", code: "unsafe-run-id" };
-  if (typeof task !== "string" || task.trim() === "") {
+  if (input == null && (typeof task !== "string" || task.trim() === "")) {
     return { ok: false, status: "fail-closed", code: "workflow-task-required" };
   }
   const named = resolveWorkflow(state_root, workflow_id, chain_registry, run_registry);
@@ -503,6 +495,9 @@ export async function executeNamedWorkflow({
   }
   const normalized = normalizeWorkflowDefinition(named.workflow);
   if (!normalized.ok) return { ok: false, status: "fail-closed", code: normalized.code };
+  const inputValidation = normalizeWorkflowInput(normalized.definition.inputs, input ?? { task });
+  if (!inputValidation.valid) return { ok: false, status: "fail-closed", code: "workflow-input-invalid", errors: inputValidation.errors };
+  const runtimeInput = inputValidation.input;
 
   const active = resolveActiveProfile(state_root);
   if (!active.ok) return { ok: false, status: "fail-closed", code: active.code };
@@ -526,6 +521,7 @@ export async function executeNamedWorkflow({
     return { ok: false, status: "fail-closed", code: "workflow-execution-binding-required" };
   }
   const toggles = toggleVector(settings.settings);
+  if (toggles.worktree === false) return { ok: false, status: "fail-closed", code: "workflow-canonical-worktree-required" };
   const actualBindingRef = workflowExecutionBindingRef({
     workflow: named.workflow,
     profile: active.profile,
@@ -574,7 +570,7 @@ export async function executeNamedWorkflow({
     presets: profiled.presets,
     toggles,
     adapter,
-    task,
+    input: runtimeInput,
     runId: run_id,
     cwd,
     prepared,
@@ -597,6 +593,7 @@ function readBoundJson(path, maxBytes) {
 export async function resumeNamedWorkflow({
   run_id,
   task,
+  input = null,
   cwd,
   state_root,
   package_root,
@@ -612,7 +609,7 @@ export async function resumeNamedWorkflow({
     return { ok: false, status: "fail-closed", code: "workflow-execution-path-invalid" };
   }
   if (!validateRunId(run_id).ok) return { ok: false, status: "fail-closed", code: "unsafe-run-id" };
-  if (typeof task !== "string" || task.trim() === "") {
+  if (input == null && (typeof task !== "string" || task.trim() === "")) {
     return { ok: false, status: "fail-closed", code: "workflow-task-required" };
   }
   const runPath = join(state_root, "runs", run_id);
@@ -642,6 +639,9 @@ export async function resumeNamedWorkflow({
     || normalized.definition.id !== publicState.workflow_id) {
     return { ok: false, status: "fail-closed", code: "kernel-resume-definition-invalid" };
   }
+  const inputValidation = normalizeWorkflowInput(normalized.definition.inputs, input ?? { task });
+  if (!inputValidation.valid) return { ok: false, status: "fail-closed", code: "workflow-input-invalid", errors: inputValidation.errors };
+  const runtimeInput = inputValidation.input;
   const named = resolveWorkflow(state_root, publicState.workflow_id, chain_registry, run_registry);
   if (!named.ok) return { ok: false, status: "fail-closed", code: named.code };
   const current = normalizeWorkflowDefinition(named.workflow);
@@ -664,6 +664,7 @@ export async function resumeNamedWorkflow({
   const settings = loadSettings(join(state_root, DEFAULT_SETTINGS_REL_PATH));
   if (!settings.ok) return { ok: false, status: "fail-closed", code: settings.code };
   const toggles = toggleVector(settings.settings);
+  if (toggles.worktree === false) return { ok: false, status: "fail-closed", code: "workflow-canonical-worktree-required" };
   const childWorkflows = resolveSubworkflowBundles(normalized.definition, {
     stateRoot: state_root,
     chainRegistry: chain_registry,
@@ -702,7 +703,7 @@ export async function resumeNamedWorkflow({
     presets: profiled.presets,
     toggles,
     adapter,
-    task,
+    input: runtimeInput,
     runId: run_id,
     cwd,
     prepared: { ok: true, path: runPath },

@@ -154,6 +154,18 @@ test("v4 validation and v1 migration are total on malformed external input", () 
     assert.equal(migrated.ok, false);
     assert.equal(migrated.code, "workflow-migration-input-invalid");
   }
+
+  const deep = structuredClone(base);
+  const decisionId = Object.keys(deep.nodes).find((id) => deep.nodes[id].kind === "decision");
+  let condition = { op: "always" };
+  for (let index = 0; index < 40; index += 1) condition = { op: "not", condition };
+  deep.nodes[decisionId].transitions[0].when = condition;
+  let deepResult;
+  assert.doesNotThrow(() => { deepResult = validateWorkflowDefinition(deep); });
+  assert.equal(deepResult.valid, false);
+  assert.equal(deepResult.errors.some((entry) => entry.message.includes("maximum condition depth 32")), true);
+  assert.doesNotThrow(() => workflowDefinitionHash(deep));
+  assert.equal(workflowDefinitionHash(deep), null);
 });
 
 test("pure builder creates the same closed definition contract", () => {

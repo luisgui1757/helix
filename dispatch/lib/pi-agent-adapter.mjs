@@ -478,7 +478,13 @@ export function createPiAgentAdapter({
       provider: responseProvider === piProviderId(provider) ? provider : responseProvider,
       model: responseModel ?? modelId,
       effort,
-      evidence: assistant?.responseModel ? "verified-response" : "requested-only",
+      evidence: {
+        provider: typeof assistant?.provider === "string" && assistant.provider.length > 0 ? "verified-response" : "verified-session",
+        model: typeof assistant?.responseModel === "string" && assistant.responseModel.length > 0
+          ? "verified-response"
+          : typeof assistant?.model === "string" && assistant.model.length > 0 ? "verified-session" : "requested-only",
+        effort: "verified-session",
+      },
     };
     const attestationRef = certificate?.attestation_ref
       ?? `sha256:${sha256(JSON.stringify({ requested, effective }))}`;

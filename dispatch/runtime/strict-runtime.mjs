@@ -20,7 +20,7 @@ function exactTuple(left, right) {
   return left?.provider === right?.provider && left?.model === right?.model
     && left?.effort === right?.effort
     && (left?.route ?? null) === (right?.route ?? null)
-    && (left?.expected_account == null || left.expected_account === right?.account);
+    && left?.expected_account === right?.account;
 }
 
 function exactRequested(left, right) {

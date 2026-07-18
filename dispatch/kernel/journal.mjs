@@ -3,8 +3,8 @@
 // a caller-supplied verification of that ref before reuse.
 
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { appendText, writeTextAtomic } from "../lib/persistence.mjs";
+import { lstatSync, readFileSync } from "node:fs";
+import { appendText, resolveConfinedFile, writeTextAtomic } from "../lib/persistence.mjs";
 import { stableWorkflowStringify } from "../workflow/schema.mjs";
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -37,9 +37,11 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
   const byIdentity = new Map();
   const relativePath = run_id ? `${run_id}.kernel.journal.jsonl` : null;
   if (root != null && relativePath != null) {
-    const path = new URL(`file://${root.endsWith("/") ? root : `${root}/`}${relativePath}`).pathname;
-    if (existsSync(path)) {
-      try {
+    try {
+      const resolved = resolveConfinedFile(root, relativePath, { allow_missing: true });
+      if (!resolved.exists && expected_records !== null && expected_records !== 0) throw new Error("invalid");
+      if (resolved.exists) {
+        const path = resolved.path;
         const stat = lstatSync(path);
         const text = stat.isFile() && !stat.isSymbolicLink() && stat.size <= 8 * 1024 * 1024
           ? readFileSync(path, "utf8") : null;
@@ -61,9 +63,9 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
             writeTextAtomic(root, relativePath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length ? "\n" : ""));
           }
         }
-      } catch {
-        throw new Error("kernel-journal-corrupt");
       }
+    } catch {
+      throw new Error("kernel-journal-corrupt");
     }
   }
   return Object.freeze({

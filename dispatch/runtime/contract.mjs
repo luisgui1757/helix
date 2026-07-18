@@ -36,12 +36,12 @@ function validAccount(value) {
 }
 
 function validTuple(tuple, { effective = false } = {}) {
-  const required = effective ? [] : ["provider", "model", "effort"];
-  const optional = effective ? ["provider", "model", "effort", "route", "account"] : ["route", "expected_account"];
+  const required = effective ? ["provider", "model", "effort", "account"] : ["provider", "model", "effort", "expected_account"];
+  const optional = effective ? ["route"] : ["route"];
   if (!exactKeys(tuple, required, optional)) return false;
-  if ((!effective || tuple.provider != null) && !isPublicCode(tuple.provider)) return false;
-  if ((!effective || tuple.model != null) && !isModelId(tuple.model)) return false;
-  if ((!effective || tuple.effort != null) && !["default", "provider-managed", "low", "medium", "high", "xhigh", "max"].includes(tuple.effort)) return false;
+  if (!isPublicCode(tuple.provider)) return false;
+  if (!isModelId(tuple.model)) return false;
+  if (!["default", "provider-managed", "low", "medium", "high", "xhigh", "max"].includes(tuple.effort)) return false;
   if (tuple.route != null && !isPublicCode(tuple.route)) return false;
   if (tuple.expected_account != null && !validAccount(tuple.expected_account)) return false;
   if (tuple.account != null && !validAccount(tuple.account)) return false;
@@ -96,8 +96,7 @@ export function exactAttestationStatus(attestation, { now = Date.now(), require_
       return { ok: false, code: `provider-${field}-identity-mismatch` };
     }
   }
-  if (attestation.requested.expected_account != null
-    && attestation.effective.account !== attestation.requested.expected_account) {
+  if (attestation.effective.account !== attestation.requested.expected_account) {
     return { ok: false, code: "provider-account-identity-mismatch" };
   }
   if (attestation.requested.route != null) {

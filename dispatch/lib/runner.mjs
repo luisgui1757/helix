@@ -88,6 +88,12 @@ import {
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
+export const PRIVATE_CHECKPOINT_LIMITS = Object.freeze({
+  max_files: 16_384,
+  max_file_bytes: 16 * 1024 * 1024,
+  max_total_bytes: 64 * 1024 * 1024,
+});
+
 export const RUNNER_CODES = Object.freeze({
   INVALID_CONFIG: "invalid-run-config",
   MISSING_CLOCK: "missing-clock",
@@ -352,9 +358,9 @@ function checkpointExclusions(root, paths = []) {
 }
 
 function scanCheckout(root, copyRoot = null, excludedPaths = []) {
-  const MAX_CHECKPOINT_FILES = 16_384;
-  const MAX_CHECKPOINT_FILE_BYTES = 16 * 1024 * 1024;
-  const MAX_CHECKPOINT_TOTAL_BYTES = 64 * 1024 * 1024;
+  const MAX_CHECKPOINT_FILES = PRIVATE_CHECKPOINT_LIMITS.max_files;
+  const MAX_CHECKPOINT_FILE_BYTES = PRIVATE_CHECKPOINT_LIMITS.max_file_bytes;
+  const MAX_CHECKPOINT_TOTAL_BYTES = PRIVATE_CHECKPOINT_LIMITS.max_total_bytes;
   const entries = [];
   const exclusions = checkpointExclusions(root, excludedPaths);
   const hardlinks = new Map();
@@ -543,6 +549,19 @@ export function makePrivateCheckpointEffect(repoRoot) {
     }
   };
   return {
+    inspect(runId, generation, treeRef = null) {
+      const relativePath = generationRelative(runId, generation);
+      if (!relativePath) return { ok: false, code: RUNNER_CODES.CHECKPOINT_INVALID };
+      try {
+        resolveConfinedDirectory(identity.common, relativePath);
+      } catch {
+        return { ok: true, exists: false };
+      }
+      const checked = inspect(runId, generation, treeRef);
+      return checked
+        ? { ok: true, exists: true, tree_ref: checked.tree_ref }
+        : { ok: false, code: RUNNER_CODES.CHECKPOINT_INVALID };
+    },
     snapshot(runId, generation, cwd, excludedPaths = []) {
       const relativePath = generationRelative(runId, generation);
       if (!relativePath || !gitIdentity(cwd) || gitIdentity(cwd).repository_ref !== identity.repository_ref) {

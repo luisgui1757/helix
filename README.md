@@ -37,7 +37,10 @@ it at any time. For checkout development, use `pi -e .`.
 
 Before execution, Helix displays the task, workflow graph, objective gate,
 repository, deadlines, and every resolved role/provider/model/effort/instance
-tuple. The binding is rechecked before run-directory, worktree, or provider
+tuple. Declared typed inputs are collected and validated before run creation;
+consent shows their names without exposing values. Named workflows require the
+canonical per-run worktree policy and refuse before consent when worktrees are
+disabled. The binding is rechecked before run-directory, worktree, or provider
 effects. A real path whose model, effort, route, account, or certification
 cannot be proven is exact-disabled; it never degrades to a session default,
 mock, alternate provider, or fallback route.
@@ -60,7 +63,10 @@ completion is reachable only through one final deterministic objective gate;
 its `on_pass` is the successful terminal's only incoming edge, and it executes
 the single top-level objective definition.
 Read-only effects may overlap; shared writers serialize; isolated proposals run
-in disposable Git worktrees and promote only from an unchanged base.
+in disposable Git worktrees and promote only from an unchanged base. Every
+actual model invocation—including each panel member and retry—consumes one
+journaled effect. Recovery snapshots remain retained until the workspace,
+journal, scheduler checkpoint, and post-commit cleanup are durably complete.
 
 Run records contain structural events and hashes. Raw tasks remain in memory;
 private scheduler checkpoints and bounded workspace snapshots live below

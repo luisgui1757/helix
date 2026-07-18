@@ -17,7 +17,7 @@ function git(cwd, args) {
 
 function targets(node) {
   if (["agent", "parallel", "map", "pipeline", "reduce", "checkpoint", "subworkflow"].includes(node.kind)) return [node.next];
-  if (node.kind === "decision") return [...node.transitions.map((entry) => entry.target), node.default, ...(node.loops_off ? [node.loops_off] : [])];
+  if (node.kind === "decision") return [...node.transitions.map((entry) => entry.target), node.default.target, ...(node.loops_off ? [node.loops_off] : [])];
   if (node.kind === "gate") return [node.on_pass, node.on_fail, ...(node.loops_off ? [node.loops_off] : [])];
   return [];
 }
@@ -103,10 +103,23 @@ function worktreeRef(cwd) {
   return journalRef({ head: head.stdout.trim(), status: status.stdout });
 }
 
-export async function smokeTestWorkflowRuntime({ workflow, cwd, signal = null, onEvent = null } = {}) {
+export async function smokeTestWorkflowRuntime({ workflow, subworkflows = [], cwd, signal = null, onEvent = null } = {}) {
   const normalized = normalizeWorkflowDefinition(workflow);
   if (!normalized.ok) return { ok: false, code: normalized.code ?? "workflow-runtime-smoke-invalid" };
   const definition = normalized.definition;
+  const children = new Map();
+  for (const candidate of subworkflows) {
+    const child = normalizeWorkflowDefinition(candidate);
+    if (!child.ok || Object.values(child.definition.nodes).some((node) => node.kind === "subworkflow")) {
+      return { ok: false, code: "kernel-subworkflow-binding-invalid" };
+    }
+    children.set(`${child.definition.id}@${child.definition.version}`, child.definition);
+  }
+  for (const node of Object.values(definition.nodes)) {
+    if (node.kind === "subworkflow" && !children.has(`${node.workflow_id}@${node.version}`)) {
+      return { ok: false, code: "kernel-subworkflow-binding-invalid" };
+    }
+  }
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
   if (top.status !== 0 || !top.stdout.trim()) return { ok: false, code: "workflow-runtime-smoke-git-required" };
   const repoRoot = top.stdout.trim();
@@ -123,9 +136,10 @@ export async function smokeTestWorkflowRuntime({ workflow, cwd, signal = null, o
       failure = "workflow-runtime-smoke-worktree-failed";
     } else {
       added = true;
-      const finalGateId = Object.keys(definition.nodes)
-        .find((id) => definition.nodes[id].kind === "gate" && definition.nodes[id].final === true);
-      const preferred = preferredOutputs(definition, finalGateId);
+      const definitions = [definition, ...children.values()];
+      const finalGates = new Map(definitions.map((entry) => [entry.id, Object.keys(entry.nodes)
+        .find((id) => entry.nodes[id].kind === "gate" && entry.nodes[id].final === true)]));
+      const preferredByDefinition = new Map(definitions.map((entry) => [entry.id, preferredOutputs(entry, finalGates.get(entry.id))]));
       const workspace = {
         cwd: checkout,
         currentRef: () => worktreeRef(checkout),
@@ -140,12 +154,15 @@ export async function smokeTestWorkflowRuntime({ workflow, cwd, signal = null, o
         signal,
         workspace,
         async executeAgent(agent, ctx) {
-          return { ok: true, value: smokeValue(preferred, ctx.node_id, agent.role), usage: { tokens: 0, cost_micros: 0 } };
+          return { ok: true, value: smokeValue(preferredByDefinition.get(ctx.definition_id), ctx.node_id, agent.role), usage: { tokens: 0, cost_micros: 0 } };
         },
         async runGate(_gate, ctx) {
-          return { result: preferredGateResult(definition, ctx.node_id, finalGateId), evidence_ref: journalRef({ smoke: ctx.node_id }) };
+          const activeDefinition = definitions.find((entry) => entry.id === ctx.definition_id);
+          return { result: preferredGateResult(activeDefinition, ctx.node_id, finalGates.get(ctx.definition_id)), evidence_ref: journalRef({ smoke: ctx.node_id }) };
         },
         async checkpoint() { return { continue: true }; },
+        resolveSubworkflow: (id, version) => children.get(`${id}@${version}`) ?? null,
+        depth: 0,
         onEvent(event) {
           events.push(structuredClone(event));
           onEvent?.(structuredClone(event));

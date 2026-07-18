@@ -158,3 +158,76 @@ Local verification:
   binary. The supported Node 22/26, packaged Pi-RPC, and exact-head checks remain
   mandatory remote CI gates. Live OpenRouter variables were absent, so no new
   live-provider call was claimed or attempted.
+
+## 2026-07-18 — Release-quality audit closure
+
+Status: all confirmed functional findings from the independent Fable/Opus and
+Codex exact-head reviews are closed canonically on the implementation branch.
+The single remediation commit is shippable only after the complete local gate,
+normal push, remote-SHA equality, and exact-head Node 22/26 CI succeed.
+
+Accepted findings and resolution:
+
+- Workspace recovery was not transactional under secondary restoration or
+  cleanup failures. Shared and isolated mutations now keep before-state and
+  proposal material through apply, journal append, scheduler checkpoint, and an
+  idempotent finalize checkpoint. Failed restoration is non-maskable and keeps
+  every recovery artifact. Injected apply/journal/restore/cleanup failures prove
+  the canonical tree is restored or recoverable; no failed effect is silently
+  committed. Recoverable workspace/journal/checkpoint failures remain
+  incomplete in public state and render as interrupted with the resume action.
+- Journal reads used URL path semantics and accepted a missing expected prefix.
+  Reads and writes now use one root-confined filesystem resolver; missing,
+  short, duplicate, corrupt, Unicode, or spaced-root prefixes refuse.
+- Child checkpoints lost their scheduler namespace on resume. Parent snapshots
+  now retain closed child state keyed by parent node and child run id; one
+  attended resume advances exactly that child once.
+- One scheduler effect could hide several panel calls. The kernel expands each
+  cast member into an independent identity, budget reservation, journal entry,
+  and checkpoint. The first panel wave reserves atomically, so an insufficient
+  effect budget launches zero calls.
+- Workflow `inputs` were declarative but not a product boundary. A bounded
+  closed JSON-schema subset is now validated before run creation; the attended
+  UI collects required and optional values, applies defaults, lists only bound
+  names at consent, and binds the canonical input object to resume identity.
+- Named workflow execution ignored an explicit worktree-off setting. Named
+  workflows now require `canonical-worktree` and refuse before consent and run
+  creation when the feature is off; the legacy staged path retains its existing
+  current-checkout behavior.
+- Exact status allowed absent account evidence and used one evidence grade for
+  several fields. Exact mode now requires an opaque requested/effective account,
+  grades provider/model/effort independently, and labels Pi effort as
+  session-verified rather than response-verified.
+- Import saved structurally valid but undeployable assignments. Import now runs
+  the canonical deployment, cast, gate, effort, and workspace preflight before
+  its atomic write.
+- Checkpoint pauses were rendered as failures. Paused is now a distinct
+  nonterminal presentation with the exact `/helix-run-resume <id>` action.
+- Decision defaults could form an implicit loop that ignored loops-off. Defaults
+  are typed edges; cyclic defaults require `loop: true`, and loop-disabled runs
+  take the declared escape. Condition validation/evaluation also shares an
+  explicit depth ceiling and is total on hostile nesting.
+- Private snapshot limits are exported, documented, and tested at exact/one-over
+  boundaries: 16,384 files, 16 MiB per file, 64 MiB total.
+- Runtime smoke now binds exact direct-child workflow versions. CI package proof
+  now invokes Pi RPC from the extracted tarball, not the source checkout.
+- Scheduler-owned cancellation now bounds gate, artifact, checkpoint, and
+  child-resolution boundaries; a deterministic non-cooperative-gate regression
+  proves the whole-run deadline returns cancellation.
+
+Focused regression evidence before the final gate:
+
+- Kernel behavior: 26/26, including transaction failure windows, journal path
+  and absence, panel reservation, typed input, cyclic defaults, and child resume.
+- Workflow v4 schema: 10/10; provider/runtime contracts and Pi adapter focused
+  suites passed.
+- Complete Node test suite: 669/669; worktree self-test 12/12; objective-loop
+  self-test 8/8.
+- Workflow conformance: 56/56; provider contracts: 27/27; docs truth,
+  resources, static no-live-egress, public-safety diff, package extraction
+  (98 files), both deterministic smokes, and `git diff --check` passed.
+- Active Docker `--network none`: 5/5 passed, including blocked external DNS,
+  offline Pi 0.80.7 package load, and localhost-only mock inference.
+- No live provider endpoint was needed or contacted for these deterministic
+  remediations. Remote matrix/package/no-egress results belong to the exact
+  pushed remediation SHA and must not be inferred from an earlier commit.

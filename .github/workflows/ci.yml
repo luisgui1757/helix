@@ -34,7 +34,7 @@ jobs:
       - run: npm run check:public-safety-diff
       - run: npm run check:workflow-conformance
       - run: npm run check:provider-contracts
-      - run: npm run check:package
+      - run: npm run check:package -- --pi-bin node_modules/.bin/pi
       - run: node tools/smoke/dispatch-smoke.mjs
       - run: node tools/smoke/revision-effect-smoke.mjs
       - run: node tools/smoke/pi-e2e-load.mjs --runtime-rpc --pi-bin node_modules/.bin/pi

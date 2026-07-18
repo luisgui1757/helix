@@ -6,7 +6,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import helixCommand from "../extensions/helix-command.ts";
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
-import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
+import { agent, objectiveGate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { saveUserWorkflow, saveUserWorkflowV4 } from "../extensions/lib/helix-workflows.mjs";
 import { saveProfile, switchProfile } from "../extensions/lib/helix-local.mjs";
 
 const COMMAND_NAMES = [
@@ -411,6 +412,7 @@ test("helix-run executes the canonical workflow in-process with the exact user t
     assert.equal(confirmation.title, "Start Helix workflow");
     assert.match(confirmation.body, /Exact cast:\n  plan \[composite:overlord\]/);
     assert.match(confirmation.body, /planner: mock\/mock-overlord-planner:max x1/);
+    assert.match(confirmation.body, /Bound inputs: task/);
     assert.match(messages[1].message.content, /Inspect: \/helix-run-status helix-/);
     assert.equal(invocation, null, "the extension keeps Pi ModelRegistry/AuthStorage in-process");
     assert.deepEqual(working, [
@@ -428,6 +430,66 @@ test("helix-run executes the canonical workflow in-process with the exact user t
       "Helix · succeeded · visit 1",
       false, null,
     ]);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("helix-run collects required and optional typed inputs and renders only bound names", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-run-input-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-run-input-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Input Test"], { cwd });
+  writeFileSync(join(cwd, "tracked.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "tracked.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const built = workflow({
+    id: "typed-ui", name: "Typed UI", description: "Collect typed input.", start: "review",
+    inputs: {
+      type: "object", additionalProperties: false, required: ["task", "items"],
+      properties: {
+        task: { type: "string", minLength: 1, maxLength: 65_536 },
+        items: { type: "array", description: "Items to inspect", items: { type: "string", minLength: 1, maxLength: 32 }, minItems: 1, maxItems: 3 },
+        note: { type: "string", description: "Optional note", maxLength: 64 },
+        strict: { type: "boolean", default: true },
+      },
+    },
+    nodes: {
+      review: pipeline([agent({ role: "reviewer", stage_id: "review", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 })], "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "objective-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const { commands } = loadHelixCommands();
+  const prompts = [];
+  const answers = ['["a","b"]', "", ""];
+  let confirmation = null;
+  try {
+    await commandByName(commands, "helix-run").handler("typed-ui -- Review typed data", {
+      mode: "tui", cwd,
+      ui: {
+        input: async (prompt) => { prompts.push(prompt); return answers.shift() ?? null; },
+        confirm: async (_title, body) => { confirmation = body; return false; },
+        notify() {},
+      },
+    });
+    assert.match(prompts[0], /items.*required.*Items to inspect/);
+    assert.match(prompts[1], /note.*optional; leave blank to omit.*Optional note/);
+    assert.match(prompts[2], /strict.*default true; leave blank to use it/);
+    assert.match(confirmation, /Bound inputs: items, strict, task/);
+    assert.equal(confirmation.includes("a\",\"b"), false, "consent never renders input values");
+    assert.equal(existsSync(join(stateRoot, "runs")), false);
   } finally {
     if (previous === undefined) delete process.env.HELIX_STATE_DIR;
     else process.env.HELIX_STATE_DIR = previous;

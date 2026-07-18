@@ -2,6 +2,16 @@
 // resume must present the original task and re-prove its hash.
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
+const RECOVERABLE_FAILURE = /^kernel-(?:workspace|journal|checkpoint)(?:-|$)/;
+
+export function isRecoverableKernelFailure(code) {
+  return typeof code === "string" && RECOVERABLE_FAILURE.test(code);
+}
+
+export function kernelResultIsComplete({ status, code } = {}, { has_checkpoint = false } = {}) {
+  return !["paused", "running"].includes(status)
+    && !(has_checkpoint && isRecoverableKernelFailure(code));
+}
 
 function plain(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -34,13 +44,23 @@ export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, r
     return { valid: false, code: "kernel-checkpoint-invalid" };
   }
   if (checkpoint.active !== null) {
-    if (!exact(checkpoint.active, ["node_id", "visit", "completed"])
+    const activeKeys = Object.hasOwn(checkpoint.active, "child")
+      ? ["node_id", "visit", "completed", "child"]
+      : ["node_id", "visit", "completed"];
+    if (!exact(checkpoint.active, activeKeys)
       || checkpoint.active.node_id !== checkpoint.current
       || !Number.isSafeInteger(checkpoint.active.visit) || checkpoint.active.visit < 1
       || !plain(checkpoint.active.completed)
       || Object.entries(checkpoint.active.completed).some(([id, result]) => typeof id !== "string" || id.length > 256
         || !plain(result) || !["ok", "failed", "refused", "cancelled"].includes(result.status))) {
       return { valid: false, code: "kernel-checkpoint-active-invalid" };
+    }
+    if (Object.hasOwn(checkpoint.active, "child")
+      && (!exact(checkpoint.active.child, ["workflow_id", "version", "run_id", "scheduler"])
+        || typeof checkpoint.active.child.workflow_id !== "string"
+        || !Number.isSafeInteger(checkpoint.active.child.version) || checkpoint.active.child.version < 1
+        || typeof checkpoint.active.child.run_id !== "string" || !plain(checkpoint.active.child.scheduler))) {
+      return { valid: false, code: "kernel-checkpoint-child-invalid" };
     }
   }
   try {

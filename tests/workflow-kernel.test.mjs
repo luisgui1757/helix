@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
-import { agent, decision, map, objectiveGate, parallel, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { agent, checkpoint, decision, map, objectiveGate, parallel, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { createEffectJournal, journalRef } from "../dispatch/kernel/journal.mjs";
 import { runWorkflowKernel } from "../dispatch/kernel/scheduler.mjs";
+import { kernelResultIsComplete } from "../dispatch/kernel/state.mjs";
 import { createCanonicalWorkspace } from "../dispatch/kernel/workspace.mjs";
 import { makePrivateCheckpointEffect } from "../dispatch/lib/runner.mjs";
 
@@ -15,10 +16,11 @@ const objective = { type: "file-contains", path: "proposal.txt", contains: "PASS
 const reviewer = () => agent({ role: "reviewer", stage_id: "review", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 });
 const builder = () => agent({ role: "builder", stage_id: "build", mutation: "shared-serialized", timeout_ms: 1_000 });
 
-function definition(nodes, start = "work", limits = {}) {
+function definition(nodes, start = "work", limits = {}, inputs = null) {
   const built = workflow({
     id: "kernel-test", name: "Kernel test", description: "Kernel test workflow.", start, nodes,
     limits: { max_total_effects: 32, max_concurrency: 4, max_map_items: 16, max_run_ms: 5_000, max_call_ms: 1_000, ...limits },
+    ...(inputs ? { inputs } : {}),
     objective_gate: objective,
   });
   assert.equal(built.ok, true, JSON.stringify(built.errors));
@@ -204,14 +206,152 @@ test("map passes exact ordered items and reduce consumes its output", async () =
     objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
+  }, "work", {}, {
+    type: "object", additionalProperties: false, required: ["task", "items"],
+    properties: {
+      task: { type: "string", minLength: 1, maxLength: 65_536 },
+      items: { type: "array", items: { type: "string" }, minItems: 0, maxItems: 4 },
+    },
   });
-  graph.inputs = { type: "object", additionalProperties: false, required: ["task"], properties: { task: { type: "string" }, items: { type: "array" } } };
   const result = await runWorkflowKernel(graph, { task: "map", items: ["a", "b", "c"] }, readOnlyDeps());
   assert.equal(result.ok, true);
   assert.deepEqual(result.outputs.work.map((entry) => entry.result.value.item), ["a", "b", "c"]);
   assert.equal(result.outputs.collect, 3);
-  const tooMany = await runWorkflowKernel(graph, { task: "map", items: [1, 2, 3, 4] }, readOnlyDeps());
+  const tooMany = await runWorkflowKernel(graph, { task: "map", items: ["a", "b", "c", "d"] }, readOnlyDeps());
   assert.equal(tooMany.code, "kernel-map-cardinality-exceeded");
+});
+
+test("declared workflow inputs reject unknown fields before any effect", async () => {
+  let calls = 0;
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  });
+  const result = await runWorkflowKernel(graph, { task: "review", unexpected: true }, readOnlyDeps({
+    async executeAgent() { calls += 1; return { ok: true, value: {} }; },
+  }));
+  assert.equal(result.code, "kernel-input-invalid");
+  assert.equal(calls, 0);
+});
+
+test("declared workflow input defaults materialize identically for direct kernel callers", async () => {
+  let observed = null;
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", {}, {
+    type: "object", additionalProperties: false, required: ["task"],
+    properties: {
+      task: { type: "string", minLength: 1, maxLength: 65_536 },
+      strict: { type: "boolean", default: true },
+    },
+  });
+  const result = await runWorkflowKernel(graph, { task: "defaults" }, readOnlyDeps({
+    async executeAgent(_node, ctx) {
+      observed = ctx.input;
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 0, cost_micros: 0 } };
+    },
+  }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(observed, { task: "defaults", strict: true });
+});
+
+test("cyclic defaults are explicit and loops-off exits them when loops are disabled", async () => {
+  const invalid = definition({
+    route: decision([], "objective"),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "stopped"),
+  }, "route");
+  const candidate = structuredClone(invalid);
+  candidate.nodes.route.default = { target: "route" };
+  candidate.nodes.route.loops_off = "objective";
+  assert.equal((await runWorkflowKernel(candidate, { task: "loop" }, readOnlyDeps({ loops: false }))).code, "kernel-definition-invalid");
+
+  const graph = definition({
+    route: decision([], "route", { default_loop: true, loops_off: "objective" }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "route");
+  const result = await runWorkflowKernel(graph, { task: "loop" }, readOnlyDeps({ loops: false }));
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.visits.route, 1);
+});
+
+test("expanded cast members reserve atomically and journal one effect per invocation", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 1 });
+  let calls = 0;
+  const refused = await runWorkflowKernel(graph, { task: "panel" }, readOnlyDeps({
+    expandAgent: (node) => [{ ...node, member: 0 }, { ...node, member: 1 }],
+    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" } }; },
+  }));
+  assert.equal(refused.code, "kernel-budget-exhausted");
+  assert.equal(calls, 0);
+
+  const allowed = structuredClone(graph);
+  allowed.limits.max_total_effects = 2;
+  const result = await runWorkflowKernel(allowed, { task: "panel" }, readOnlyDeps({
+    expandAgent: (node) => [{ ...node, member: 0 }, { ...node, member: 1 }],
+  }));
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.budget.effects, 2);
+  assert.equal(result.journal.length, 2);
+});
+
+test("a completed resumed panel reuses its effects before atomic reservation", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 2, max_concurrency: 2 });
+  const taskRef = journalRef("panel-resume-task");
+  const workspaceRef = journalRef("panel-resume-workspace");
+  const workspace = { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true };
+  const journal = createEffectJournal({ verify_workspace: workspace.verifyRef });
+  let calls = 0;
+  let checkpoint = null;
+  const deps = readOnlyDeps({
+    task_ref: taskRef,
+    runtime_ref: journalRef("panel-resume-runtime"),
+    workspace,
+    journal,
+    expandAgent: (node) => [{ ...node }, { ...node }],
+    async executeAgent() {
+      calls += 1;
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 0, cost_micros: 0 } };
+    },
+    async onCheckpoint(state) {
+      if (Object.keys(state.active?.completed ?? {}).length === 2) {
+        checkpoint = structuredClone(state);
+        return { ok: false, code: "synthetic-panel-stop" };
+      }
+      return { ok: true };
+    },
+  });
+  const interrupted = await runWorkflowKernel(graph, { task: "panel resume" }, deps);
+  assert.equal(interrupted.code, "synthetic-panel-stop");
+  assert.equal(calls, 2);
+  assert.equal(checkpoint.budget.effects, 2);
+  const resumed = await runWorkflowKernel(graph, { task: "panel resume" }, {
+    ...deps,
+    resume: checkpoint,
+    async onCheckpoint() { return { ok: true }; },
+  });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(calls, 2);
+  assert.equal(resumed.budget.effects, 2);
+  assert.equal(resumed.budget.reserved, 0);
 });
 
 test("mutating effects serialize and journal only after workspace commit", async () => {
@@ -250,6 +390,50 @@ test("mutating effects serialize and journal only after workspace commit", async
   assert.equal(mutating.every((entry) => refs.has(entry.workspace_ref)), true);
 });
 
+test("failed workspace restoration preserves its recovery snapshot and is non-maskable", async () => {
+  let current = journalRef("before");
+  let removals = 0;
+  const checkpointEffect = {
+    snapshot: (_run, generation) => ({ ok: true, generation, tree_ref: current }),
+    restore: () => ({ ok: false, code: "synthetic-restore-failed" }),
+    remove: () => { removals += 1; return { ok: true }; },
+    fingerprint: () => ({ ok: true, tree_ref: current }),
+  };
+  const workspace = createCanonicalWorkspace({ cwd: "/tmp/mock", run_id: "restore-run", checkpoint_effect: checkpointEffect });
+  const tx = await workspace.begin({ mode: "shared-serialized" });
+  current = journalRef("after");
+  assert.equal((await workspace.commit(tx)).ok, true);
+  const restored = await workspace.rollback(tx);
+  assert.equal(restored.code, "kernel-workspace-restore-failed");
+  assert.equal(removals, 0, "recovery material remains available after a failed restore");
+});
+
+test("journal failure after a workspace apply restores before returning", async () => {
+  const graph = definition({
+    work: { ...builder(), next: "objective", max_visits: 1 },
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  });
+  let rolledBack = 0;
+  const workspace = {
+    cwd: "/tmp/mock",
+    currentRef: () => journalRef("workspace"),
+    verifyRef: () => true,
+    async begin() { return { ok: true, mode: "shared-serialized", cwd: "/tmp/mock", generation: "effect-1", tree_ref: journalRef("before") }; },
+    async commit() { return { ok: true, workspace_ref: journalRef("after") }; },
+    async rollback() { rolledBack += 1; return { ok: true }; },
+  };
+  const journal = {
+    lookup: () => null,
+    commit: () => ({ ok: false, code: "kernel-journal-write-failed" }),
+    records: () => [],
+  };
+  const result = await runWorkflowKernel(graph, { task: "mutate" }, readOnlyDeps({ workspace, journal }));
+  assert.equal(result.code, "kernel-journal-write-failed");
+  assert.equal(rolledBack, 1);
+});
+
 test("read-only cache reuses output but mutating cache requires workspace verification", async () => {
   const root = mkdtempSync(join(tmpdir(), "helix-kernel-journal-"));
   try {
@@ -265,6 +449,22 @@ test("read-only cache reuses output but mutating cache requires workspace verifi
     assert.equal((await runWorkflowKernel(graph, { task: "cache" }, deps)).ok, true);
     assert.equal((await runWorkflowKernel(graph, { task: "cache" }, deps)).ok, true);
     assert.equal(calls, 1);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("journal read/write paths agree for Unicode roots and missing expected journals refuse", () => {
+  const root = mkdtempSync(join(tmpdir(), "helix journal ü "));
+  try {
+    const journal = createEffectJournal({ root, run_id: "unicode-run" });
+    const ref = journalRef("journal-field");
+    assert.equal(journal.commit({
+      identity: journalRef("identity"), node_id: "work", instance_id: "work:1",
+      input_ref: ref, runtime_ref: ref, before_ref: ref, mutating: false,
+      status: "ok", result: { status: "ok", value: "done" },
+    }).ok, true);
+    assert.equal(createEffectJournal({ root, run_id: "unicode-run", expected_records: 1 }).records().length, 1);
+    unlinkSync(join(root, "unicode-run.kernel.journal.jsonl"));
+    assert.throws(() => createEffectJournal({ root, run_id: "unicode-run", expected_records: 1 }), /kernel-journal-corrupt/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -310,6 +510,53 @@ test("effect-boundary checkpoint resumes without repeating a completed effect", 
   assert.equal(resumed.events.some((event) => event.kind === "effect-resumed"), true);
 });
 
+test("failed workspace finalization resumes as non-maskable without replay", async () => {
+  const graph = definition({
+    work: pipeline([builder()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  });
+  const taskRef = journalRef("finalize-task");
+  const workspaceRef = journalRef("finalize-workspace");
+  const journal = createEffectJournal({ verify_workspace: () => true });
+  let calls = 0;
+  let checkpoint = null;
+  const workspace = {
+    cwd: "/tmp/mock",
+    currentRef: () => workspaceRef,
+    verifyRef: () => true,
+    async begin() { return { ok: true, mode: "shared-serialized", cwd: "/tmp/mock", generation: "effect-1", tree_ref: workspaceRef, before_ref: workspaceRef }; },
+    async commit() { return { ok: true, workspace_ref: workspaceRef }; },
+    serialize(tx) { return { ...tx, workspace_ref: workspaceRef, applied: true }; },
+    async finalize() { return { ok: false, code: "kernel-workspace-snapshot-cleanup-failed" }; },
+    async rollback() { return { ok: true }; },
+  };
+  const deps = readOnlyDeps({
+    task_ref: taskRef,
+    runtime_ref: journalRef("finalize-runtime"),
+    workspace,
+    journal,
+    async executeAgent() {
+      calls += 1;
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 0, cost_micros: 0 } };
+    },
+    async onCheckpoint(state) {
+      if (Object.values(state.active?.completed ?? {}).some((entry) => entry._workspace_pending)) checkpoint = structuredClone(state);
+      return { ok: true };
+    },
+  });
+  const interrupted = await runWorkflowKernel(graph, { task: "finalize" }, deps);
+  assert.equal(interrupted.code, "kernel-workspace-snapshot-cleanup-failed");
+  assert.equal(kernelResultIsComplete(interrupted, { has_checkpoint: true }), false);
+  assert.equal(kernelResultIsComplete(interrupted), true);
+  assert.equal(calls, 1);
+  assert.ok(checkpoint);
+  const resumed = await runWorkflowKernel(graph, { task: "finalize" }, { ...deps, resume: checkpoint });
+  assert.equal(resumed.code, "kernel-workspace-snapshot-cleanup-failed");
+  assert.equal(calls, 1);
+});
+
 test("budget exhaustion and cancellation are terminal, never allowed failures", async () => {
   const graph = definition({
     work: parallel([reviewer(), reviewer()], "objective", { max_concurrency: 2 }),
@@ -323,6 +570,23 @@ test("budget exhaustion and cancellation are terminal, never allowed failures", 
   controller.abort("operator-cancelled");
   const cancelled = await runWorkflowKernel(graph, { task: "cancel" }, readOnlyDeps({ signal: controller.signal }));
   assert.equal(cancelled.status, "cancelled");
+  assert.equal(cancelled.budget.reserved, 0);
+});
+
+test("the scheduler hard deadline bounds a non-cooperative objective gate", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", { max_run_ms: 1_000 });
+  const started = Date.now();
+  const result = await runWorkflowKernel(graph, { task: "deadline" }, readOnlyDeps({
+    async runGate() { return new Promise(() => {}); },
+  }));
+  assert.equal(result.status, "cancelled");
+  assert.equal(result.code, "kernel-run-cancelled");
+  assert.ok(Date.now() - started < 2_500);
 });
 
 test("isolated proposals promote atomically, roll back, and refuse stale-base conflicts", async () => {
@@ -340,6 +604,7 @@ test("isolated proposals promote atomically, roll back, and refuse stale-base co
   assert.equal(promoted.ok, true);
   writeFileSync(join(promoted.cwd, "value.txt"), "promoted\n");
   assert.equal((await workspace.commit(promoted)).ok, true);
+  assert.equal((await workspace.finalize(promoted)).ok, true);
   assert.equal(readFileSync(join(cwd, "value.txt"), "utf8"), "promoted\n");
 
   const rolledBack = await workspace.begin({ mode: "isolated-proposal" });
@@ -353,6 +618,44 @@ test("isolated proposals promote atomically, roll back, and refuse stale-base co
   const refused = await workspace.commit(stale);
   assert.equal(refused.code, "kernel-proposal-conflict");
   assert.equal(readFileSync(join(cwd, "value.txt"), "utf8"), "concurrent\n");
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("proposal restore failure retains both the snapshot and proposal for recovery", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "helix-kernel-proposal-restore-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Kernel Test"], { cwd });
+  writeFileSync(join(cwd, "value.txt"), "base\n");
+  execFileSync("git", ["add", "value.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "base"], { cwd });
+  let removals = 0;
+  const checkpointEffect = {
+    fingerprint: (path) => ({ ok: true, tree_ref: journalRef(readFileSync(join(path, "value.txt"), "utf8")) }),
+    snapshot: (_run, generation) => ({ ok: true, generation, tree_ref: journalRef("base\n") }),
+    restore: () => ({ ok: false, code: "synthetic-restore-failed" }),
+    remove: () => { removals += 1; return { ok: true }; },
+  };
+  let promotion = false;
+  const workspace = createCanonicalWorkspace({
+    cwd, run_id: "proposal-restore", checkpoint_effect: checkpointEffect,
+    sync_tree(source, destination) {
+      if (destination !== cwd) return;
+      promotion = true;
+      writeFileSync(join(cwd, "value.txt"), readFileSync(join(source, "value.txt")));
+      throw new Error("synthetic-promotion-failure");
+    },
+  });
+  const tx = await workspace.begin({ mode: "isolated-proposal" });
+  assert.equal(tx.ok, true);
+  writeFileSync(join(tx.cwd, "value.txt"), "partial\n");
+  const result = await workspace.commit(tx);
+  assert.equal(result.code, "kernel-workspace-restore-failed");
+  assert.equal(promotion, true);
+  assert.equal(removals, 0);
+  assert.equal(existsSync(tx.temp_root), true);
+  execFileSync("git", ["worktree", "remove", "--force", tx.cwd], { cwd });
+  rmSync(tx.temp_root, { recursive: true, force: true });
   rmSync(cwd, { recursive: true, force: true });
 });
 
@@ -381,4 +684,50 @@ test("version-pinned subworkflow shares budgets and emits nested structural prog
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.budget.effects, 1);
   assert.equal(result.events.some((event) => event.kind === "subworkflow-event" && event.child_kind === "run-end"), true);
+});
+
+test("a namespaced child checkpoint advances exactly once on parent resume", async () => {
+  const child = workflow({
+    id: "child-checkpoint", name: "Child checkpoint", description: "Child checkpoint workflow.", start: "approval",
+    nodes: {
+      approval: checkpoint("operator-approval", "objective"),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "child-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  const parent = definition({
+    child: subworkflow("child-checkpoint", 1, "objective"),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "parent-failed"),
+  }, "child");
+  const workspaceRef = journalRef("child-workspace");
+  const taskRef = journalRef("child-task");
+  const runtimeRef = journalRef("child-runtime");
+  let snapshot = null;
+  const base = readOnlyDeps({
+    task_ref: taskRef,
+    runtime_ref: runtimeRef,
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    resolveSubworkflow: () => child.definition,
+    async onCheckpoint(state) { snapshot = structuredClone(state); return { ok: true }; },
+  });
+  const paused = await runWorkflowKernel(parent, { task: "child pause" }, {
+    ...base,
+    checkpoint: () => ({ continue: false }),
+  });
+  assert.equal(paused.status, "paused");
+  assert.equal(snapshot.active.child.scheduler.current, "approval");
+  const resumed = await runWorkflowKernel(parent, { task: "child pause" }, {
+    ...base,
+    resume: snapshot,
+    checkpoint: ({ node_id, child_run_id }) => ({
+      continue: child_run_id === "run-1.child" && node_id === "approval",
+    }),
+  });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(resumed.budget.effects, 0);
 });

@@ -263,6 +263,45 @@ test("native run completion renders only stable structural fields", () => {
     exitCode: 0,
   });
   assert.equal(incomplete.code, "helix-runner-result-invalid");
+
+  const paused = renderHelixRunCompletion({
+    runId: "native-mock-run",
+    configId: "mock-core-loop",
+    exitCode: 1,
+    converged: false,
+    stopReason: "paused",
+    failureCode: "operator-approval",
+  });
+  assert.equal(paused.ok, true);
+  assert.equal(paused.status, "paused");
+  assert.match(paused.text, /Continue: \/helix-run-resume native-mock-run/);
+  assert.equal(paused.text.includes("failed"), false);
+
+  const interrupted = renderHelixRunCompletion({
+    runId: "native-mock-run",
+    configId: "mock-core-loop",
+    exitCode: 1,
+    converged: false,
+    stopReason: "failed",
+    failureCode: "kernel-workspace-snapshot-cleanup-failed",
+    resumable: true,
+  });
+  assert.equal(interrupted.ok, true);
+  assert.equal(interrupted.status, "interrupted");
+  assert.match(interrupted.text, /Continue: \/helix-run-resume native-mock-run/);
+  assert.equal(interrupted.text.includes("Helix run failed"), false);
+
+  const noCheckpoint = renderHelixRunCompletion({
+    runId: "native-mock-run",
+    configId: "mock-core-loop",
+    exitCode: 1,
+    converged: false,
+    stopReason: "failed",
+    failureCode: "kernel-checkpoint-snapshot-failed",
+    resumable: false,
+  });
+  assert.equal(noCheckpoint.ok, false);
+  assert.equal(noCheckpoint.text.includes("/helix-run-resume"), false);
 });
 
 test("workflow runtime test renderer accepts only the proved smoke contract", () => {
@@ -648,6 +687,29 @@ test("malformed v4 import returns a stable boundary refusal and writes nothing",
   assert.equal(imported.ok, false);
   assert.equal(imported.code, "invalid-workflow-v4");
   assert.equal(existsSync(join(stateRoot, "workflows", "malformed.json")), false);
+});
+
+test("v4 import validates deployment before persistence", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "helix-v4-deployment-cwd-"));
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-v4-deployment-state-"));
+  const objective = { type: "file-contains", path: "result.md", contains: "PASS" };
+  const built = workflow({
+    id: "undeployable-v4", name: "Undeployable", description: "Invalid deployment workflow.", start: "work",
+    nodes: {
+      work: pipeline([agent({ role: "reviewer", stage_id: "work", mutation: "read-only", timeout_ms: 1_000 })], "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "objective-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true);
+  built.definition.provider_policy.default_assignment = { kind: "model" };
+  writeFileSync(join(cwd, "undeployable.json"), JSON.stringify(built.definition));
+  const imported = executeHelixCommand("workflows import undeployable.json", { mode: "tui", confirm: true }, { stateRoot, cwd });
+  assert.equal(imported.ok, false);
+  assert.equal(imported.code, "workflow-deployment-invalid");
+  assert.equal(existsSync(join(stateRoot, "workflows", "undeployable-v4.json")), false);
 });
 
 test("helix completions fail closed when run config completion input is malformed", () => {

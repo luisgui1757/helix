@@ -12,6 +12,7 @@ test("CI exposes one stable test check after the complete Node matrix", () => {
   assert.match(workflow, /^  test:\n    name: test\n    if: \$\{\{ always\(\) \}\}\n    needs: test_matrix$/m);
   assert.match(workflow, /^          MATRIX_RESULT: \$\{\{ needs\.test_matrix\.result \}\}$/m);
   assert.match(workflow, /^        run: test "\$MATRIX_RESULT" = success$/m);
+  assert.match(workflow, /^      - run: npm run check:package -- --pi-bin node_modules\/\.bin\/pi$/m);
 });
 
 test("Protect main keeps integrity unbypassable and review bypass owner-only", () => {

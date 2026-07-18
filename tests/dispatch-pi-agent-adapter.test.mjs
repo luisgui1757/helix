@@ -123,6 +123,11 @@ test("exact Pi execution pins one active ZDR route and verifies the generation b
   }]);
   const envelope = await adapter.runCandidate(spec, { run_id: "exact-run", cwd: "/tmp", prompt: "review" });
   assert.equal(adapter.attests(spec, envelope.attestation_ref), true);
+  assert.deepEqual(envelope.effective.evidence, {
+    provider: "verified-response",
+    model: "verified-response",
+    effort: "verified-session",
+  });
   assert.equal(sessionOptions.apiKey, "test-credential");
   assert.deepEqual(sessionOptions.model.compat.openRouterRouting, {
     only: ["ExactRoute"], order: ["ExactRoute"], allow_fallbacks: false,

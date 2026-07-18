@@ -77,7 +77,16 @@ export const ROLE_ENVELOPE_SCHEMA = Object.freeze({
         provider: { type: "string", pattern: PROVIDER_ID_PATTERN },
         model: { type: "string", pattern: MODEL_ID_PATTERN },
         effort: { type: "string", enum: ["default", "provider-managed", "low", "medium", "high", "xhigh", "max"] },
-        evidence: { type: "string", enum: ["verified-response", "verified-deployment", "verified-session", "requested-only"] },
+        evidence: {
+          type: "object",
+          additionalProperties: false,
+          required: ["provider", "model", "effort"],
+          properties: {
+            provider: { type: "string", enum: ["verified-response", "verified-deployment", "verified-session", "requested-only"] },
+            model: { type: "string", enum: ["verified-response", "verified-deployment", "verified-session", "requested-only"] },
+            effort: { type: "string", enum: ["verified-response", "verified-deployment", "verified-session", "requested-only"] },
+          },
+        },
       },
     },
     attestation_ref: { type: "string", pattern: REF_PATTERN },

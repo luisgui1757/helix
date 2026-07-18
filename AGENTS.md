@@ -322,11 +322,20 @@ The single source for test rules.
   final node cannot redefine the top-level objective, and resume requires its
   recorded pass evidence. Model verdicts may route work but cannot declare
   convergence.
-- A mutating effect is incomplete until workspace commit, journal append,
+- A mutating effect is incomplete until workspace apply, journal append,
   scheduler checkpoint, and bounded private workspace snapshot are durable.
-  Resume restores that exact prefix before reusing completed effects.
+  Recovery/proposal material remains until idempotent finalization; a failed
+  restore preserves it. Resume restores and verifies that exact prefix before
+  reusing completed effects, and a missing expected journal refuses. A
+  workspace/journal/checkpoint failure is advertised as resumable only when a
+  durable private checkpoint actually exists.
 - Read-only effects may overlap. Shared mutations serialize. Isolated proposals
   promote only from an unchanged canonical fingerprint; conflicts refuse.
+- Every actual model invocation, including panel members and retries, is one
+  independently budgeted and journaled effect. Panel reservations are atomic.
+- Declared typed inputs validate before run creation and are bound to resume.
+  Named workflows require the canonical per-run worktree and refuse before
+  consent when that feature is disabled.
 - `dispatch/runtime/pi-runtime.mjs` is the only Pi SDK import seam and supports
   `>=0.80.7 <0.81.0`. Provider runtimes require structural branding and a
   short-lived exact CapabilityAttestation; requested-only values never count as

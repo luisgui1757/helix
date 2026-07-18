@@ -36,6 +36,13 @@ reachable non-terminal must be able to reach it. The final gate has no local
 targets, unreachable nodes, recursive/nested-depth-two subworkflows, and
 unbounded cycles refuse.
 
+The input schema is a bounded closed subset for object, array, string, number,
+integer, and boolean values. The root requires a non-empty `task`; declared
+fields may add descriptions, defaults, and bounds. The attended runner prompts
+for every non-task field: blank accepts a declared default, omits an optional
+field, or refuses a required field without a default. It validates the complete
+object before creating a run and binds it to resume identity.
+
 ## Nodes
 
 | Kind | Purpose | Important requirements |
@@ -45,7 +52,7 @@ unbounded cycles refuse.
 | `parallel` | Bounded fan-out/fan-in | branches, 1–16 concurrency, abort/settle policy |
 | `map` | Agent over a typed array | JSON pointer, 0–256 items, failure policy |
 | `reduce` | Deterministic aggregation | collect, count, or bounded-separator concat |
-| `decision` | Closed routing | typed conditions, default, optional loops-off target |
+| `decision` | Closed routing | typed conditions, typed default edge, optional loops-off target |
 | `gate` | Deterministic evidence | non-final: local file/argv gate; final: top-level objective only |
 | `checkpoint` | Attended pause | stable reason and next; resume is the continue action |
 | `subworkflow` | Reuse a named graph | exact id/version, maximum nesting depth one |
@@ -70,9 +77,11 @@ evaluation, or implicit truthiness is allowed. Missing paths do not match.
 | Structured repair | 2 declared | 2 |
 | Serialized definition | — | 256 KiB |
 
-Retries are effects: every attempt consumes the shared effect/token/cost budget
-and appears in observed events. Loop-disabled mode follows an explicit
-`loops_off` target; it never guesses how to escape a back edge.
+Retries and panel members are effects: every actual model invocation consumes
+the shared effect/token/cost budget and appears in observed events. A panel's
+first wave is reserved atomically so a one-effect limit cannot launch two calls.
+Loop-disabled mode follows an explicit `loops_off` target; cyclic defaults must
+be marked `loop: true`, and the kernel never guesses how to escape a back edge.
 
 Read-only agents may use only read/search tools. `shared-serialized` writers run
 under one writer mutex with private before-state checkpoints.
@@ -151,7 +160,9 @@ TUI:
 
 The builder also exports non-final `gate`, plus `parallel`, `map`, `reduce`,
 `checkpoint`, and `subworkflow`. All constructors return ordinary JSON and use
-the same defaults as the validator.
+the same defaults as the validator. `decision` emits a typed default edge;
+pass `{ default_loop: true, loops_off: "…" }` when that default is a bounded
+back edge.
 
 ## Common patterns
 
@@ -177,10 +188,13 @@ refuse before child dispatch.
 
 ### Checkpoint and subworkflow
 
-A checkpoint pauses after its durable scheduler/workspace commit. The attended
-resume command supplies the continue action. A subworkflow pins both id and
-version, shares the parent's budget/journal/workspace, emits nested structural
-events, and may not invoke another subworkflow.
+A checkpoint pauses after its durable scheduler/workspace commit and is shown
+as paused with the exact resume command. The attended resume supplies the
+continue action. A child checkpoint is namespaced beneath its parent and
+continues exactly once. A subworkflow pins both id and version, shares the
+parent's budget/journal/workspace, emits nested structural events, and may not
+invoke another subworkflow. Runtime smoke resolves the same pinned direct child
+bundle as product execution.
 
 ## Objective gates
 

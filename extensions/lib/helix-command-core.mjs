@@ -31,6 +31,7 @@ import {
 } from "../../dispatch/lib/workflows.mjs";
 import { normalizeWorkflowDefinition } from "../../dispatch/workflow/schema.mjs";
 import { observedWorkflowGraph, plannedWorkflowGraph } from "../../dispatch/workflow/visualize.mjs";
+import { isRecoverableKernelFailure } from "../../dispatch/kernel/state.mjs";
 import { preflightObjectiveGate } from "../../dispatch/lib/task-loop.mjs";
 import { resolveChainCast } from "../../dispatch/lib/presets.mjs";
 import { validateRoleMatrixConfig } from "../../dispatch/lib/role-matrix.mjs";
@@ -655,28 +656,37 @@ function workflowBindingChildren(workflow, deps) {
   return { ok: true, definitions };
 }
 
-function buildPreflight(configId, deps) {
-  let resolved = resolveRunConfig(deps.runRegistry, configId);
+function buildPreflight(configId, deps, workflowOverride = null) {
+  let resolved = workflowOverride == null ? resolveRunConfig(deps.runRegistry, configId) : { ok: false, code: "unknown-run-config" };
   let workflow = null;
   let workflowChain = null;
+  if (workflowOverride != null) {
+    const execution = workflowToExecution(workflowOverride);
+    if (!execution.ok) return { ok: false, code: execution.code, detail: execution.detail };
+    workflow = workflowOverride;
+    workflowChain = execution.chain;
+    resolved = { ok: true, config: execution.config };
+  }
   if (!resolved.ok && resolved.code !== "unknown-run-config") return resolved;
-  if (resolved.ok) {
-    workflow = builtInWorkflows(deps.chainRegistry, deps.runRegistry)
-      .find((candidate) => candidate.id === configId) ?? null;
-    if (workflow) {
-      const execution = workflowToExecution(workflow);
+  if (workflowOverride == null) {
+    if (resolved.ok) {
+      workflow = builtInWorkflows(deps.chainRegistry, deps.runRegistry)
+        .find((candidate) => candidate.id === configId) ?? null;
+      if (workflow) {
+        const execution = workflowToExecution(workflow);
+        if (!execution.ok) return { ok: false, code: execution.code, detail: execution.detail };
+        workflowChain = execution.chain;
+        resolved = { ok: true, config: execution.config };
+      }
+    } else {
+      const named = resolveWorkflow(deps.stateRoot, configId, deps.chainRegistry, deps.runRegistry);
+      if (!named.ok) return resolved;
+      const execution = workflowToExecution(named.workflow);
       if (!execution.ok) return { ok: false, code: execution.code, detail: execution.detail };
+      workflow = named.workflow;
       workflowChain = execution.chain;
       resolved = { ok: true, config: execution.config };
     }
-  } else {
-    const named = resolveWorkflow(deps.stateRoot, configId, deps.chainRegistry, deps.runRegistry);
-    if (!named.ok) return resolved;
-    const execution = workflowToExecution(named.workflow);
-    if (!execution.ok) return { ok: false, code: execution.code, detail: execution.detail };
-    workflow = named.workflow;
-    workflowChain = execution.chain;
-    resolved = { ok: true, config: execution.config };
   }
 
   // The ACTIVE profile's saved cast overlays the tracked config (assignments and
@@ -723,6 +733,9 @@ function buildPreflight(configId, deps) {
   const loadedSettings = loadUserSettings(deps);
   if (!loadedSettings.ok) return { ok: false, code: loadedSettings.code, detail: loadedSettings.detail, config, profile_applied: profileApplied };
   const effectiveToggles = deps.toggles ?? loadedSettings.settings.toggles;
+  if (workflow && effectiveToggles.worktree === false) {
+    return { ok: false, code: "workflow-canonical-worktree-required", detail: workflow.id };
+  }
   const castResult = resolveChainCast({
     chain,
     assignments: config.assignments ?? {},
@@ -836,18 +849,45 @@ function renderPreflight(preflight, requestedId) {
   });
 }
 
-export function renderHelixRunCompletion({ runId, configId, exitCode, converged = false, stopReason = null, failureCode = null }) {
+export function renderHelixRunCompletion({ runId, configId, exitCode, converged = false, stopReason = null, failureCode = null, resumable = false }) {
   if (!validateRunId(runId).ok
     || !isPublicCode(configId)
     || !Number.isSafeInteger(exitCode)
     || exitCode < 0
     || exitCode > 255
     || typeof converged !== "boolean"
+    || typeof resumable !== "boolean"
     || (failureCode != null && !isPublicCode(failureCode))
     || (exitCode === 0 && !isPublicCode(stopReason))) {
     return fail("helix-runner-result-invalid", null, "Helix run result refused");
   }
   const safeStopReason = isPublicCode(stopReason) ? stopReason : "unknown";
+  if (safeStopReason === "paused") {
+    return result({
+      status: "paused",
+      title: "Helix run paused",
+      lines: [
+        `Run: ${runId}`,
+        `Config: ${configId}`,
+        `Checkpoint: ${failureCode ?? "attended-checkpoint"}`,
+        `Continue: /helix-run-resume ${runId}`,
+      ],
+      details: { run_id: runId, config_id: configId, exit_code: 0, converged: false, stop_reason: "paused" },
+    });
+  }
+  if (resumable && isRecoverableKernelFailure(failureCode)) {
+    return result({
+      status: "interrupted",
+      title: "Helix run interrupted",
+      lines: [
+        `Run: ${runId}`,
+        `Config: ${configId}`,
+        `Reason: ${failureCode}`,
+        `Continue: /helix-run-resume ${runId}`,
+      ],
+      details: { run_id: runId, config_id: configId, exit_code: 0, converged: false, stop_reason: "interrupted" },
+    });
+  }
   if (exitCode !== 0) {
     const safeFailure = failureCode ?? "helix-runner-failed";
     return result({
@@ -1226,6 +1266,8 @@ function renderWorkflows(deps, tokens) {
     if (!tested.ok) return fail(tested.code, normalized.definition.id, "Helix workflow import refused");
     const gate = preflightObjectiveGate(deps.cwd, normalized.definition.objective_gate);
     if (!gate.ok) return fail(gate.code, normalized.definition.id, "Helix workflow import refused");
+    const deployment = buildPreflight(normalized.definition.id, deps, normalized.definition);
+    if (!deployment.ok) return fail(deployment.code, deployment.detail ?? normalized.definition.id, "Helix workflow import refused");
     const saved = saveUserWorkflowV4(deps.stateRoot, normalized.definition, {
       builtInIds: builtInWorkflows(deps.chainRegistry, deps.runRegistry).map((workflow) => workflow.id),
     });

@@ -74,8 +74,9 @@ function syncRegularTree(source, destination) {
   }
 }
 
-export function createCanonicalWorkspace({ cwd, run_id, checkpoint_effect, excluded_paths = [], proposal_factory = null } = {}) {
+export function createCanonicalWorkspace({ cwd, run_id, checkpoint_effect, excluded_paths = [], proposal_factory = null, sync_tree = syncRegularTree } = {}) {
   if (typeof cwd !== "string" || typeof run_id !== "string" || !checkpoint_effect
+    || typeof sync_tree !== "function"
     || typeof checkpoint_effect.snapshot !== "function" || typeof checkpoint_effect.restore !== "function"
     || typeof checkpoint_effect.remove !== "function" || typeof checkpoint_effect.fingerprint !== "function") {
     throw new Error("kernel-workspace-invalid");
@@ -89,10 +90,25 @@ export function createCanonicalWorkspace({ cwd, run_id, checkpoint_effect, exclu
   };
   committedRefs.add(fingerprint());
   const removeProposal = (proposal) => {
-    const removed = spawnSync("git", ["worktree", "remove", "--force", proposal.cwd], { cwd, encoding: "utf8" });
-    if (removed.status !== 0) return { ok: false, code: "kernel-proposal-cleanup-failed" };
-    rmSync(proposal.temp_root, { recursive: true, force: true });
+    if (!existsSync(proposal.temp_root)) return { ok: true };
+    if (existsSync(proposal.cwd)) {
+      const removed = spawnSync("git", ["worktree", "remove", "--force", proposal.cwd], { cwd, encoding: "utf8" });
+      if (removed.status !== 0) return { ok: false, code: "kernel-proposal-cleanup-failed" };
+    } else {
+      const pruned = spawnSync("git", ["worktree", "prune"], { cwd, encoding: "utf8" });
+      if (pruned.status !== 0) return { ok: false, code: "kernel-proposal-cleanup-failed" };
+    }
+    try { rmSync(proposal.temp_root, { recursive: true, force: true }); }
+    catch { return { ok: false, code: "kernel-proposal-cleanup-failed" }; }
     return { ok: true };
+  };
+  const removeSnapshot = (tx) => {
+    const removed = checkpoint_effect.remove(run_id, tx.generation);
+    if (removed?.ok) return { ok: true };
+    const inspected = checkpoint_effect.inspect?.(run_id, tx.generation, tx.tree_ref);
+    return inspected?.ok === true && inspected.exists === false
+      ? { ok: true }
+      : { ok: false, code: removed?.code ?? "kernel-workspace-snapshot-cleanup-failed" };
   };
   const createProposal = async ({ generation: proposalGeneration }) => {
     const id = `proposal-${proposalGeneration}`;
@@ -104,15 +120,21 @@ export function createCanonicalWorkspace({ cwd, run_id, checkpoint_effect, exclu
     const added = spawnSync("git", ["worktree", "add", "--detach", proposalCwd, "HEAD"], { cwd, encoding: "utf8" });
     if (added.status !== 0) {
       rmSync(tempRoot, { recursive: true, force: true });
-      checkpoint_effect.remove(run_id, id);
-      return { ok: false, code: "kernel-proposal-worktree-failed" };
+      const removed = removeSnapshot({ generation: id, tree_ref: snapshot.tree_ref });
+      return removed.ok
+        ? { ok: false, code: "kernel-proposal-worktree-failed" }
+        : { ok: false, code: removed.code };
     }
     try {
-      syncRegularTree(cwd, proposalCwd);
+      sync_tree(cwd, proposalCwd);
     } catch {
-      removeProposal({ cwd: proposalCwd, temp_root: tempRoot });
-      checkpoint_effect.remove(run_id, id);
-      return { ok: false, code: "kernel-proposal-copy-failed" };
+      const cleaned = removeProposal({ cwd: proposalCwd, temp_root: tempRoot });
+      const removed = cleaned.ok
+        ? removeSnapshot({ generation: id, tree_ref: snapshot.tree_ref })
+        : { ok: false, code: cleaned.code };
+      return cleaned.ok && removed.ok
+        ? { ok: false, code: "kernel-proposal-copy-failed" }
+        : { ok: false, code: removed.code };
     }
     const proposal = {
       ok: true,
@@ -122,31 +144,47 @@ export function createCanonicalWorkspace({ cwd, run_id, checkpoint_effect, exclu
       generation: id,
       before_ref: before,
       tree_ref: snapshot.tree_ref,
+      applied: false,
+      workspace_ref: null,
     };
     proposal.promote = async () => {
       if (fingerprint() !== before) {
-        removeProposal(proposal);
-        checkpoint_effect.remove(run_id, id);
+        const cleaned = removeProposal(proposal);
+        const removed = removeSnapshot(proposal);
+        if (!cleaned.ok || !removed.ok) return { ok: false, code: "kernel-proposal-cleanup-failed" };
         return { ok: false, code: "kernel-proposal-conflict" };
       }
+      proposal.applied = true;
       try {
-        syncRegularTree(proposalCwd, cwd);
-        const workspaceRef = fingerprint();
-        const cleaned = removeProposal(proposal);
-        const checkpointRemoved = checkpoint_effect.remove(run_id, id);
-        if (!cleaned.ok || !checkpointRemoved?.ok) throw new Error("cleanup");
-        return { ok: true, workspace_ref: workspaceRef };
+        sync_tree(proposalCwd, cwd);
+        proposal.workspace_ref = fingerprint();
+        return { ok: true, workspace_ref: proposal.workspace_ref };
       } catch {
-        checkpoint_effect.restore(run_id, id, snapshot.tree_ref, cwd, excluded_paths);
-        removeProposal(proposal);
-        checkpoint_effect.remove(run_id, id);
-        return { ok: false, code: "kernel-proposal-promotion-failed" };
+        const restored = checkpoint_effect.restore(run_id, id, snapshot.tree_ref, cwd, excluded_paths);
+        if (!restored?.ok) return { ok: false, code: "kernel-workspace-restore-failed" };
+        proposal.applied = false;
+        const cleaned = removeProposal(proposal);
+        const removed = removeSnapshot(proposal);
+        return cleaned.ok && removed.ok
+          ? { ok: false, code: "kernel-proposal-promotion-failed" }
+          : { ok: false, code: "kernel-proposal-cleanup-failed" };
       }
     };
-    proposal.rollback = async () => {
+    proposal.finalize = async () => {
       const cleaned = removeProposal(proposal);
-      const checkpointRemoved = checkpoint_effect.remove(run_id, id);
-      return cleaned.ok && checkpointRemoved?.ok ? { ok: true } : { ok: false, code: "kernel-proposal-cleanup-failed" };
+      if (!cleaned.ok) return cleaned;
+      return removeSnapshot(proposal);
+    };
+    proposal.rollback = async () => {
+      if (proposal.applied) {
+        const restored = checkpoint_effect.restore(run_id, id, snapshot.tree_ref, cwd, excluded_paths);
+        if (!restored?.ok) return { ok: false, code: "kernel-workspace-restore-failed" };
+        committedRefs.delete(proposal.workspace_ref);
+        proposal.applied = false;
+      }
+      const cleaned = removeProposal(proposal);
+      if (!cleaned.ok) return cleaned;
+      return removeSnapshot(proposal);
     };
     return proposal;
   };
@@ -165,7 +203,7 @@ export function createCanonicalWorkspace({ cwd, run_id, checkpoint_effect, exclu
       const id = `effect-${++generation}`;
       const snapshot = checkpoint_effect.snapshot(run_id, id, cwd, excluded_paths);
       if (!snapshot?.ok) return { ok: false, code: snapshot?.code ?? "kernel-workspace-snapshot-failed" };
-      return { ok: true, mode, cwd, generation: id, tree_ref: snapshot.tree_ref, before_ref: snapshot.tree_ref };
+      return { ok: true, mode, cwd, generation: id, tree_ref: snapshot.tree_ref, before_ref: snapshot.tree_ref, applied: false, workspace_ref: null };
     },
     async commit(tx) {
       if (tx?.mode === "isolated-proposal") {
@@ -177,21 +215,52 @@ export function createCanonicalWorkspace({ cwd, run_id, checkpoint_effect, exclu
         return promoted;
       }
       if (!tx?.generation || tx.cwd !== cwd) return { ok: false, code: "kernel-workspace-transaction-invalid" };
+      tx.applied = true;
       let ref;
       try { ref = fingerprint(); } catch { return { ok: false, code: "kernel-workspace-fingerprint-failed" }; }
-      const removed = checkpoint_effect.remove(run_id, tx.generation);
-      if (!removed?.ok) return { ok: false, code: removed?.code ?? "kernel-workspace-snapshot-cleanup-failed" };
+      tx.workspace_ref = ref;
       committedRefs.add(ref);
       return { ok: true, workspace_ref: ref };
     },
+    serialize(tx) {
+      if (!tx?.generation || !tx?.tree_ref || !tx?.mode) return null;
+      return {
+        mode: tx.mode,
+        generation: tx.generation,
+        tree_ref: tx.tree_ref,
+        before_ref: tx.before_ref,
+        workspace_ref: tx.workspace_ref ?? null,
+        applied: tx.applied === true,
+        ...(tx.mode === "isolated-proposal" ? { cwd: tx.cwd, temp_root: tx.temp_root } : { cwd }),
+      };
+    },
+    async finalize(tx) {
+      if (!tx?.generation || (tx.cwd !== cwd && tx.mode !== "isolated-proposal")) {
+        return { ok: false, code: "kernel-workspace-transaction-invalid" };
+      }
+      if (tx.mode === "isolated-proposal") {
+        const cleaned = removeProposal(tx);
+        if (!cleaned.ok) return cleaned;
+      }
+      return removeSnapshot(tx);
+    },
     async rollback(tx) {
-      if (tx?.mode === "isolated-proposal") return tx.rollback?.() ?? { ok: false, code: "kernel-proposal-rollback-unavailable" };
+      if (tx?.mode === "isolated-proposal" && typeof tx.rollback === "function") return tx.rollback();
+      if (tx?.mode === "isolated-proposal") {
+        if (tx.applied) {
+          const restored = checkpoint_effect.restore(run_id, tx.generation, tx.tree_ref, cwd, excluded_paths);
+          if (!restored?.ok) return { ok: false, code: "kernel-workspace-restore-failed" };
+          committedRefs.delete(tx.workspace_ref);
+        }
+        const cleaned = removeProposal(tx);
+        if (!cleaned.ok) return cleaned;
+        return removeSnapshot(tx);
+      }
       if (!tx?.generation || tx.cwd !== cwd) return { ok: false, code: "kernel-workspace-transaction-invalid" };
       const restored = checkpoint_effect.restore(run_id, tx.generation, tx.tree_ref, cwd, excluded_paths);
-      if (!restored?.ok) return { ok: false, code: restored?.code ?? "kernel-workspace-rollback-failed" };
-      const removed = checkpoint_effect.remove(run_id, tx.generation);
-      if (!removed?.ok) return { ok: false, code: removed?.code ?? "kernel-workspace-snapshot-cleanup-failed" };
-      return { ok: true };
+      if (!restored?.ok) return { ok: false, code: "kernel-workspace-restore-failed" };
+      committedRefs.delete(tx.workspace_ref);
+      return removeSnapshot(tx);
     },
   });
 }

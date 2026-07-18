@@ -3,10 +3,12 @@
 // Six user-local toggles select Helix's behavior; all default ON. OFF never
 // errors — each feature defines its degenerate form (multi-model off ⇒ solo
 // model; loops off ⇒ single pass; autoresearch off ⇒ verb refusal;
-// context-engine off ⇒ transcript pass-through; worktree off ⇒ working-tree
-// runs; visual-cues off ⇒ plain lines). The only hard refusals are EXPLICIT
-// conflicts (a config demanding a composite while multi-model is off, the
-// research verb while autoresearch is off) — stable codes naming the toggle.
+// context-engine off ⇒ transcript pass-through; worktree off ⇒ legacy
+// working-tree runs while named workflows refuse before consent; visual-cues
+// off ⇒ plain lines). Hard refusals are explicit conflicts (a config demanding
+// a composite while multi-model is off, the research verb while autoresearch is
+// off, or a named workflow while canonical worktrees are off) — stable codes
+// naming the toggle.
 //
 // Settings are user-local Pi state (`<pi-agent-dir>/helix/settings.json`) with a
 // schema_version and refuse-on-mismatch. They are never tracked config and never

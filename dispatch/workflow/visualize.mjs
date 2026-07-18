@@ -5,7 +5,7 @@ import { validateWorkflowDefinition } from "./schema.mjs";
 
 function targets(node) {
   if (["agent", "parallel", "map", "pipeline", "reduce", "checkpoint", "subworkflow"].includes(node.kind)) return [node.next];
-  if (node.kind === "decision") return [...node.transitions.map((entry) => entry.target), node.default, ...(node.loops_off ? [node.loops_off] : [])];
+  if (node.kind === "decision") return [...node.transitions.map((entry) => entry.target), node.default.target, ...(node.loops_off ? [node.loops_off] : [])];
   if (node.kind === "gate") return [node.on_pass, node.on_fail, ...(node.loops_off ? [node.loops_off] : [])];
   return [];
 }

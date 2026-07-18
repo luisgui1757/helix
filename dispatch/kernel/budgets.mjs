@@ -19,21 +19,39 @@ export function createBudgetLedger({
   let cost = initial_cost_micros;
   let nextId = 0;
   const reservations = new Map();
+  const validateRequest = (request = {}) => {
+    if (request === null || typeof request !== "object" || Array.isArray(request)) return false;
+    const { tokens: requestedTokens = 0, cost_micros: requestedCost = 0 } = request;
+    return Number.isSafeInteger(requestedTokens) && requestedTokens >= 0
+      && Number.isSafeInteger(requestedCost) && requestedCost >= 0;
+  };
+  const canReserve = (requests) => {
+    const reservedTokens = [...reservations.values()].reduce((sum, entry) => sum + entry.tokens, 0);
+    const reservedCost = [...reservations.values()].reduce((sum, entry) => sum + entry.cost_micros, 0);
+    const requestedTokens = requests.reduce((sum, entry) => sum + (entry.tokens ?? 0), 0);
+    const requestedCost = requests.reduce((sum, entry) => sum + (entry.cost_micros ?? 0), 0);
+    return effects + reservations.size + requests.length <= max_effects
+      && (max_tokens == null || tokens + reservedTokens + requestedTokens <= max_tokens)
+      && (max_cost_micros == null || cost + reservedCost + requestedCost <= max_cost_micros);
+  };
+  const install = (request) => {
+    const id = `reservation-${++nextId}`;
+    reservations.set(id, { tokens: request.tokens ?? 0, cost_micros: request.cost_micros ?? 0 });
+    return { ok: true, id };
+  };
   return Object.freeze({
     snapshot() { return { effects, tokens, cost_micros: cost, max_effects, max_tokens, max_cost_micros, reserved: reservations.size }; },
     reserve({ tokens: requestedTokens = 0, cost_micros: requestedCost = 0 } = {}) {
-      if (!Number.isSafeInteger(requestedTokens) || requestedTokens < 0
-        || !Number.isSafeInteger(requestedCost) || requestedCost < 0) return { ok: false, code: "kernel-budget-reservation-invalid" };
-      const reservedTokens = [...reservations.values()].reduce((sum, entry) => sum + entry.tokens, 0);
-      const reservedCost = [...reservations.values()].reduce((sum, entry) => sum + entry.cost_micros, 0);
-      if (effects + reservations.size + 1 > max_effects
-        || (max_tokens != null && tokens + reservedTokens + requestedTokens > max_tokens)
-        || (max_cost_micros != null && cost + reservedCost + requestedCost > max_cost_micros)) {
-        return { ok: false, code: "kernel-budget-exhausted" };
+      const request = { tokens: requestedTokens, cost_micros: requestedCost };
+      if (!validateRequest(request)) return { ok: false, code: "kernel-budget-reservation-invalid" };
+      return canReserve([request]) ? install(request) : { ok: false, code: "kernel-budget-exhausted" };
+    },
+    reserveBatch(requests) {
+      if (!Array.isArray(requests) || requests.length < 1 || requests.some((request) => !validateRequest(request))) {
+        return { ok: false, code: "kernel-budget-reservation-invalid" };
       }
-      const id = `reservation-${++nextId}`;
-      reservations.set(id, { tokens: requestedTokens, cost_micros: requestedCost });
-      return { ok: true, id };
+      if (!canReserve(requests)) return { ok: false, code: "kernel-budget-exhausted" };
+      return { ok: true, reservations: requests.map(install) };
     },
     commit(id, { tokens: actualTokens = 0, cost_micros: actualCost = 0 } = {}) {
       if (!reservations.has(id) || !Number.isSafeInteger(actualTokens) || actualTokens < 0

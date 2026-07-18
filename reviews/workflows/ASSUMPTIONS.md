@@ -63,3 +63,49 @@ Rejected findings / bounded false alarms:
   rejected after the unchanged test returned the correct timeout code, passed
   alone in 1.23s, and passed in the next complete 647-test run. No timing
   threshold, test, or legacy runner behavior was changed.
+
+## 2026-07-18 — Release-quality closure invariants
+
+New durable invariants:
+
+- Workspace application is not completion. Recovery material remains owned by
+  the effect until the response, accounting, journal, scheduler checkpoint, and
+  workspace snapshot are durable; cleanup is an idempotent checkpointed phase.
+  A failed restore never deletes the before-state or proposal.
+- A private checkpoint's expected journal length is mandatory evidence. An
+  absent or shorter journal is corruption, including when the state-root path
+  contains spaces or non-ASCII characters.
+- Every actual model invocation is one effect. Logical roles and panels cannot
+  aggregate provider calls beneath one reservation or journal identity. Resume
+  reuses completed panel members before atomically reserving unfinished members.
+- Typed workflow inputs are a closed execution contract, not documentation.
+  They validate before run artifacts and are hash-bound across resume.
+- Child continuation state is namespaced by parent node and child run id.
+  Comparing bare node ids across workflow namespaces is invalid.
+- Named workflows have one mutation-location contract: the canonical per-run
+  worktree. A disabled worktree feature refuses before consent; it does not
+  silently select either the current checkout or a hidden worktree.
+- Exact identity requires an observable opaque account and per-field evidence.
+  Session evidence for effort is not response evidence, even when the same
+  response independently proves its provider or model.
+- Import means deployment-valid and write-atomic. Structural-only definitions
+  may be inspected in memory but are never persisted with a successful import
+  result.
+- Cyclic edges are explicit. A decision default is a typed edge and requires a
+  loop marker plus an escape before it may participate in a cycle.
+
+Rejected findings / bounded false alarms:
+
+- “A user who can edit Helix's private state can forge checkpoint evidence, so
+  checkpoint documents need authentication before release”: rejected as a
+  release defect. The private state root is within the operator's own trust
+  boundary, and the same authority can directly edit the public run record.
+  Authentication could detect accidental/external tampering only under a new
+  key-management contract; it is not implied by the current local persistence
+  model.
+- “Always using a worktree is safe enough even when consent says worktrees are
+  off”: rejected. Safer isolation does not make contradictory consent truthful;
+  the canonical resolution is a pre-consent refusal for named workflows.
+- “One panel is one effect because it is one logical role”: rejected. The
+  documented ceiling bounds provider invocations, cost, cancellation, and
+  replay, so each member and retry requires its own effect identity.

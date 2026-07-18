@@ -37,6 +37,20 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > loop 8/8. Exact-head remote CI is the delivery gate; its authoritative result
 > is the GitHub check attached to the remediation commit.
 
+> **Release-quality audit closure (2026-07-18):** independent exact-head reviews
+> then exercised composed and failure-boundary behavior absent from the original
+> suite. The canonical closure adds two-phase workspace finalization with
+> retained recovery material, strict journal-prefix verification, namespaced
+> child-checkpoint continuation, invocation-level panel accounting, complete
+> typed-input UX, canonical-worktree pre-consent refusal, mandatory exact account
+> evidence, deployment-atomic import, distinct pause rendering, explicit cyclic
+> default edges, bounded condition depth, per-field evidence grades, exact
+> checkpoint limits, child-aware runtime smoke, and extracted-package Pi RPC in
+> CI. The updated complete suite passes 669/669 plus worktree 12/12 and objective
+> loop 8/8. The append-only evidence and finding closure are recorded in
+> `reviews/workflows/{SUMMARY,ASSUMPTIONS}.md`; exact-head remote CI remains the
+> delivery authority after the single normal remediation push.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:
@@ -1148,7 +1162,7 @@ npm run check:no-live-egress
 npm run check:public-safety-diff
 npm run check:workflow-conformance
 npm run check:provider-contracts
-npm run check:package
+npm run check:package -- --pi-bin node_modules/.bin/pi
 node tools/smoke/pi-e2e-load.mjs --runtime-rpc
 
 # Active no-egress boundary; Docker/unshare prerequisite absence is a blocker,

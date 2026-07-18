@@ -39,6 +39,7 @@ import { helixStateRoot } from "./lib/helix-paths.mjs";
 import { builtInWorkflows, deleteUserWorkflow, resolveWorkflow, saveUserWorkflow, workflowCatalog } from "./lib/helix-workflows.mjs";
 import { isHelixProvider } from "../dispatch/lib/providers.mjs";
 import { isPublicCode } from "../dispatch/lib/public-values.mjs";
+import { normalizeWorkflowDefinition, normalizeWorkflowInput } from "../dispatch/workflow/schema.mjs";
 import { smokeTestWorkflowRuntime } from "./lib/helix-workflow-test.mjs";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -58,7 +59,7 @@ const FEATURES = Object.freeze([
   { id: "loops", label: "Loops", description: "Iterate until the objective gate passes; off runs one pass per stage." },
   { id: "autoresearch", label: "Autoresearch", description: "Enable attended metric-driven research runs." },
   { id: "context-engine", label: "Context engine", description: "Use fresh structural handoffs; off passes the transcript through." },
-  { id: "worktree", label: "Worktrees", description: "Isolate run mutations in a Git worktree; off uses the current checkout." },
+  { id: "worktree", label: "Worktrees", description: "Isolate mutations in Git worktrees; named workflows refuse while this is off." },
   { id: "visual-cues", label: "Visual cues", description: "Show rich run events; off keeps plain event lines." },
 ]);
 
@@ -782,6 +783,49 @@ function parseRunArgs(args: string) {
     : { workflowId: args.slice(0, separator).trim(), task: args.slice(separator + 4).trim() };
 }
 
+function parseWorkflowInputValue(raw: string, schema: any) {
+  if (schema.type === "string") return raw;
+  if (schema.type === "boolean") {
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    throw new Error("boolean");
+  }
+  if (schema.type === "number" || schema.type === "integer") {
+    const value = Number(raw);
+    if (!Number.isFinite(value) || (schema.type === "integer" && !Number.isSafeInteger(value))) throw new Error("number");
+    return value;
+  }
+  return JSON.parse(raw);
+}
+
+async function collectWorkflowInput(ctx: ExtensionCommandContext, workflow: any, task: string) {
+  const normalized = normalizeWorkflowDefinition(workflow);
+  if (!normalized.ok) return { ok: false, code: normalized.code };
+  const input: Record<string, any> = { task };
+  for (const [key, schema] of Object.entries(normalized.definition.inputs.properties) as Array<[string, any]>) {
+    if (key === "task") continue;
+    const hasDefault = Object.hasOwn(schema, "default");
+    const required = normalized.definition.inputs.required.includes(key);
+    const defaultText = hasDefault ? (JSON.stringify(schema.default) ?? "declared") : "";
+    const defaultHint = hasDefault
+      ? `, default ${defaultText.length <= 64 ? defaultText : "declared"}; leave blank to use it`
+      : required ? ", required" : ", optional; leave blank to omit";
+    const raw = await ctx.ui.input?.(`Workflow input '${key}' (${schema.type}${defaultHint}${schema.description ? `: ${schema.description}` : ""})`);
+    if (raw == null || raw.trim() === "") {
+      if (hasDefault) {
+        input[key] = structuredClone(schema.default);
+        continue;
+      }
+      if (required) return { ok: false, code: `workflow-input-required:${key}` };
+      continue;
+    }
+    try { input[key] = parseWorkflowInputValue(raw.trim(), schema); }
+    catch { return { ok: false, code: `workflow-input-invalid:${key}` }; }
+  }
+  const checked = normalizeWorkflowInput(normalized.definition.inputs, input);
+  return checked.valid ? { ok: true, input: checked.input } : { ok: false, code: "workflow-input-invalid" };
+}
+
 function confirmationCastLines(cast: any): string[] {
   if (!Array.isArray(cast)) return ["  unavailable"];
   return cast.flatMap((stage: any) => {
@@ -825,16 +869,26 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
     workflowId = await ctx.ui.select("Choose a workflow", ids) ?? "";
     if (!workflowId) return;
   }
+  const registries = {
+    chains: readRegistry("../dispatch/config/chains.json"),
+    runs: readRegistry("../dispatch/config/run-configs.json"),
+  };
+  const named = resolveWorkflow(helixStateRoot(), workflowId, registries.chains, registries.runs);
+  if (!named.ok) {
+    ctx.ui.notify(`Workflow is unavailable (${named.code})`, "error");
+    return;
+  }
   if (!task) task = (await ctx.ui.input?.("What should this workflow do?"))?.trim() ?? "";
   if (!task) {
     ctx.ui.notify("A workflow task is required; nothing was started", "warning");
     return;
   }
+  const collected = await collectWorkflowInput(ctx, named.workflow, task);
+  if (!collected.ok) {
+    ctx.ui.notify(`Workflow input refused (${collected.code}); nothing was started`, "warning");
+    return;
+  }
   const modelInventory = await availableModelInventory(`run ${workflowId}`, ctx);
-  const registries = {
-    chains: readRegistry("../dispatch/config/chains.json"),
-    runs: readRegistry("../dispatch/config/run-configs.json"),
-  };
   const preflight = executeHelixCommand(`run ${workflowId}`, { mode: ctx.mode }, { modelInventory, cwd: ctx.cwd });
   sendOutput(pi, preflight);
   if (!preflight.ok) return;
@@ -844,10 +898,10 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
   const maxRuntimeMs = Number(preflight.details?.runtime_limits?.max_runtime_ms);
   const callTimeoutMs = Number(preflight.details?.runtime_limits?.call_timeout_ms);
   const executionBindingRef = String(preflight.details?.execution_binding_ref ?? "");
-  const named = resolveWorkflow(helixStateRoot(), workflowId, registries.chains, registries.runs);
   const gate = named.ok
     ? objectiveGateSummary(named.workflow.schema_version === 4 ? named.workflow.objective_gate : named.workflow.stop.objective_gate)
     : "unavailable";
+  const inputNames = Object.keys(collected.input).sort().join(", ");
   const exactCast = confirmationCastLines(preflight.details?.cast).join("\n");
   const realProviders = providers.filter((provider: string) => provider !== "mock");
   let adapter: any = null;
@@ -879,7 +933,7 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
     : "  mock-only";
   const approved = await ctx.ui.confirm(
     "Start Helix workflow",
-    `Workflow: ${configId}\nStages: ${preflight.details?.chain?.stages?.map((stage: any) => stage.id).join(" → ")}\nExact cast:\n${exactCast}\nExact routing:\n${routing}\nProviders: ${providers.join(", ")}\nObjective check: ${gate}\nMaximum passes: ${preflight.details?.rail?.max_iterations}\nRuntime: ${maxRuntimeMs}ms total; ${callTimeoutMs}ms per provider call\nTask: ${task}\nRepository: ${ctx.cwd}\nIsolation: ${worktreeEnabled ? "per-run Git worktree" : "OFF — the current checkout will be mutated"}\n\nPi tools use the normal Pi trust boundary. A worktree protects Git state; it is not an OS sandbox.`,
+    `Workflow: ${configId}\nStages: ${preflight.details?.chain?.stages?.map((stage: any) => stage.id).join(" → ")}\nExact cast:\n${exactCast}\nExact routing:\n${routing}\nProviders: ${providers.join(", ")}\nObjective check: ${gate}\nMaximum passes: ${preflight.details?.rail?.max_iterations}\nRuntime: ${maxRuntimeMs}ms total; ${callTimeoutMs}ms per provider call\nTask: ${task}\nBound inputs: ${inputNames}\nRepository: ${ctx.cwd}\nIsolation: ${worktreeEnabled ? "per-run Git worktree" : "unavailable"}\n\nPi tools use the normal Pi trust boundary. A worktree protects Git state; it is not an OS sandbox.`,
   );
   if (!approved) {
     ctx.ui.notify("Helix run cancelled; no workflow was started", "info");
@@ -905,6 +959,7 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
     execution = await executeNamedWorkflow({
       workflow_id: workflowId,
       task,
+      input: collected.input,
       run_id: runId,
       cwd: ctx.cwd,
       state_root: helixStateRoot(),
@@ -944,6 +999,7 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
     converged: execution.converged === true,
     stopReason: execution.stop_reason,
     failureCode: execution.ok ? null : execution.code,
+    resumable: execution.resumable === true,
   }));
 }
 
@@ -966,6 +1022,20 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
     return;
   }
   const workflowId = String(resumable.details.workflow_id ?? "");
+  const registries = {
+    chains: readRegistry("../dispatch/config/chains.json"),
+    runs: readRegistry("../dispatch/config/run-configs.json"),
+  };
+  const named = resolveWorkflow(helixStateRoot(), workflowId, registries.chains, registries.runs);
+  if (!named.ok) {
+    ctx.ui.notify(`Workflow is unavailable (${named.code})`, "error");
+    return;
+  }
+  const collected = await collectWorkflowInput(ctx, named.workflow, task);
+  if (!collected.ok) {
+    ctx.ui.notify(`Workflow input refused (${collected.code}); the checkpoint was not changed`, "warning");
+    return;
+  }
   const modelInventory = await availableModelInventory(`run ${workflowId}`, ctx);
   const preflight = executeHelixCommand(`run ${workflowId}`, { mode: ctx.mode }, { modelInventory, cwd: ctx.cwd });
   sendOutput(pi, preflight);
@@ -1018,11 +1088,12 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
     execution = await resumeNamedWorkflow({
       run_id: runId,
       task,
+      input: collected.input,
       cwd: ctx.cwd,
       state_root: helixStateRoot(),
       package_root: PACKAGE_ROOT,
-      chain_registry: readRegistry("../dispatch/config/chains.json"),
-      run_registry: readRegistry("../dispatch/config/run-configs.json"),
+      chain_registry: registries.chains,
+      run_registry: registries.runs,
       adapter,
       expected_binding_ref: String(preflight.details?.execution_binding_ref ?? ""),
       expected_exact_ref: expectedExactRef,
@@ -1045,6 +1116,7 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
     converged: execution.converged === true,
     stopReason: execution.stop_reason,
     failureCode: execution.ok ? null : execution.code,
+    resumable: execution.resumable === true,
   }));
 }
 
@@ -1072,8 +1144,15 @@ async function testWorkflowCommand(pi: ExtensionAPI, ctx: ExtensionCommandContex
   ctx.ui.setWorkingVisible?.(true);
   let outcome;
   try {
+    const normalized = normalizeWorkflowDefinition(resolved.workflow);
+    const childDefinitions = normalized.ok ? Object.values(normalized.definition.nodes)
+      .filter((node: any) => node.kind === "subworkflow")
+      .map((node: any) => resolveWorkflow(helixStateRoot(), node.workflow_id, chains, runs))
+      .filter((child: any) => child.ok)
+      .map((child: any) => child.workflow) : [];
     outcome = await smokeTestWorkflowRuntime({
       workflow: resolved.workflow,
+      subworkflows: childDefinitions,
       cwd: ctx.cwd,
       package_root: PACKAGE_ROOT,
       signal: ctx.signal,

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
 import { normalizeWorkflowDefinition } from "../dispatch/workflow/schema.mjs";
-import { agent, checkpoint, decision, objectiveGate, pipeline, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { agent, checkpoint, decision, map, objectiveGate, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { executeNamedWorkflow, resumeNamedWorkflow } from "../extensions/lib/helix-execution.mjs";
 import { executeHelixCommand } from "../extensions/lib/helix-command-core.mjs";
 import { saveUserWorkflow, saveUserWorkflowV4 } from "../extensions/lib/helix-workflows.mjs";
@@ -182,6 +182,74 @@ test("named user workflow executes canonical blocks and never persists the raw t
     stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
   });
   assert.equal(tampered.code, "run-record-invalid-or-unsafe");
+});
+
+test("typed named-workflow inputs validate before run creation and drive map nodes", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-typed-input-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const built = workflow({
+    id: "typed-map", name: "Typed map", description: "Typed map workflow.", start: "items",
+    inputs: {
+      type: "object", additionalProperties: false, required: ["task", "items"],
+      properties: {
+        task: { type: "string", minLength: 1, maxLength: 65_536 },
+        items: { type: "array", description: "Items to review", items: { type: "string", minLength: 1, maxLength: 32 }, minItems: 1, maxItems: 3 },
+      },
+    },
+    nodes: {
+      items: map("/inputs/items", agent({ role: "reviewer", stage_id: "items", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 }), "count", { max_items: 3 }),
+      count: reduce("/outputs/items", "count", "objective"),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "objective-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const binding = executionBinding(stateRoot, "typed-map");
+  const refused = await executeNamedWorkflow({
+    workflow_id: "typed-map", input: { task: "review" }, run_id: "typed-missing", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(refused.code, "workflow-input-invalid");
+  assert.equal(existsSync(join(stateRoot, "runs", "typed-missing")), false);
+  const completed = await executeNamedWorkflow({
+    workflow_id: "typed-map", input: { task: "review", items: ["a", "b"] }, run_id: "typed-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(completed.ok, true, JSON.stringify(completed));
+  assert.equal(completed.converged, true);
+});
+
+test("product panels enforce invocation-level effect limits before the first model call", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-panel-budget-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const built = workflow({
+    id: "panel-budget", name: "Panel budget", description: "Panel budget workflow.", start: "review",
+    nodes: {
+      review: pipeline([agent({ role: "reviewer", stage_id: "review", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 })], "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "objective-failed"),
+    },
+    limits: { max_total_effects: 1 },
+    provider_policy: { exact: true, assignments: {}, default_assignment: { kind: "composite", preset: "overlord" }, require_live_certification: false },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const result = await executeNamedWorkflow({
+    workflow_id: "panel-budget", task: "respect the panel budget", run_id: "panel-budget-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "panel-budget"),
+  });
+  assert.equal(result.code, "kernel-budget-exhausted");
+  assert.equal(result.calls.candidates, 0);
 });
 
 test("run-directory collisions refuse without creating a raw task artifact", async () => {
@@ -395,6 +463,8 @@ test("product execution pins and runs a depth-one named subworkflow through the 
   assert.equal(parent.ok, true, JSON.stringify(parent.errors));
   assert.equal(saveUserWorkflowV4(stateRoot, child.definition).ok, true);
   assert.equal(saveUserWorkflowV4(stateRoot, parent.definition).ok, true);
+  const smoke = await smokeTestWorkflowRuntime({ workflow: parent.definition, subworkflows: [child.definition], cwd });
+  assert.equal(smoke.ok, true, JSON.stringify(smoke));
   const result = await executeNamedWorkflow({
     workflow_id: "parent-v4", task: "run parent and child", run_id: "subworkflow-run", cwd,
     state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
@@ -408,6 +478,53 @@ test("product execution pins and runs a depth-one named subworkflow through the 
     stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
   });
   assert.equal(watch.ok, true, JSON.stringify(watch));
+});
+
+test("a child checkpoint resumes through its namespaced parent state", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-child-checkpoint-"));
+  const cwd = repo();
+  const childObjective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const child = workflow({
+    id: "child-pause", name: "Child pause", description: "Child pause workflow.", start: "work",
+    nodes: {
+      work: pipeline([agent({ role: "reviewer", stage_id: "work", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 })], "approval", { max_visits: 1 }),
+      approval: checkpoint("child-approval", "objective"),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "child-failed"),
+    },
+    objective_gate: childObjective,
+  });
+  const parentObjective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const parent = workflow({
+    id: "parent-pause", name: "Parent pause", description: "Parent pause workflow.", start: "work",
+    nodes: {
+      work: pipeline([agent({ role: "reviewer", stage_id: "work", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 })], "child", { max_visits: 1 }),
+      child: subworkflow("child-pause", 1, "objective"),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "parent-failed"),
+    },
+    objective_gate: parentObjective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  assert.equal(parent.ok, true, JSON.stringify(parent.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, child.definition).ok, true);
+  assert.equal(saveUserWorkflowV4(stateRoot, parent.definition).ok, true);
+  const binding = executionBinding(stateRoot, "parent-pause");
+  const paused = await executeNamedWorkflow({
+    workflow_id: "parent-pause", task: "pause child", run_id: "child-pause-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(paused.stop_reason, "paused");
+  const resumed = await resumeNamedWorkflow({
+    run_id: "child-pause-run", task: "pause child", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(resumed.converged, true);
 });
 
 test("checkpoint node pauses durably and attended resume is its explicit continue action", async () => {
@@ -465,6 +582,21 @@ test("execution refuses confirmation-source drift before reserving a run or call
   assert.equal(existsSync(join(stateRoot, "runs", "drift-run")), false);
 });
 
+test("named v4 workflows refuse worktree-off before consent or run creation", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-worktree-required-"));
+  const cwd = repo();
+  installWorkflow(stateRoot, "worktree-required");
+  const changed = executeHelixCommand("settings set worktree off", { mode: "tui", confirm: true }, {
+    stateRoot, chainRegistry: chains, runRegistry: runs, cwd,
+  });
+  assert.equal(changed.ok, true, JSON.stringify(changed));
+  const preflight = executeHelixCommand("run worktree-required", { mode: "tui" }, {
+    stateRoot, chainRegistry: chains, runRegistry: runs, cwd,
+  });
+  assert.equal(preflight.code, "workflow-canonical-worktree-required");
+  assert.equal(existsSync(join(stateRoot, "runs")), false);
+});
+
 test("real product execution requires an exact adapter before reserving a run", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-exact-adapter-"));
   const cwd = repo();
@@ -517,6 +649,34 @@ test("real product execution requires an exact adapter before reserving a run", 
   });
   assert.equal(drift.code, "provider-exact-consent-drift");
   assert.equal(existsSync(join(stateRoot, "runs", "exact-consent-run")), false);
+
+  const mismatchAdapter = {
+    ...exactAdapter,
+    async runCandidate(spec, ctx) {
+      return {
+        schema_version: 2, run_id: ctx.run_id, stage: "candidate", role: spec.role,
+        provider: spec.provider, model: spec.model,
+        requested: { provider: spec.provider, model: spec.model, effort: spec.effort },
+        effective: {
+          provider: spec.provider, model: spec.model, effort: "low",
+          evidence: { provider: "verified-response", model: "verified-response", effort: "verified-session" },
+        },
+        attestation_ref: `sha256:${"4".repeat(64)}`,
+        usage: { input_tokens: 1, output_tokens: 1 }, attempt: 1, iteration: 1,
+        input_ref: { kind: "local-ref", value: "local-ref:input/exact", algorithm: null },
+        claims_ref: "local-ref:claims/exact", evidence_ref: "local-ref:evidence/exact",
+        uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [], status: "ok",
+      };
+    },
+  };
+  const mismatch = await executeNamedWorkflow({
+    workflow_id: "real-exact-flow", task: "refuse effective effort mismatch", run_id: "exact-mismatch-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "real-exact-flow", inventory),
+    expected_exact_ref: `sha256:${"2".repeat(64)}`,
+    adapter: mismatchAdapter,
+  });
+  assert.equal(mismatch.code, "provider-identity-unverified");
 });
 
 test("live-certification policy refuses before provider preflight when the adapter cannot prove it", async () => {

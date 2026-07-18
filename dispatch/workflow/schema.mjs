@@ -16,6 +16,9 @@ const MAX_WORKFLOW_BYTES = 256 * 1024;
 const MAX_NODES = 256;
 const MAX_INLINE_STAGES = 16;
 const MAX_TRANSITIONS = 16;
+const MAX_CONDITION_DEPTH = 32;
+const MAX_INPUT_DEPTH = 4;
+const MAX_INPUT_BYTES = 1024 * 1024;
 const MAX_TOTAL_EFFECTS = 1_000;
 const MAX_CONCURRENCY = 16;
 const MAX_MAP_ITEMS = 256;
@@ -78,12 +81,131 @@ function pointerSegments(pointer) {
   return parts.map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
 }
 
-function validateJsonSchema(schema, path, errors) {
-  if (!plain(schema) || schema.type !== "object" || schema.additionalProperties !== false
-    || !plain(schema.properties) || !Array.isArray(schema.required)
-    || schema.required.some((key) => typeof key !== "string" || !Object.hasOwn(schema.properties, key))) {
-    errors.push(issue(path, "must be a closed object JSON schema"));
+function validateInputSchema(schema, path, errors, depth = 0, { root = false } = {}) {
+  if (!plain(schema) || depth > MAX_INPUT_DEPTH || typeof schema.type !== "string") {
+    errors.push(issue(path, depth > MAX_INPUT_DEPTH ? "exceeds maximum input schema depth 4" : "must be a supported input schema"));
+    return;
   }
+  const common = ["type", "description", "default"];
+  if (schema.description != null && (typeof schema.description !== "string" || schema.description.length > 256)) {
+    errors.push(issue(`${path}.description`, "must be a bounded string"));
+  }
+  if (schema.type === "object") {
+    if (!exactKeys(schema, ["type", "additionalProperties", "required", "properties"], ["description", "default"])
+      || schema.additionalProperties !== false || !plain(schema.properties)
+      || Object.keys(schema.properties).length > 32 || !Array.isArray(schema.required)
+      || new Set(schema.required).size !== schema.required.length
+      || schema.required.some((key) => !safeId(key, ID, 64) || !Object.hasOwn(schema.properties, key))) {
+      errors.push(issue(path, "must be a closed object schema with unique declared required fields"));
+      return;
+    }
+    for (const [key, child] of Object.entries(schema.properties)) {
+      if (!safeId(key, ID, 64)) errors.push(issue(`${path}.properties.${key}`, "property name must be safe"));
+      validateInputSchema(child, `${path}.properties.${key}`, errors, depth + 1);
+    }
+    if (root && (!schema.required.includes("task") || schema.properties.task?.type !== "string"
+      || (schema.properties.task.minLength ?? 0) < 1)) {
+      errors.push(issue(path, "root input schema must require a non-empty string task field"));
+    }
+  } else if (schema.type === "string") {
+    if (!exactKeys(schema, ["type"], [...common.slice(1), "minLength", "maxLength"])
+      || (schema.minLength != null && !safeInteger(schema.minLength, 0, 65_536))
+      || (schema.maxLength != null && !safeInteger(schema.maxLength, 1, 65_536))
+      || (schema.minLength ?? 0) > (schema.maxLength ?? 65_536)) {
+      errors.push(issue(path, "must be a bounded string schema"));
+    }
+  } else if (["number", "integer"].includes(schema.type)) {
+    if (!exactKeys(schema, ["type"], [...common.slice(1), "minimum", "maximum"])
+      || (schema.minimum != null && !Number.isFinite(schema.minimum))
+      || (schema.maximum != null && !Number.isFinite(schema.maximum))
+      || (schema.minimum ?? Number.NEGATIVE_INFINITY) > (schema.maximum ?? Number.POSITIVE_INFINITY)) {
+      errors.push(issue(path, "must be a bounded numeric schema"));
+    }
+  } else if (schema.type === "boolean") {
+    if (!exactKeys(schema, ["type"], common.slice(1))) errors.push(issue(path, "must be a boolean schema"));
+  } else if (schema.type === "array") {
+    if (!exactKeys(schema, ["type", "items"], [...common.slice(1), "minItems", "maxItems"])
+      || (schema.minItems != null && !safeInteger(schema.minItems, 0, MAX_MAP_ITEMS))
+      || (schema.maxItems != null && !safeInteger(schema.maxItems, 0, MAX_MAP_ITEMS))
+      || (schema.minItems ?? 0) > (schema.maxItems ?? MAX_MAP_ITEMS)) {
+      errors.push(issue(path, "must be a bounded array schema"));
+      return;
+    }
+    validateInputSchema(schema.items, `${path}.items`, errors, depth + 1);
+  } else {
+    errors.push(issue(`${path}.type`, "must be object, array, string, number, integer, or boolean"));
+  }
+  if (Object.hasOwn(schema, "default")) {
+    const checked = validateInputValue(schema, schema.default, path, depth);
+    errors.push(...checked);
+  }
+}
+
+function validateInputValue(schema, value, path = "$", depth = 0) {
+  const errors = [];
+  if (!plain(schema) || depth > MAX_INPUT_DEPTH) return [issue(path, "does not match the declared input schema")];
+  if (schema.type === "object") {
+    if (!plain(value)) return [issue(path, "must be an object")];
+    for (const key of schema.required ?? []) if (!Object.hasOwn(value, key)) errors.push(issue(`${path}.${key}`, "is required"));
+    for (const key of Object.keys(value)) {
+      if (!Object.hasOwn(schema.properties ?? {}, key)) errors.push(issue(`${path}.${key}`, "is not an allowed input"));
+      else errors.push(...validateInputValue(schema.properties[key], value[key], `${path}.${key}`, depth + 1));
+    }
+  } else if (schema.type === "string") {
+    if (typeof value !== "string" || value.length < (schema.minLength ?? 0) || value.length > (schema.maxLength ?? 65_536)) {
+      errors.push(issue(path, "must be a string within declared length bounds"));
+    }
+  } else if (schema.type === "number") {
+    if (!Number.isFinite(value) || value < (schema.minimum ?? Number.NEGATIVE_INFINITY)
+      || value > (schema.maximum ?? Number.POSITIVE_INFINITY)) errors.push(issue(path, "must be a finite number within declared bounds"));
+  } else if (schema.type === "integer") {
+    if (!Number.isSafeInteger(value) || value < (schema.minimum ?? Number.MIN_SAFE_INTEGER)
+      || value > (schema.maximum ?? Number.MAX_SAFE_INTEGER)) errors.push(issue(path, "must be a safe integer within declared bounds"));
+  } else if (schema.type === "boolean") {
+    if (typeof value !== "boolean") errors.push(issue(path, "must be boolean"));
+  } else if (schema.type === "array") {
+    if (!Array.isArray(value) || value.length < (schema.minItems ?? 0) || value.length > (schema.maxItems ?? MAX_MAP_ITEMS)) {
+      errors.push(issue(path, "must be an array within declared cardinality bounds"));
+    } else value.forEach((entry, index) => errors.push(...validateInputValue(schema.items, entry, `${path}[${index}]`, depth + 1)));
+  } else {
+    errors.push(issue(path, "uses an unsupported input type"));
+  }
+  return errors;
+}
+
+export function validateWorkflowInput(schema, input) {
+  const errors = validateInputValue(schema, input);
+  try {
+    if (Buffer.byteLength(stable(input), "utf8") > MAX_INPUT_BYTES) errors.push(issue("$", "serialized input exceeds 1 MiB"));
+  } catch {
+    errors.push(issue("$", "must be serializable"));
+  }
+  return { valid: errors.length === 0, errors };
+}
+
+function applyInputDefaults(schema, value, depth = 0) {
+  if (depth > MAX_INPUT_DEPTH) throw new Error("workflow-input-depth");
+  if (schema.type === "object" && plain(value)) {
+    const output = {};
+    for (const [key, child] of Object.entries(schema.properties ?? {})) {
+      if (Object.hasOwn(value, key)) output[key] = applyInputDefaults(child, value[key], depth + 1);
+      else if (Object.hasOwn(child, "default")) output[key] = applyInputDefaults(child, child.default, depth + 1);
+    }
+    for (const key of Object.keys(value)) if (!Object.hasOwn(output, key)) output[key] = structuredClone(value[key]);
+    return output;
+  }
+  if (schema.type === "array" && Array.isArray(value)) {
+    return value.map((entry) => applyInputDefaults(schema.items, entry, depth + 1));
+  }
+  return structuredClone(value);
+}
+
+export function normalizeWorkflowInput(schema, input) {
+  let normalized;
+  try { normalized = applyInputDefaults(schema, input); }
+  catch { return { valid: false, input: null, errors: [issue("$", "must be serializable within the declared input depth")] }; }
+  const checked = validateWorkflowInput(schema, normalized);
+  return { ...checked, input: checked.valid ? normalized : null };
 }
 
 function validateGate(gate, path, errors) {
@@ -162,7 +284,11 @@ function validateAgent(node, path, errors, { inline = false } = {}) {
   }
 }
 
-function validateCondition(condition, path, errors) {
+function validateCondition(condition, path, errors, depth = 0) {
+  if (depth > MAX_CONDITION_DEPTH) {
+    errors.push(issue(path, "exceeds maximum condition depth 32"));
+    return;
+  }
   if (!plain(condition) || typeof condition.op !== "string") {
     errors.push(issue(path, "must be a condition"));
     return;
@@ -182,12 +308,12 @@ function validateCondition(condition, path, errors) {
     if (!exactKeys(condition, ["op", "conditions"]) || !Array.isArray(condition.conditions)
       || condition.conditions.length < 1 || condition.conditions.length > 8) {
       errors.push(issue(path, "boolean condition requires 1..8 child conditions"));
-    } else condition.conditions.forEach((child, index) => validateCondition(child, `${path}.conditions[${index}]`, errors));
+    } else condition.conditions.forEach((child, index) => validateCondition(child, `${path}.conditions[${index}]`, errors, depth + 1));
     return;
   }
   if (condition.op === "not") {
     if (!exactKeys(condition, ["op", "condition"])) errors.push(issue(path, "not requires one condition"));
-    else validateCondition(condition.condition, `${path}.condition`, errors);
+    else validateCondition(condition.condition, `${path}.condition`, errors, depth + 1);
     return;
   }
   errors.push(issue(`${path}.op`, "is not a supported closed condition operator"));
@@ -271,6 +397,10 @@ function validateNode(node, id, path, errors) {
       errors.push(issue(path, "decision requires bounded transitions and default target"));
       return;
     }
+    if (!exactKeys(node.default, ["target"], ["loop"])
+      || (node.default.loop != null && typeof node.default.loop !== "boolean")) {
+      errors.push(issue(`${path}.default`, "must contain target and optional loop"));
+    }
     node.transitions.forEach((transition, index) => {
       if (!exactKeys(transition, ["when", "target"], ["loop"])) {
         errors.push(issue(`${path}.transitions[${index}]`, "must contain when, target, and optional loop"));
@@ -325,7 +455,7 @@ function nodeEdges(node) {
       ...(Array.isArray(node.transitions)
         ? node.transitions.map((entry, index) => ({ field: `transitions[${index}].target`, target: entry?.target }))
         : []),
-      { field: "default", target: node.default },
+      { field: "default.target", target: node.default?.target },
       ...(node.loops_off == null ? [] : [{ field: "loops_off", target: node.loops_off }]),
     ];
   }
@@ -369,7 +499,7 @@ export function validateWorkflowDefinition(definition) {
   if (typeof definition.description !== "string" || definition.description.trim() === "" || definition.description.length > 1024) errors.push(issue("$.description", "must be non-empty and at most 1024 characters"));
   if (!safeInteger(definition.version, 1, 1_000_000)) errors.push(issue("$.version", "must be a positive safe version"));
   if (!["built-in", "user"].includes(definition.source)) errors.push(issue("$.source", "must be built-in or user"));
-  validateJsonSchema(definition.inputs, "$.inputs", errors);
+  validateInputSchema(definition.inputs, "$.inputs", errors, 0, { root: true });
   if (!safeId(definition.start, NODE_ID)) errors.push(issue("$.start", "must be a safe node id"));
   if (!plain(definition.nodes) || Object.keys(definition.nodes).length < 1 || Object.keys(definition.nodes).length > MAX_NODES) {
     errors.push(issue("$.nodes", "must contain 1..256 nodes"));
@@ -399,6 +529,25 @@ export function validateWorkflowDefinition(definition) {
     }
   }
   for (const id of nodeIds) if (!reachable.has(id)) errors.push(issue(`$.nodes.${id}`, "is unreachable from start"));
+  const reaches = (start, target) => {
+    const seen = new Set();
+    const pending = [start];
+    while (pending.length) {
+      const current = pending.pop();
+      if (current === target) return true;
+      if (seen.has(current) || !Object.hasOwn(nodes, current)) continue;
+      seen.add(current);
+      pending.push(...nodeEdges(nodes[current]).map((edge) => edge.target));
+    }
+    return false;
+  };
+  for (const [id, node] of Object.entries(nodes)) {
+    if (node.kind !== "decision" || !Array.isArray(node.transitions) || !plain(node.default)) continue;
+    if (safeId(node.default.target, NODE_ID) && reaches(node.default.target, id)
+      && (node.default.loop !== true || !safeId(node.loops_off, NODE_ID))) {
+      errors.push(issue(`$.nodes.${id}.default`, "a cyclic default requires loop:true and a loops_off target"));
+    }
+  }
   const successIds = nodeIds.filter((id) => nodes[id]?.kind === "terminal" && nodes[id].status === "succeeded");
   const finalGates = nodeIds.filter((id) => nodes[id]?.kind === "gate" && nodes[id].final === true);
   if (finalGates.length !== 1) errors.push(issue("$.nodes", "must contain exactly one final objective gate"));
@@ -441,10 +590,10 @@ export function validateWorkflowDefinition(definition) {
     errors.push(issue("$.provider_policy", "must require exact binding and closed assignments"));
   }
   if (!exactKeys(definition.workspace_policy, ["mode", "proposal_cleanup", "transcripts"])
-    || !["canonical-worktree", "current-worktree"].includes(definition.workspace_policy.mode)
+    || definition.workspace_policy.mode !== "canonical-worktree"
     || !["unchanged", "explicit"].includes(definition.workspace_policy.proposal_cleanup)
     || !["off", "private"].includes(definition.workspace_policy.transcripts)) {
-    errors.push(issue("$.workspace_policy", "must declare canonical/current workspace, cleanup, and transcript policy"));
+    errors.push(issue("$.workspace_policy", "must declare canonical-worktree mode, cleanup, and transcript policy"));
   }
   validateGate(definition.objective_gate, "$.objective_gate", errors);
   try {
@@ -521,7 +670,7 @@ function migrateWorkflowV1Checked(workflow) {
             target: actionTarget(entry, { stageId: pipelineId, previousStage, nextStage, finalGate, stopTerminal }),
             loop: ["retry", "back"].includes(entry.action),
           })),
-        default: failedTerminal,
+        default: { target: failedTerminal },
         loops_off: nextStage ?? finalGate,
       };
     } else if (gateTransition) {
@@ -539,7 +688,7 @@ function migrateWorkflowV1Checked(workflow) {
       nodes[decisionId] = {
         kind: "decision",
         transitions: [{ when: { op: "always" }, target: actionTarget(always, { stageId: pipelineId, previousStage, nextStage, finalGate, stopTerminal }) }],
-        default: failedTerminal,
+        default: { target: failedTerminal },
       };
     }
   }
@@ -645,11 +794,14 @@ export function resolveJsonPointer(value, pointer) {
   return { found: true, value: current };
 }
 
-export function evaluateCondition(condition, context) {
+export function evaluateCondition(condition, context, depth = 0) {
+  if (depth > MAX_CONDITION_DEPTH || !plain(condition)) return false;
   if (condition.op === "always") return true;
-  if (condition.op === "and") return condition.conditions.every((entry) => evaluateCondition(entry, context));
-  if (condition.op === "or") return condition.conditions.some((entry) => evaluateCondition(entry, context));
-  if (condition.op === "not") return !evaluateCondition(condition.condition, context);
+  if (condition.op === "and") return Array.isArray(condition.conditions)
+    && condition.conditions.every((entry) => evaluateCondition(entry, context, depth + 1));
+  if (condition.op === "or") return Array.isArray(condition.conditions)
+    && condition.conditions.some((entry) => evaluateCondition(entry, context, depth + 1));
+  if (condition.op === "not") return !evaluateCondition(condition.condition, context, depth + 1);
   const resolved = resolveJsonPointer(context, condition.path);
   if (!resolved.found) return false;
   if (condition.op === "eq") return resolved.value === condition.value;

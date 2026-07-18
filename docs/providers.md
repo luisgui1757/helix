@@ -24,7 +24,11 @@ extend a claim.
 
 The installed runtime is not a live certification. Preflight consumes a
 short-lived capability record from official status/probe evidence. Requested
-values copied into a record are `requested-only` and fail exact mode.
+values copied into a record are `requested-only` and fail exact mode. Exact
+status always requires an opaque account binding; providers that cannot expose
+one remain exact-disabled. Evidence is graded per field: a response may verify
+provider/model while the configured runtime session verifies effort, and the
+weaker field is never mislabeled as response evidence.
 
 ## OpenRouter strict request
 

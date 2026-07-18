@@ -35,7 +35,9 @@ succeeded.
 `/helix-workflows import <repository-relative-v4.json>` is the expert deploy
 surface. It requires attended confirmation, a regular contained file no larger
 than 256 KiB, schema version 4, `source: "user"`, a runnable objective gate, a
-closed single-gated graph, a non-conflicting id, and an atomic destination.
+closed single-gated graph, deployment-valid assignments, a non-conflicting id,
+and an atomic destination. All structural, deployment, gate, and workspace
+checks pass before the user definition is written.
 The pure API in `dispatch/workflow/builder.mjs` produces the same validated JSON;
 Helix does not execute the program that generated it.
 
@@ -45,7 +47,13 @@ Helix does not execute the program that generated it.
 feature toggles, cast, exact provider/model/effort/route/account requirements,
 objective gate, worktree, concurrency, and deadlines. Print/RPC modes stop at
 preflight. TUI mode requires confirmation and rechecks the complete binding
-before creating the run or contacting a provider.
+before creating the run or contacting a provider. Every declared non-task input
+is editable: blank accepts a declared default, omits an optional value, or
+refuses a required value without a default. The complete object is validated
+before run creation and bound into the resume identity. Consent lists bound
+input names, not their values. Named workflows require canonical worktrees; disabling the
+worktree feature produces a pre-consent refusal rather than changing the
+approved mutation location.
 
 Every named workflow, including legacy saved definitions and tracked built-ins,
 normalizes into WorkflowDefinition v4 and runs through the same kernel. The
@@ -54,6 +62,8 @@ promotes isolated proposals only from an unchanged base, records an append-only
 effect journal, and permits success only through the final objective gate.
 The final node has no second objective: it executes the top-level
 `objective_gate`, and the successful terminal has no other incoming edge.
+Every candidate, panel member, and retry is one independently budgeted and
+journaled model effect; a panel cannot start unless its whole first wave fits.
 
 - `/helix-runs` lists structural records.
 - `/helix-run-status <run-id>` shows one structural record.
@@ -62,11 +72,19 @@ The final node has no second objective: it executes the top-level
   visits, effects, gates, and terminal state. Later workflow edits cannot rewrite
   history.
 - `/helix-run-resume <run-id>` is attended for v4 runs. It asks for the original
-  task, verifies its hash, reloads the pinned definition, revalidates policy and
+  task and declared typed inputs, verifies their hash, reloads the pinned definition, revalidates policy and
   exact cast, restores the retained worktree from the last private bounded
   snapshot, trims orphan event/journal suffixes, and resumes completed effects
   without replaying them. Completed runs are a no-op. Old staged-run records
   remain read-only compatible through their historical validator.
+
+A normal checkpoint is rendered as **paused**, not failed, and includes the
+exact `/helix-run-resume <run-id>` continue command. Checkpoints inside a pinned
+child workflow carry namespaced child state and continue once on parent resume.
+Workspace, journal, or scheduler-checkpoint recovery failures with a durable
+private checkpoint remain incomplete and render as **interrupted** with the
+same explicit resume action. A failure before the first checkpoint is terminal
+and never advertises resume.
 - `/helix-run-prune <run-id>` removes a structural run directory only after TUI
   confirmation. It does not guess ownership of retained worktrees or private
   checkpoints.
@@ -118,8 +136,9 @@ bounded argv vectors with `shell: false`. File paths are contained and exclude
 `.git`. Definitions cap nodes, effects, map cardinality, pipeline width,
 concurrency, visits, retries, runtime, call time, and serialized bytes. Raw
 tasks, credentials, provider bodies, and private outputs are never rendered by
-run views. Private checkpoints cap file count, individual bytes, and total
-bytes and refuse special files.
+run views. Private checkpoints accept at most 16,384 regular files, 16 MiB per
+file, and 64 MiB total; exact boundaries are accepted and one-byte/file-over
+inputs refuse. Special files refuse.
 
 Pi tools and objective commands retain the user's local authority. Worktrees
 are Git-state isolation, not an OS sandbox. Read-only agents do not receive
@@ -142,6 +161,10 @@ npm run check:workflow-conformance
 npm run check:provider-contracts
 npm run check:package
 ```
+
+Local `check:package` verifies the extracted artifact structurally. CI passes
+`--pi-bin node_modules/.bin/pi`, loads that extracted artifact through Pi RPC,
+and requires all Helix commands to be discovered on both supported Node jobs.
 
 `bash tools/lockdown/no-egress-smoke.sh --active` performs the enforcing Docker
 proof with `--network none`. `tools/ci/run-node-matrix.sh` requires explicit

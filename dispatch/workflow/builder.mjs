@@ -42,8 +42,8 @@ export function reduce(items_path, strategy, next, { label, separator } = {}) {
   return { kind: "reduce", items_path, strategy, next, ...(label ? { label } : {}), ...(separator != null ? { separator } : {}) };
 }
 
-export function decision(transitions, fallback, { label, loops_off } = {}) {
-  return { kind: "decision", transitions, default: fallback, ...(label ? { label } : {}), ...(loops_off ? { loops_off } : {}) };
+export function decision(transitions, fallback, { label, loops_off, default_loop = false } = {}) {
+  return { kind: "decision", transitions, default: { target: fallback, ...(default_loop ? { loop: true } : {}) }, ...(label ? { label } : {}), ...(loops_off ? { loops_off } : {}) };
 }
 
 export function gate(objective, on_pass, on_fail, { label, loops_off } = {}) {

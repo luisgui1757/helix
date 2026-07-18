@@ -5,9 +5,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import { resolvePiBinary, runPiE2ELoad } from "../smoke/pi-e2e-load.mjs";
 
 const root = process.cwd();
 const temp = mkdtempSync(join(tmpdir(), "helix-package-check-"));
+const piIndex = process.argv.indexOf("--pi-bin");
+const piBin = piIndex >= 0 ? process.argv[piIndex + 1] : null;
 
 function run(command, args, cwd = root) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
@@ -16,6 +19,7 @@ function run(command, args, cwd = root) {
 }
 
 try {
+  if (piIndex >= 0 && (!piBin || process.argv.length !== piIndex + 2)) throw new Error("package-check-pi-bin-invalid");
   const packed = JSON.parse(run("npm", ["pack", "--json", "--pack-destination", temp]));
   if (!Array.isArray(packed) || packed.length !== 1 || typeof packed[0].filename !== "string") {
     throw new Error("npm-pack-result-invalid");
@@ -45,7 +49,15 @@ try {
   if (pkg.peerDependencies?.["@earendil-works/pi-coding-agent"] !== ">=0.80.7 <0.81.0") {
     throw new Error("package-pi-range-invalid");
   }
-  console.log(JSON.stringify({ ok: true, files: files.length, package: packed[0].filename }));
+  let piRpc = "not-requested";
+  if (piBin) {
+    const proof = runPiE2ELoad({ root: packageRoot, runtimeRpc: true, piBin: resolvePiBinary(root, piBin) });
+    if (!proof.ok || proof.gates.find((gate) => gate.id === "pi-discoverability")?.status !== "pass") {
+      throw new Error("package-extracted-pi-rpc-failed");
+    }
+    piRpc = "pass";
+  }
+  console.log(JSON.stringify({ ok: true, files: files.length, package: packed[0].filename, pi_rpc: piRpc }));
 } catch (error) {
   console.error(`package-check: ${error.message}`);
   process.exitCode = 1;
