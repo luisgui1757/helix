@@ -78,6 +78,7 @@ import { isHelixProvider } from "./providers.mjs";
 import { ROLES } from "./role-envelope.mjs";
 import { EFFORTS } from "./routes.mjs";
 import { isExecutorRef, isModelId, isPublicCode } from "./public-values.mjs";
+import { WORKSPACE_COPY_LIMITS } from "../kernel/limits.mjs";
 import {
   ensureConfinedDirectory,
   installConfinedDirectory,
@@ -88,11 +89,7 @@ import {
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-export const PRIVATE_CHECKPOINT_LIMITS = Object.freeze({
-  max_files: 16_384,
-  max_file_bytes: 16 * 1024 * 1024,
-  max_total_bytes: 64 * 1024 * 1024,
-});
+export const PRIVATE_CHECKPOINT_LIMITS = WORKSPACE_COPY_LIMITS;
 
 export const RUNNER_CODES = Object.freeze({
   INVALID_CONFIG: "invalid-run-config",

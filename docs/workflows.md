@@ -1,9 +1,10 @@
 # WorkflowDefinition v4 guide
 
 Helix runs one closed intermediate representation: WorkflowDefinition v4. The
-guided builder and legacy personal definitions are compatibility inputs that
-normalize before hashing, consent, persistence, and execution. JSON import and
-the programmatic builder produce v4 directly. User programs generate data;
+guided builder and kernel-compatible legacy personal definitions are
+compatibility inputs that normalize before hashing, consent, persistence, and
+execution; host-only legacy steps refuse rather than being dropped. JSON import
+and the programmatic builder produce v4 directly. User programs generate data;
 Helix never executes them as workflow code.
 
 ## Fast path
@@ -40,8 +41,9 @@ The input schema is a bounded closed subset for object, array, string, number,
 integer, and boolean values. The root requires a non-empty `task`; declared
 fields may add descriptions, defaults, and bounds. The attended runner prompts
 for every non-task field: blank accepts a declared default, omits an optional
-field, or refuses a required field without a default. It validates the complete
-object before creating a run and binds it to resume identity.
+field, or refuses a required field without a default. String values preserve
+spaces; enter `""` to supply an explicit empty string. It validates the
+complete object before creating a run and binds it to resume identity.
 
 ## Nodes
 
@@ -49,7 +51,7 @@ object before creating a run and binds it to resume identity.
 |---|---|---|
 | `agent` | One typed role effect | exact role, stage id, schema, tools, mutation, timeout, retry, next |
 | `pipeline` | Ordered agent handoff | 1–16 inline agents, next, `max_visits` |
-| `parallel` | Bounded fan-out/fan-in | branches, 1–16 concurrency, abort/settle policy |
+| `parallel` | Bounded fan-out/fan-in | 1–64 branches, 1–16 concurrency, abort/settle policy |
 | `map` | Agent over a typed array | JSON pointer, 0–256 items, failure policy |
 | `reduce` | Deterministic aggregation | collect, count, or bounded-separator concat |
 | `decision` | Closed routing | typed conditions, typed default edge, optional loops-off target |
@@ -64,24 +66,46 @@ evaluation, or implicit truthiness is allowed. Missing paths do not match.
 
 ## Defaults and ceilings
 
+These values are exported once as `WORKFLOW_LIMITS`; checked-in exact/one-over
+tests cover the principal document, graph, input, condition, and workspace
+boundaries.
+
 | Concern | Default | Absolute ceiling |
 |---|---:|---:|
+| Workflow identifiers / names / descriptions | — | 64 / 128 / 1,024 characters |
+| Workflow version | 1 | 1,000,000 |
+| Workflow nodes | — | 256 |
+| Serialized workflow definition | — | 256 KiB |
+| Canonical public-helper serialization | — | 2 MiB, depth 64 |
+| Input schema depth / object fields | — | 4 / 32 |
+| Serialized runtime input | — | 1 MiB |
+| Input descriptions / string values | — | 256 / 65,536 characters |
+| JSON pointer / one pointer segment | — | 512 / 128 characters |
+| Agent prompt / tools | tracked prompt / role tools | 16,384 characters / 16 tools |
 | Agent effects | 32 | 1,000 |
 | Concurrency | 4 | 16 |
-| Map items | 16 | 256 |
-| Pipeline agents | — | 16 |
-| Node visits | 3 in builders | 32 |
-| Explicit attempts | 1 | 3 |
-| Whole run | 30 minutes | 8 hours |
-| One call | 10 minutes | 1 hour |
+| Parallel branches / pipeline agents | — | 64 / 16 |
+| Map and input-array items | 16 | 256 |
+| Decision transitions | — | 16 |
+| Condition depth / boolean width | — | 32 / 8 |
+| Allowed failure codes | — | 16 |
+| Explicit node visits | 3 in builders | 32 |
+| Implicit node visits | — | min(effects + nodes, 1,256) |
+| Explicit attempts / retry backoff | 1 / 0 | 3 / 60 seconds |
+| Whole run, cumulative across continuations | 30 minutes | 8 hours |
+| One model call | 10 minutes | 1 hour |
+| Gate marker / command / arguments | — | 256 chars / 128 chars / 32 × 256 chars |
+| Gate timeout | — | 10 minutes |
+| Reduce separator / checkpoint reason | — | 32 / 128 characters |
 | Structured repair | 2 declared | 2 |
-| Serialized definition | — | 256 KiB |
 
 Retries and panel members are effects: every actual model invocation consumes
 the shared effect/token/cost budget and appears in observed events. A panel's
 first wave is reserved atomically so a one-effect limit cannot launch two calls.
-Loop-disabled mode follows an explicit `loops_off` target; cyclic defaults must
-be marked `loop: true`, and the kernel never guesses how to escape a back edge.
+Loop-disabled mode follows an explicit `loops_off` target. Every decision back
+edge, including a cyclic default, must be marked `loop: true`; a loop marker on
+an acyclic edge or without a valid escape refuses. The kernel never guesses how
+to escape a cycle.
 
 Read-only agents may use only read/search tools. `shared-serialized` writers run
 under one writer mutex with private before-state checkpoints.
@@ -152,7 +176,8 @@ process.stdout.write(`${JSON.stringify(built.definition, null, 2)}\n`);
 ```
 
 Write that output to a repository-relative file and deploy it in an attended Pi
-TUI:
+TUI. Import receives Pi's current model inventory and validates the complete
+parent/direct-child deployment before asking for mutation confirmation:
 
 ```text
 /helix-workflows import quality-loop.json
@@ -177,8 +202,10 @@ pipeline's `max_visits` and global effect ceiling bound the loop.
 Use `parallel([scout, reviewer, redteam], "reduce", { max_concurrency: 3 })`.
 Output order follows definition order, not completion order. `failure: "abort"`
 is the safe default; `settle` also requires explicit `allow_failure_codes` and
-preserves those typed child failures but cannot mask
-identity, policy, corruption, workspace, or final-gate failures.
+preserves only failures explicitly classified by the scheduler as agent
+failures. Scheduler/runtime integrity, identity, policy, workspace, budget,
+cancellation, and final-gate failures are structurally non-maskable regardless
+of an authored code allowlist.
 
 ### Map/reduce
 
@@ -194,7 +221,9 @@ continue action. A child checkpoint is namespaced beneath its parent and
 continues exactly once. A subworkflow pins both id and version, shares the
 parent's budget/journal/workspace, emits nested structural events, and may not
 invoke another subworkflow. Runtime smoke resolves the same pinned direct child
-bundle as product execution.
+bundle as product execution and includes child nodes, effects, and transitions
+in its observed counts. Deployment preflight, provider inventory, and consent
+likewise include every direct child's effective cast.
 
 ## Objective gates
 

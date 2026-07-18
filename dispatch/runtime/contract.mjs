@@ -43,8 +43,8 @@ function validTuple(tuple, { effective = false } = {}) {
   if (!isModelId(tuple.model)) return false;
   if (!["default", "provider-managed", "low", "medium", "high", "xhigh", "max"].includes(tuple.effort)) return false;
   if (tuple.route != null && !isPublicCode(tuple.route)) return false;
-  if (tuple.expected_account != null && !validAccount(tuple.expected_account)) return false;
-  if (tuple.account != null && !validAccount(tuple.account)) return false;
+  if (!effective && !validAccount(tuple.expected_account)) return false;
+  if (effective && !validAccount(tuple.account)) return false;
   return true;
 }
 
@@ -99,12 +99,12 @@ export function exactAttestationStatus(attestation, { now = Date.now(), require_
   if (attestation.effective.account !== attestation.requested.expected_account) {
     return { ok: false, code: "provider-account-identity-mismatch" };
   }
-  if (attestation.requested.route != null) {
+  if ((attestation.requested.route ?? null) !== (attestation.effective.route ?? null)) {
+    return { ok: false, code: "provider-route-identity-mismatch" };
+  }
+  if (attestation.requested.route != null || attestation.effective.route != null) {
     if (["requested-only", "unavailable"].includes(attestation.evidence.route)) {
       return { ok: false, code: "provider-route-unverified" };
-    }
-    if (attestation.effective.route !== attestation.requested.route) {
-      return { ok: false, code: "provider-route-identity-mismatch" };
     }
   }
   return { ok: true };

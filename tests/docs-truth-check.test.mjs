@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkDocsTruth, HELIX_COMMANDS, MAX_README_LINES } from "../tools/ci/docs-truth-check.mjs";
+import {
+  checkDocsTruth,
+  DOCS_WORKFLOW_LIMIT_ROWS,
+  DOCS_WORKSPACE_LIMIT_SNIPPETS,
+  HELIX_COMMANDS,
+  MAX_README_LINES,
+} from "../tools/ci/docs-truth-check.mjs";
 
 function write(root, rel, text) {
   mkdirSync(join(root, rel, ".."), { recursive: true });
@@ -28,8 +34,8 @@ function fixtureRoot() {
     "/helix-run-resume",
     "",
   ].join("\n"));
-  write(root, "docs/manual.md", HELIX_COMMANDS.join("\n") + "\n");
-  write(root, "docs/workflows.md", "# Workflows\n");
+  write(root, "docs/manual.md", [...HELIX_COMMANDS, ...DOCS_WORKSPACE_LIMIT_SNIPPETS].join("\n") + "\n");
+  write(root, "docs/workflows.md", ["# Workflows", ...DOCS_WORKFLOW_LIMIT_ROWS, ""].join("\n"));
   write(root, "docs/architecture.md", "# Architecture\none product workflow engine\nprivate checkpoint\nCapabilityAttestation\n");
   write(root, "docs/providers.md", "# Providers\nallow_fallbacks\nuncertified-disabled\nCLIProxyAPI\n");
   write(root, "SECURITY.md", "# Security\n");

@@ -32,8 +32,8 @@ const observedAt = Date.now();
 const capability = {
   effective: { provider: tuple.provider, model, effort: tuple.effort, route, account: observedAccount },
   evidence: {
-    provider: "verified-session", model: "verified-response", effort: "verified-session",
-    route: "verified-response", account: "verified-session", source: "openrouter-live-certification",
+    provider: "verified-session", model: "verified-session", effort: "verified-session",
+    route: "verified-deployment", account: "verified-session", source: "openrouter-live-certification",
     observed_at: observedAt, expires_at: observedAt + 5 * 60 * 1000,
   },
   credential_class: "api-key",

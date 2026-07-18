@@ -37,7 +37,8 @@ it at any time. For checkout development, use `pi -e .`.
 
 Before execution, Helix displays the task, workflow graph, objective gate,
 repository, deadlines, and every resolved role/provider/model/effort/instance
-tuple. Declared typed inputs are collected and validated before run creation;
+tuple across the parent and every pinned direct child. Declared typed inputs are
+collected and validated before run creation;
 consent shows their names without exposing values. Named workflows require the
 canonical per-run worktree policy and refuse before consent when worktrees are
 disabled. The binding is rechecked before run-directory, worktree, or provider
@@ -65,8 +66,10 @@ the single top-level objective definition.
 Read-only effects may overlap; shared writers serialize; isolated proposals run
 in disposable Git worktrees and promote only from an unchanged base. Every
 actual model invocation—including each panel member and retry—consumes one
-journaled effect. Recovery snapshots remain retained until the workspace,
-journal, scheduler checkpoint, and post-commit cleanup are durably complete.
+journaled effect. A durable pre-call intent records that consumption; recovery
+reconciles completed journal evidence without repeating provider work. Recovery
+snapshots remain retained until the workspace, journal, scheduler checkpoint,
+and post-commit cleanup are durably complete.
 
 Run records contain structural events and hashes. Raw tasks remain in memory;
 private scheduler checkpoints and bounded workspace snapshots live below

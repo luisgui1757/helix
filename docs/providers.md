@@ -26,9 +26,10 @@ The installed runtime is not a live certification. Preflight consumes a
 short-lived capability record from official status/probe evidence. Requested
 values copied into a record are `requested-only` and fail exact mode. Exact
 status always requires an opaque account binding; providers that cannot expose
-one remain exact-disabled. Evidence is graded per field: a response may verify
-provider/model while the configured runtime session verifies effort, and the
-weaker field is never mislabeled as response evidence.
+one remain exact-disabled. Both requested and effective account fields must be
+present, non-empty opaque values and must match. Evidence is graded per field:
+a response may verify provider/model while the configured runtime session
+verifies effort, and the weaker field is never mislabeled as response evidence.
 
 ## OpenRouter strict request
 
@@ -49,8 +50,8 @@ Every exact request contains one model and one endpoint provider route:
 
 No `models` fallback list, permissive preset, sorting shortcut, or inherited
 provider default is accepted. The response must return the exact requested
-model and provider route. A different route is a failed call, not success with
-a warning.
+model and provider route. A different or unrequested effective route is a
+failed call, not success with a warning.
 
 For the product path, attended preflight reads the configured credential only
 through Pi's AuthStorage, proves its provider-issued account label, and queries

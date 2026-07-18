@@ -4,11 +4,17 @@
 
 import {
   WORKFLOW_DEFAULTS,
+  WORKFLOW_LIMITS,
   WORKFLOW_SCHEMA_VERSION,
   validateWorkflowDefinition,
 } from "./schema.mjs";
 
-export function agent({ role, stage_id, prompt = "tracked-step-v1", output_schema = "semantic-v2", tools, mutation, timeout_ms, retry, next, max_visits, artifact, label } = {}) {
+function options(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+export function agent(value = {}) {
+  const { role, stage_id, prompt = "tracked-step-v1", output_schema = "semantic-v2", tools, mutation, timeout_ms, retry, next, max_visits, artifact, label } = options(value);
   return {
     kind: "agent",
     role,
@@ -26,47 +32,59 @@ export function agent({ role, stage_id, prompt = "tracked-step-v1", output_schem
   };
 }
 
-export function pipeline(stages, next, { label, max_visits = WORKFLOW_DEFAULTS.max_visits, artifact } = {}) {
+export function pipeline(stages, next, value = {}) {
+  const { label, max_visits = WORKFLOW_DEFAULTS.max_visits, artifact } = options(value);
   return { kind: "pipeline", stages, next, max_visits, ...(label ? { label } : {}), ...(artifact ? { artifact } : {}) };
 }
 
-export function parallel(branches, next, { label, max_concurrency = WORKFLOW_DEFAULTS.max_concurrency, failure = "abort", allow_failure_codes } = {}) {
+export function parallel(branches, next, value = {}) {
+  const { label, max_concurrency = WORKFLOW_DEFAULTS.max_concurrency, failure = "abort", allow_failure_codes } = options(value);
   return { kind: "parallel", branches, next, max_concurrency, failure, ...(allow_failure_codes ? { allow_failure_codes } : {}), ...(label ? { label } : {}) };
 }
 
-export function map(items_path, body, next, { label, max_items = WORKFLOW_DEFAULTS.max_map_items, failure = "abort", allow_failure_codes } = {}) {
+export function map(items_path, body, next, value = {}) {
+  const { label, max_items = WORKFLOW_DEFAULTS.max_map_items, failure = "abort", allow_failure_codes } = options(value);
   return { kind: "map", items_path, body, next, max_items, failure, ...(allow_failure_codes ? { allow_failure_codes } : {}), ...(label ? { label } : {}) };
 }
 
-export function reduce(items_path, strategy, next, { label, separator } = {}) {
+export function reduce(items_path, strategy, next, value = {}) {
+  const { label, separator } = options(value);
   return { kind: "reduce", items_path, strategy, next, ...(label ? { label } : {}), ...(separator != null ? { separator } : {}) };
 }
 
-export function decision(transitions, fallback, { label, loops_off, default_loop = false } = {}) {
+export function decision(transitions, fallback, value = {}) {
+  const { label, loops_off, default_loop = false } = options(value);
   return { kind: "decision", transitions, default: { target: fallback, ...(default_loop ? { loop: true } : {}) }, ...(label ? { label } : {}), ...(loops_off ? { loops_off } : {}) };
 }
 
-export function gate(objective, on_pass, on_fail, { label, loops_off } = {}) {
+export function gate(objective, on_pass, on_fail, value = {}) {
+  const { label, loops_off } = options(value);
   return { kind: "gate", gate: objective, on_pass, on_fail, ...(label ? { label } : {}), ...(loops_off ? { loops_off } : {}) };
 }
 
-export function objectiveGate(on_pass, on_fail, { label, loops_off } = {}) {
+export function objectiveGate(on_pass, on_fail, value = {}) {
+  const { label, loops_off } = options(value);
   return { kind: "gate", on_pass, on_fail, final: true, ...(label ? { label } : {}), ...(loops_off ? { loops_off } : {}) };
 }
 
-export function checkpoint(reason, next, { label } = {}) {
+export function checkpoint(reason, next, value = {}) {
+  const { label } = options(value);
   return { kind: "checkpoint", reason, next, ...(label ? { label } : {}) };
 }
 
-export function subworkflow(workflow_id, version, next, { label } = {}) {
+export function subworkflow(workflow_id, version, next, value = {}) {
+  const { label } = options(value);
   return { kind: "subworkflow", workflow_id, version, next, ...(label ? { label } : {}) };
 }
 
-export function terminal(status, code = null, { label } = {}) {
+export function terminal(status, code = null, value = {}) {
+  const { label } = options(value);
   return { kind: "terminal", status, ...(code ? { code } : {}), ...(label ? { label } : {}) };
 }
 
-export function workflow({ id, name, description, version = 1, source = "user", inputs, start, nodes, limits = {}, provider_policy, workspace_policy, objective_gate } = {}) {
+export function workflow(value = {}) {
+  const { id, name, description, version = 1, source = "user", inputs, start, nodes, limits = {}, provider_policy, workspace_policy, objective_gate } = options(value);
+  const safeLimits = options(limits);
   const definition = {
     schema_version: WORKFLOW_SCHEMA_VERSION,
     id,
@@ -76,17 +94,17 @@ export function workflow({ id, name, description, version = 1, source = "user", 
     source,
     inputs: inputs ?? {
       type: "object", additionalProperties: false, required: ["task"],
-      properties: { task: { type: "string", minLength: 1, maxLength: 65_536 } },
+      properties: { task: { type: "string", minLength: 1, maxLength: WORKFLOW_LIMITS.max_input_string_length } },
     },
     start,
     nodes,
     limits: {
-      max_total_effects: limits.max_total_effects ?? WORKFLOW_DEFAULTS.max_total_effects,
-      max_concurrency: limits.max_concurrency ?? WORKFLOW_DEFAULTS.max_concurrency,
-      max_map_items: limits.max_map_items ?? WORKFLOW_DEFAULTS.max_map_items,
-      max_run_ms: limits.max_run_ms ?? WORKFLOW_DEFAULTS.max_run_ms,
-      max_call_ms: limits.max_call_ms ?? WORKFLOW_DEFAULTS.max_call_ms,
-      structured_repair_attempts: limits.structured_repair_attempts ?? WORKFLOW_DEFAULTS.structured_repair_attempts,
+      max_total_effects: safeLimits.max_total_effects ?? WORKFLOW_DEFAULTS.max_total_effects,
+      max_concurrency: safeLimits.max_concurrency ?? WORKFLOW_DEFAULTS.max_concurrency,
+      max_map_items: safeLimits.max_map_items ?? WORKFLOW_DEFAULTS.max_map_items,
+      max_run_ms: safeLimits.max_run_ms ?? WORKFLOW_DEFAULTS.max_run_ms,
+      max_call_ms: safeLimits.max_call_ms ?? WORKFLOW_DEFAULTS.max_call_ms,
+      structured_repair_attempts: safeLimits.structured_repair_attempts ?? WORKFLOW_DEFAULTS.structured_repair_attempts,
     },
     provider_policy: provider_policy ?? {
       exact: true, assignments: {}, default_assignment: { kind: "composite", preset: "daily" }, require_live_certification: false,

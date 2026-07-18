@@ -39,6 +39,12 @@ import {
 } from "./helix-local.mjs";
 import { resolveWorkflow } from "./helix-workflows.mjs";
 
+const RETRYABLE_AGENT_FAILURES = new Set([
+  "pi-agent-provider-failed",
+  "pi-agent-semantic-output-invalid",
+  "pi-agent-session-failed",
+]);
+
 function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : null;
@@ -237,7 +243,7 @@ async function executeKernelDefinition({
       });
     } catch { compiled = null; }
     if (!compiled?.ok) return { ok: false, code: compiled?.code ?? "prompt-compile-failed" };
-    const selected = spec.provider === "mock" && adapter == null ? mock.dispatchAdapter : adapter;
+    const selected = spec.provider === "mock" ? mock.dispatchAdapter : adapter;
     if (!selected || typeof selected.runCandidate !== "function") return { ok: false, code: "kernel-agent-adapter-missing" };
     let envelope;
     try {
@@ -251,8 +257,13 @@ async function executeKernelDefinition({
           attempt: 1,
           signal: ctx.signal,
       });
-      assertRoleEnvelope(envelope);
-    } catch { return { ok: false, code: "kernel-agent-envelope-invalid" }; }
+    } catch (error) {
+      if (error?.message === "pi-agent-call-cancelled") return { ok: false, code: "kernel-effect-cancelled" };
+      const code = RETRYABLE_AGENT_FAILURES.has(error?.message) ? error.message : "kernel-agent-adapter-failed";
+      return { ok: false, code, ...(RETRYABLE_AGENT_FAILURES.has(code) ? { failure_class: "agent" } : {}) };
+    }
+    try { assertRoleEnvelope(envelope); }
+    catch { return { ok: false, code: "kernel-agent-envelope-invalid" }; }
     if (spec.provider !== "mock") {
       if (!envelope.effective || Object.values(envelope.effective.evidence).includes("requested-only")
         || envelope.effective.provider !== spec.provider || envelope.effective.model !== spec.model

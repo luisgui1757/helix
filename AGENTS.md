@@ -322,17 +322,25 @@ The single source for test rules.
   final node cannot redefine the top-level objective, and resume requires its
   recorded pass evidence. Model verdicts may route work but cannot declare
   convergence.
-- A mutating effect is incomplete until workspace apply, journal append,
+- Every invocation consumes its effect and checkpoints an in-flight intent
+  before the provider call. A result is reusable only after its identity and
+  journal evidence reconcile; an unknown outcome refuses rather than replaying.
+  A mutating effect is incomplete until workspace apply, journal append,
   scheduler checkpoint, and bounded private workspace snapshot are durable.
   Recovery/proposal material remains until idempotent finalization; a failed
   restore preserves it. Resume restores and verifies that exact prefix before
-  reusing completed effects, and a missing expected journal refuses. A
+  reusing completed effects, and a missing expected journal refuses. A newer
+  journal suffix is preserved and reconciled only against durable scheduler
+  state; it is never destructively truncated. A
   workspace/journal/checkpoint failure is advertised as resumable only when a
   durable private checkpoint actually exists.
 - Read-only effects may overlap. Shared mutations serialize. Isolated proposals
   promote only from an unchanged canonical fingerprint; conflicts refuse.
 - Every actual model invocation, including panel members and retries, is one
   independently budgeted and journaled effect. Panel reservations are atomic.
+- Authored allowlists may settle only explicitly typed agent failures. Kernel
+  integrity, identity, budget, cancellation, workspace, and gate failures are
+  structurally non-maskable.
 - Declared typed inputs validate before run creation and are bound to resume.
   Named workflows require the canonical per-run worktree and refuse before
   consent when that feature is disabled.

@@ -4,13 +4,15 @@
 
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
-import { appendText, resolveConfinedFile, writeTextAtomic } from "../lib/persistence.mjs";
+import { appendText, resolveConfinedFile } from "../lib/persistence.mjs";
 import { stableWorkflowStringify } from "../workflow/schema.mjs";
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
 
 function hash(value) {
-  return `sha256:${createHash("sha256").update(stableWorkflowStringify(value)).digest("hex")}`;
+  const serialized = stableWorkflowStringify(value);
+  if (typeof serialized !== "string") throw new Error("kernel-journal-value-invalid");
+  return `sha256:${createHash("sha256").update(serialized).digest("hex")}`;
 }
 
 export function effectIdentity(binding) {
@@ -21,12 +23,13 @@ function validRecord(record, seq) {
   return record && typeof record === "object" && !Array.isArray(record)
     && Object.keys(record).every((key) => [
       "schema_version", "seq", "identity", "node_id", "instance_id", "input_ref", "runtime_ref",
-      "before_ref", "result_ref", "workspace_ref", "mutating", "status", "result",
+      "before_ref", "base_identity", "result_ref", "workspace_ref", "mutating", "status", "result",
     ].includes(key))
-    && record.schema_version === 1 && record.seq === seq
+    && [1, 2].includes(record.schema_version) && record.seq === seq
     && ["ok", "failed", "refused", "cancelled"].includes(record.status)
     && [record.identity, record.input_ref, record.runtime_ref, record.before_ref, record.result_ref]
       .every((value) => HASH.test(value))
+    && (record.schema_version === 1 ? !Object.hasOwn(record, "base_identity") : HASH.test(record.base_identity))
     && (record.workspace_ref === null || HASH.test(record.workspace_ref))
     && typeof record.node_id === "string" && typeof record.instance_id === "string"
     && typeof record.mutating === "boolean";
@@ -56,12 +59,6 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
           if (!Number.isSafeInteger(expected_records) || expected_records < 0 || records.length < expected_records) {
             throw new Error("invalid");
           }
-          if (records.length > expected_records) {
-            records.splice(expected_records);
-            byIdentity.clear();
-            records.forEach((record) => byIdentity.set(record.identity, record));
-            writeTextAtomic(root, relativePath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length ? "\n" : ""));
-          }
         }
       }
     } catch {
@@ -70,6 +67,21 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
   }
   return Object.freeze({
     records() { return structuredClone(records); },
+    suffix(expected = 0) {
+      if (!Number.isSafeInteger(expected) || expected < 0 || expected > records.length) {
+        return { ok: false, code: "kernel-journal-corrupt", records: [] };
+      }
+      return { ok: true, records: structuredClone(records.slice(expected)) };
+    },
+    nextInvocation(baseIdentity) {
+      if (!HASH.test(baseIdentity ?? "")) return null;
+      return records.filter((record) => (record.base_identity ?? record.identity) === baseIdentity).length + 1;
+    },
+    find(identity, { mutating = null } = {}) {
+      const record = byIdentity.get(identity);
+      if (!record || (mutating !== null && record.mutating !== mutating)) return null;
+      return structuredClone(record);
+    },
     lookup(identity, { mutating = false } = {}) {
       const record = byIdentity.get(identity);
       if (!record || record.status !== "ok" || record.mutating !== mutating) return null;
@@ -77,12 +89,20 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
         || verify_workspace(record.workspace_ref) !== true)) return null;
       return structuredClone(record);
     },
-    commit({ identity, node_id, instance_id, input_ref, runtime_ref, before_ref, workspace_ref = null, mutating, status, result }) {
-      if (byIdentity.has(identity)) return { ok: false, code: "kernel-journal-identity-collision" };
+    lookupBase(baseIdentity, { mutating = false } = {}) {
+      const record = records.findLast((entry) => (entry.base_identity ?? entry.identity) === baseIdentity
+        && entry.status === "ok" && entry.mutating === mutating);
+      if (!record) return null;
+      if (mutating && (record.workspace_ref == null || typeof verify_workspace !== "function"
+        || verify_workspace(record.workspace_ref) !== true)) return null;
+      return structuredClone(record);
+    },
+    commit({ identity, base_identity = identity, node_id, instance_id, input_ref, runtime_ref, before_ref, workspace_ref = null, mutating, status, result }) {
       const record = {
-        schema_version: 1,
+        schema_version: 2,
         seq: records.length + 1,
         identity,
+        base_identity,
         node_id,
         instance_id,
         input_ref,
@@ -96,6 +116,12 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
       };
       if (!validRecord(record, record.seq) || (mutating && status === "ok" && workspace_ref == null)) {
         return { ok: false, code: "kernel-journal-record-invalid" };
+      }
+      const existing = byIdentity.get(identity);
+      if (existing) {
+        return hash({ ...existing, seq: record.seq }) === hash(record)
+          ? { ok: true, record: structuredClone(existing), existing: true }
+          : { ok: false, code: "kernel-journal-identity-collision" };
       }
       try {
         if (root != null && relativePath != null) appendText(root, relativePath, `${JSON.stringify(record)}\n`);

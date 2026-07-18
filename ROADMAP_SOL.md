@@ -51,6 +51,23 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > `reviews/workflows/{SUMMARY,ASSUMPTIONS}.md`; exact-head remote CI remains the
 > delivery authority after the single normal remediation push.
 
+> **Consolidated exact-head closure (2026-07-18):** the subsequent Fable 5 and
+> Codex 5.6 reviews independently found a journal/checkpoint continuation gap,
+> replayed recoverable failures, maskable kernel-owned failures, incomplete
+> child deployment preflight, and bounded composition/authoring defects. The
+> canonical closure durably checkpoints each pre-invocation intent and consumed
+> effect, reconciles journal-ahead outcomes without destructive truncation or
+> repeated completed calls, retries only genuinely incomplete work as a new
+> counted invocation, and uses a closed failure class so scheduler-owned
+> failures cannot be allowlisted. Direct-child casts now participate in import,
+> inventory, consent, and runtime binding; parallel/map first waves reserve
+> atomically; every cyclic decision edge has explicit loop metadata and an
+> escape; deadlines are cumulative across continuation; runtime smoke generates
+> schema-valid witnesses; and public workflow helpers and operational limits are
+> bounded from one exported source. The final complete local suite passes
+> 685/685 plus worktree 12/12 and objective loop 8/8. Exact-head remote CI after
+> the single normal push remains the delivery authority.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:

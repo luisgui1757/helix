@@ -82,18 +82,31 @@ function smokeValue(preferred, nodeId, role) {
   return value;
 }
 
-function smokeInput(definition) {
-  const input = { task: "Exercise this workflow definition without provider calls." };
-  for (const key of definition.inputs.required) {
-    if (key === "task") continue;
-    const schema = definition.inputs.properties[key] ?? {};
-    if (schema.type === "array") input[key] = [];
-    else if (schema.type === "object") input[key] = {};
-    else if (schema.type === "boolean") input[key] = false;
-    else if (schema.type === "integer" || schema.type === "number") input[key] = schema.minimum ?? 0;
-    else input[key] = "smoke";
+function smokeValueForSchema(schema) {
+  if (Object.hasOwn(schema, "default")) return structuredClone(schema.default);
+  if (schema.type === "object") {
+    return Object.fromEntries((schema.required ?? []).map((key) => [key, smokeValueForSchema(schema.properties[key])]));
   }
-  return input;
+  if (schema.type === "array") {
+    return Array.from({ length: schema.minItems ?? 0 }, () => smokeValueForSchema(schema.items));
+  }
+  if (schema.type === "string") return "s".repeat(Math.max(1, schema.minLength ?? 0)).slice(0, schema.maxLength ?? 65_536);
+  if (schema.type === "boolean") return false;
+  if (schema.type === "integer") {
+    const minimum = schema.minimum == null ? Number.MIN_SAFE_INTEGER : Math.ceil(schema.minimum);
+    const maximum = schema.maximum == null ? Number.MAX_SAFE_INTEGER : Math.floor(schema.maximum);
+    return minimum <= 0 && maximum >= 0 ? 0 : minimum > 0 ? minimum : maximum;
+  }
+  if (schema.type === "number") {
+    const minimum = schema.minimum ?? Number.NEGATIVE_INFINITY;
+    const maximum = schema.maximum ?? Number.POSITIVE_INFINITY;
+    return minimum <= 0 && maximum >= 0 ? 0 : Number.isFinite(minimum) ? minimum : maximum;
+  }
+  return null;
+}
+
+function smokeInput(definition) {
+  return smokeValueForSchema(definition.inputs);
 }
 
 function worktreeRef(cwd) {
@@ -180,7 +193,11 @@ export async function smokeTestWorkflowRuntime({ workflow, subworkflows = [], cw
   if (!result?.ok || result.status !== "succeeded") {
     return { ok: false, code: result?.code ?? "workflow-runtime-smoke-failed" };
   }
-  const nodeIds = new Set(events.filter((event) => event.kind === "node-start").map((event) => event.node_id));
+  const nodeIds = new Set(events.flatMap((event) => event.kind === "node-start"
+    ? [`${event.run_id}:${event.node_id}`]
+    : event.kind === "subworkflow-event" && event.child_kind === "node-start" && event.child_node_id
+      ? [`${event.child_run_id}:${event.child_node_id}`]
+      : []));
   const finalGate = events.find((event) => event.kind === "gate" && event.final === true);
   return {
     ok: true,
@@ -188,8 +205,10 @@ export async function smokeTestWorkflowRuntime({ workflow, subworkflows = [], cw
     provider_calls: 0,
     objective_check: "simulated",
     nodes_exercised: nodeIds.size,
-    effects_exercised: events.filter((event) => event.kind === "effect-end").length,
-    transitions_exercised: events.filter((event) => event.kind === "transition").length,
+    effects_exercised: events.filter((event) => event.kind === "effect-end"
+      || (event.kind === "subworkflow-event" && event.child_kind === "effect-end")).length,
+    transitions_exercised: events.filter((event) => event.kind === "transition"
+      || (event.kind === "subworkflow-event" && event.child_kind === "transition")).length,
     objective_gate_exercised: finalGate?.result === "pass",
   };
 }

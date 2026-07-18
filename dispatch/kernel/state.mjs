@@ -22,11 +22,12 @@ function exact(value, keys) {
 }
 
 export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, runtime_ref, task_ref, node_ids } = {}) {
-  const keys = [
+  const baseKeys = [
     "schema_version", "run_id", "definition_ref", "runtime_ref", "task_ref", "current",
     "outputs", "visits", "active", "event_seq", "journal_entries", "budget", "workspace_ref",
   ];
-  if (!exact(checkpoint, keys) || checkpoint.schema_version !== 1
+  const keys = checkpoint?.schema_version === 2 ? [...baseKeys, "elapsed_ms"] : baseKeys;
+  if (!exact(checkpoint, keys) || ![1, 2].includes(checkpoint.schema_version)
     || checkpoint.run_id !== run_id || checkpoint.definition_ref !== definition_ref
     || checkpoint.runtime_ref !== runtime_ref || checkpoint.task_ref !== task_ref
     || !HASH.test(checkpoint.definition_ref ?? "") || !HASH.test(checkpoint.runtime_ref ?? "")
@@ -37,6 +38,7 @@ export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, r
     || [...node_ids].some((id) => !Number.isSafeInteger(checkpoint.visits[id]) || checkpoint.visits[id] < 0)
     || !Number.isSafeInteger(checkpoint.event_seq) || checkpoint.event_seq < 0
     || !Number.isSafeInteger(checkpoint.journal_entries) || checkpoint.journal_entries < 0
+    || (checkpoint.schema_version === 2 && (!Number.isSafeInteger(checkpoint.elapsed_ms) || checkpoint.elapsed_ms < 0))
     || !exact(checkpoint.budget, ["effects", "tokens", "cost_micros", "max_effects", "max_tokens", "max_cost_micros", "reserved"])
     || ![checkpoint.budget.effects, checkpoint.budget.tokens, checkpoint.budget.cost_micros]
       .every((value) => Number.isSafeInteger(value) && value >= 0)
@@ -44,9 +46,9 @@ export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, r
     return { valid: false, code: "kernel-checkpoint-invalid" };
   }
   if (checkpoint.active !== null) {
-    const activeKeys = Object.hasOwn(checkpoint.active, "child")
-      ? ["node_id", "visit", "completed", "child"]
-      : ["node_id", "visit", "completed"];
+    const activeKeys = ["node_id", "visit", "completed"];
+    if (checkpoint.schema_version === 2) activeKeys.push("inflight");
+    if (Object.hasOwn(checkpoint.active, "child")) activeKeys.push("child");
     if (!exact(checkpoint.active, activeKeys)
       || checkpoint.active.node_id !== checkpoint.current
       || !Number.isSafeInteger(checkpoint.active.visit) || checkpoint.active.visit < 1
@@ -54,6 +56,14 @@ export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, r
       || Object.entries(checkpoint.active.completed).some(([id, result]) => typeof id !== "string" || id.length > 256
         || !plain(result) || !["ok", "failed", "refused", "cancelled"].includes(result.status))) {
       return { valid: false, code: "kernel-checkpoint-active-invalid" };
+    }
+    if (checkpoint.schema_version === 2
+      && (!plain(checkpoint.active.inflight)
+        || Object.entries(checkpoint.active.inflight).some(([id, intent]) => typeof id !== "string" || id.length > 256
+          || !exact(intent, ["identity", "base_identity", "mutating"])
+          || !HASH.test(intent.identity ?? "") || !HASH.test(intent.base_identity ?? "")
+          || typeof intent.mutating !== "boolean"))) {
+      return { valid: false, code: "kernel-checkpoint-inflight-invalid" };
     }
     if (Object.hasOwn(checkpoint.active, "child")
       && (!exact(checkpoint.active.child, ["workflow_id", "version", "run_id", "scheduler"])

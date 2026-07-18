@@ -231,3 +231,74 @@ Focused regression evidence before the final gate:
 - No live provider endpoint was needed or contacted for these deterministic
   remediations. Remote matrix/package/no-egress results belong to the exact
   pushed remediation SHA and must not be inferred from an earlier commit.
+
+## 2026-07-18 — Consolidated exact-head review closure
+
+Status: the union of the subsequent Fable 5 and Codex 5.6 exact-head findings
+is closed canonically in one implementation change. Local evidence is complete;
+remote evidence belongs only to the exact commit after its normal push.
+
+Accepted findings and resolution:
+
+- A result could exist beyond the last scheduler checkpoint, while continuation
+  either replayed a stored recoverable failure forever or truncated the newer
+  journal suffix and repeated a completed call. Checkpoint schema v2 now stores
+  a durable pre-invocation intent, consumed lifetime effect, invocation ordinal,
+  cumulative elapsed time, and result phase. The journal retains every suffix;
+  continuation reconciles one exact outcome into the prior intent, heals a
+  pending journal write, or refuses an absent/ambiguous outcome. A completed
+  call is never repeated. A rolled-back incomplete mutating attempt may retry
+  only as a new counted invocation.
+- Adapter exceptions and invalid envelopes could share an allowlistable code.
+  Outcomes now carry a closed failure class. Only explicit agent failures are
+  retryable or settle-maskable; scheduler-, identity-, workspace-, journal-,
+  budget-, cancellation-, adapter-, and envelope-owned failures are
+  structurally non-maskable in parallel and map nodes.
+- Parent import and consent validated only the parent's cast. Deployment
+  preflight now resolves the complete pinned direct-child closure and includes
+  every child cast, effort, inventory, provider, account, certification, host
+  effect, and objective-check requirement before write or confirmation.
+- Parallel/map dispatch could launch a partial wave before discovering that the
+  whole first wave did not fit. All pending first attempts reserve atomically;
+  insufficient capacity launches zero calls. Cancellation status is preserved
+  instead of being rewritten as failure.
+- Decision transition loops were not graph-validated. Every cyclic decision
+  edge now requires `loop: true` and a valid `loops_off` escape; loop markers on
+  acyclic edges refuse. The validator covers both transitions and defaults.
+- Mixed mock/configured casts now route each member to its matching adapter.
+  Import/create commands receive current model inventory. Exact runtime status
+  requires non-null requested/effective account values and rejects an
+  unrequested effective route. Provider certification reports prospective
+  session/deployment evidence without claiming a response that has not run.
+- `max_run_ms` is cumulative across pause and interruption. Runtime smoke builds
+  and validates a recursive schema witness, includes child events in observed
+  counts, and accepts bounded nested inputs. Public builder, visualization, and
+  canonical serialization surfaces return bounded stable refusals for malformed
+  JSON-compatible input.
+- Workflow and workspace limits now come from exported constants, have
+  exact/one-over regressions, and are value-pinned in documentation. Legacy v1
+  definitions containing host-effect steps refuse instead of silently dropping
+  them. Watch, pause, input, authoring, refusal guidance, and Pi path behavior
+  received focused product regressions. CI now crosses both supported Node jobs
+  with Pi 0.80.7 and 0.80.9 while retaining one aggregate required check.
+
+Final local evidence:
+
+- `npm test`: 685/685; worktree self-test 12/12; objective-loop self-test 8/8.
+- Workflow conformance: 67/67; provider contracts: 27/27; docs truth,
+  resources, static no-live-egress, public-safety diff, and both deterministic
+  smokes passed. The extracted package contains 99 files and passed Pi RPC.
+- Active Docker `--network none`: 5/5, including both denied external
+  destinations, offline Pi 0.80.7 package loading, and localhost-only mock use.
+- Focused continuation tests prove read-only result-checkpoint recovery and
+  transient journal healing each use one call/effect; workspace-commit retry
+  uses a second counted invocation; impossible parallel/map waves launch zero.
+- Product regressions prove adapter/envelope failures cannot converge when
+  allowlisted, mixed casts route correctly, and parent preflight renders the
+  complete child cast.
+- Boundary regressions prove 256/257 nodes, 256 KiB/one-over definitions,
+  1 MiB/one-over inputs, condition depth 32/33, transition width 16/17, and the
+  shared 16,384-file / 16-MiB-file / 64-MiB-total workspace limits.
+- Live provider calls are outside this deterministic remediation and are not
+  claimed. Exact-head Node 22.19/26, package RPC, and active no-egress results
+  must come from the pushed commit's CI run.

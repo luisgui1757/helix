@@ -17,10 +17,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { WORKSPACE_COPY_LIMITS } from "./limits.mjs";
 
-const MAX_FILES = 16_384;
-const MAX_FILE_BYTES = 16 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+const {
+  max_files: MAX_FILES,
+  max_file_bytes: MAX_FILE_BYTES,
+  max_total_bytes: MAX_TOTAL_BYTES,
+} = WORKSPACE_COPY_LIMITS;
 
 function syncRegularTree(source, destination) {
   let files = 0;

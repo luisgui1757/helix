@@ -109,3 +109,50 @@ Rejected findings / bounded false alarms:
 - “One panel is one effect because it is one logical role”: rejected. The
   documented ceiling bounds provider invocations, cost, cancellation, and
   replay, so each member and retry requires its own effect identity.
+
+## 2026-07-18 — Effect reconciliation and composed-deployment invariants
+
+New durable invariants:
+
+- A provider call begins only after its invocation identity and lifetime effect
+  consumption are durable in the scheduler checkpoint. Usage is accounted onto
+  that same reservation after the response; it is never a second reservation.
+- A journal suffix newer than the scheduler checkpoint is evidence, not debris.
+  Continuation never truncates it. It reconciles one exact result to the durable
+  inflight identity or refuses an absent, conflicting, or ambiguous outcome.
+- A successful read-only result may be reconciled from its journal record. A
+  mutating result is reusable only when its workspace transaction remains
+  verifiable. Rolled-back incomplete mutation retries consume a new invocation.
+- Stored non-success results are not completed work. Recoverable failures are
+  cleared and retried when the incomplete transaction permits it; completed
+  successful results and panel members are reused without new reservations.
+- Failure authority is structural. Only outcomes explicitly classified as
+  agent failures can be retried or allowlisted; stable-code spelling is not a
+  substitute for a closed failure class.
+- Deployment preflight is compositional. A parent and every pinned direct child
+  form one effective cast for inventory, effort, account, certification,
+  provider display, consent, and import atomicity.
+- Parallel and map dispatch reserve their complete pending first-attempt set
+  before launching any branch. A budget that cannot cover that known set causes
+  zero calls.
+- `max_run_ms` measures cumulative active scheduler time across continuation.
+  Pause and interrupted wall time outside the scheduler do not consume it.
+- Every cyclic decision edge is explicit and has a loop-disabled escape. A loop
+  marker on an acyclic edge is invalid metadata, not a dormant annotation.
+- Kernel-compatible v1 migration preserves all supported semantics or refuses.
+  Host-effect steps are never silently narrowed out of a v4 definition.
+
+Rejected findings / bounded false alarms:
+
+- “A result-checkpoint failure permits repeating a successful read-only call”:
+  rejected. The durable intent plus exact journal outcome is sufficient to
+  reconcile it without another call.
+- “Truncating journal records beyond `expected_records` restores consistency”:
+  rejected. It destroys the only evidence for the post-checkpoint outcome and
+  can repeat completed work; consistency comes from identity reconciliation.
+- “A stable-code denylist is enough to make kernel failures non-maskable”:
+  rejected. Codes can be translated at adapter boundaries; failure authority is
+  an explicit closed class owned by the scheduler.
+- “Child assignments can wait for execution-time preflight”: rejected. Import
+  and attended consent promise a complete runnable deployment and therefore must
+  resolve the same direct-child closure before writing or confirmation.

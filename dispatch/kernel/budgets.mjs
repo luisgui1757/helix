@@ -53,6 +53,27 @@ export function createBudgetLedger({
       if (!canReserve(requests)) return { ok: false, code: "kernel-budget-exhausted" };
       return { ok: true, reservations: requests.map(install) };
     },
+    consume(id) {
+      if (!reservations.has(id)) return { ok: false, code: "kernel-budget-commit-invalid" };
+      reservations.delete(id);
+      effects += 1;
+      return { ok: true };
+    },
+    revertConsume() {
+      if (effects < 1) return { ok: false, code: "kernel-budget-commit-invalid" };
+      effects -= 1;
+      return { ok: true };
+    },
+    account({ tokens: actualTokens = 0, cost_micros: actualCost = 0 } = {}) {
+      if (!Number.isSafeInteger(actualTokens) || actualTokens < 0
+        || !Number.isSafeInteger(actualCost) || actualCost < 0) {
+        return { ok: false, code: "kernel-budget-commit-invalid" };
+      }
+      tokens += actualTokens;
+      cost += actualCost;
+      const overshoot = (max_tokens != null && tokens > max_tokens) || (max_cost_micros != null && cost > max_cost_micros);
+      return overshoot ? { ok: false, code: "kernel-budget-provider-overshoot" } : { ok: true };
+    },
     commit(id, { tokens: actualTokens = 0, cost_micros: actualCost = 0 } = {}) {
       if (!reservations.has(id) || !Number.isSafeInteger(actualTokens) || actualTokens < 0
         || !Number.isSafeInteger(actualCost) || actualCost < 0) return { ok: false, code: "kernel-budget-commit-invalid" };

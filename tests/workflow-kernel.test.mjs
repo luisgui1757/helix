@@ -44,7 +44,7 @@ test("objective-gated pipeline converges with structural events", async () => {
     objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
-  });
+  }, "work", { max_total_effects: 1 });
   const result = await runWorkflowKernel(graph, { task: "review" }, readOnlyDeps());
   assert.equal(result.ok, true);
   assert.equal(result.status, "succeeded");
@@ -141,7 +141,9 @@ test("agent retries are explicit, budgeted, and stop at the declared ceiling", a
   const recovered = await runWorkflowKernel(graph, { task: "retry" }, readOnlyDeps({
     async executeAgent() {
       calls += 1;
-      return calls < 3 ? { ok: false, code: "structured-output-invalid" } : { ok: true, value: { recommendation: "approve" } };
+      return calls < 3
+        ? { ok: false, code: "structured-output-invalid", failure_class: "agent" }
+        : { ok: true, value: { recommendation: "approve" } };
     },
   }));
   assert.equal(recovered.ok, true);
@@ -187,7 +189,9 @@ test("settled failures require an explicit code and can never mask identity fail
   const settled = await runWorkflowKernel(graph, { task: "settle" }, readOnlyDeps({
     async executeAgent() {
       calls += 1;
-      return calls === 1 ? { ok: false, code: optionalCode } : { ok: true, value: { recommendation: "approve" } };
+      return calls === 1
+        ? { ok: false, code: optionalCode, failure_class: "agent" }
+        : { ok: true, value: { recommendation: "approve" } };
     },
   }));
   assert.equal(settled.ok, true, JSON.stringify(settled));
@@ -332,10 +336,11 @@ test("a completed resumed panel reuses its effects before atomic reservation", a
       return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 0, cost_micros: 0 } };
     },
     async onCheckpoint(state) {
-      if (Object.keys(state.active?.completed ?? {}).length === 2) {
-        checkpoint = structuredClone(state);
+      const completed = Object.values(state.active?.completed ?? {});
+      if (completed.length === 2 && completed.every((entry) => !entry._journal_pending)) {
         return { ok: false, code: "synthetic-panel-stop" };
       }
+      checkpoint = structuredClone(state);
       return { ok: true };
     },
   });
@@ -426,6 +431,9 @@ test("journal failure after a workspace apply restores before returning", async 
   };
   const journal = {
     lookup: () => null,
+    lookupBase: () => null,
+    nextInvocation: () => 1,
+    find: () => null,
     commit: () => ({ ok: false, code: "kernel-journal-write-failed" }),
     records: () => [],
   };
@@ -474,7 +482,7 @@ test("effect-boundary checkpoint resumes without repeating a completed effect", 
     objective: objectiveGate("success", "failed"),
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
-  });
+  }, "work", { max_total_effects: 1 });
   const taskRef = journalRef("resume-task");
   const workspaceRef = journalRef("resume-workspace");
   const workspace = { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true };
@@ -488,10 +496,12 @@ test("effect-boundary checkpoint resumes without repeating a completed effect", 
     journal,
     async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" } }; },
     async onCheckpoint(state) {
+      const completed = Object.values(state.active?.completed ?? {});
+      if (completed.length > 0 && completed.every((entry) => !entry._journal_pending)) {
+        return { ok: false, code: "synthetic-process-stop" };
+      }
       checkpoint = structuredClone(state);
-      return Object.keys(state.active?.completed ?? {}).length > 0
-        ? { ok: false, code: "synthetic-process-stop" }
-        : { ok: true };
+      return { ok: true };
     },
   }));
   assert.equal(interrupted.code, "synthetic-process-stop");
@@ -508,6 +518,133 @@ test("effect-boundary checkpoint resumes without repeating a completed effect", 
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   assert.equal(calls, 1);
   assert.equal(resumed.events.some((event) => event.kind === "effect-resumed"), true);
+});
+
+test("a read-only result survives failure of its first result checkpoint", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 1 });
+  const taskRef = journalRef("result-checkpoint-task");
+  const workspaceRef = journalRef("result-checkpoint-workspace");
+  const journal = createEffectJournal({ verify_workspace: () => true });
+  let calls = 0;
+  let checkpoint = null;
+  let failedResultCheckpoint = false;
+  const deps = readOnlyDeps({
+    task_ref: taskRef,
+    runtime_ref: journalRef("result-checkpoint-runtime"),
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    journal,
+    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" } }; },
+    async onCheckpoint(state) {
+      if (!failedResultCheckpoint && Object.values(state.active?.completed ?? {}).some((entry) => entry._journal_pending)) {
+        failedResultCheckpoint = true;
+        return { ok: false, code: "kernel-checkpoint-write-failed" };
+      }
+      checkpoint = structuredClone(state);
+      return { ok: true };
+    },
+  });
+  const interrupted = await runWorkflowKernel(graph, { task: "result checkpoint" }, deps);
+  assert.equal(interrupted.code, "kernel-checkpoint-write-failed");
+  assert.equal(calls, 1);
+  assert.equal(journal.records().length, 1);
+  assert.equal(checkpoint.active.inflight["work:1:0:attempt-1"] != null, true);
+  const resumed = await runWorkflowKernel(graph, { task: "result checkpoint" }, { ...deps, resume: checkpoint });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(calls, 1);
+  assert.equal(resumed.budget.effects, 1);
+});
+
+test("a transient journal write interruption heals on resume without another invocation", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 1 });
+  const taskRef = journalRef("journal-heal-task");
+  const workspaceRef = journalRef("journal-heal-workspace");
+  const baseJournal = createEffectJournal({ verify_workspace: () => true });
+  let failCommit = true;
+  const journal = {
+    records: () => baseJournal.records(),
+    suffix: (count) => baseJournal.suffix(count),
+    nextInvocation: (identity) => baseJournal.nextInvocation(identity),
+    find: (identity, options) => baseJournal.find(identity, options),
+    lookup: (identity, options) => baseJournal.lookup(identity, options),
+    lookupBase: (identity, options) => baseJournal.lookupBase(identity, options),
+    commit(record) {
+      if (failCommit) { failCommit = false; return { ok: false, code: "kernel-journal-write-failed" }; }
+      return baseJournal.commit(record);
+    },
+  };
+  let calls = 0;
+  let checkpoint = null;
+  const deps = readOnlyDeps({
+    task_ref: taskRef,
+    runtime_ref: journalRef("journal-heal-runtime"),
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    journal,
+    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" } }; },
+    async onCheckpoint(state) { checkpoint = structuredClone(state); return { ok: true }; },
+  });
+  const interrupted = await runWorkflowKernel(graph, { task: "heal journal" }, deps);
+  assert.equal(interrupted.code, "kernel-journal-write-failed");
+  assert.equal(calls, 1);
+  assert.equal(checkpoint.active.completed["work:1:0:attempt-1"]._journal_pending != null, true);
+  const resumed = await runWorkflowKernel(graph, { task: "heal journal" }, { ...deps, resume: checkpoint });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(calls, 1);
+  assert.equal(resumed.budget.effects, 1);
+});
+
+test("a recoverable workspace commit failure retries as a new counted invocation", async () => {
+  const graph = definition({
+    work: pipeline([builder()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 2 });
+  const before = journalRef("workspace-retry-before");
+  const after = journalRef("workspace-retry-after");
+  let commitCalls = 0;
+  const workspace = {
+    cwd: "/tmp/mock",
+    currentRef: () => commitCalls > 1 ? after : before,
+    verifyRef: (ref) => ref === after,
+    async begin() { return { ok: true, mode: "shared-serialized", cwd: "/tmp/mock", before_ref: before }; },
+    async commit() {
+      commitCalls += 1;
+      return commitCalls === 1
+        ? { ok: false, code: "kernel-workspace-commit-failed" }
+        : { ok: true, workspace_ref: after };
+    },
+    serialize() { return { mode: "shared-serialized", before_ref: before, workspace_ref: after }; },
+    async rollback() { return { ok: true }; },
+    async finalize() { return { ok: true }; },
+  };
+  const journal = createEffectJournal({ verify_workspace: workspace.verifyRef });
+  let calls = 0;
+  let checkpoint = null;
+  const deps = readOnlyDeps({
+    task_ref: journalRef("workspace-retry-task"),
+    runtime_ref: journalRef("workspace-retry-runtime"),
+    workspace,
+    journal,
+    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" } }; },
+    async onCheckpoint(state) { checkpoint = structuredClone(state); return { ok: true }; },
+  });
+  const interrupted = await runWorkflowKernel(graph, { task: "retry workspace" }, deps);
+  assert.equal(interrupted.code, "kernel-workspace-commit-failed");
+  const resumed = await runWorkflowKernel(graph, { task: "retry workspace" }, { ...deps, resume: checkpoint });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(calls, 2);
+  assert.equal(resumed.budget.effects, 2);
+  assert.equal(journal.records().length, 2);
 });
 
 test("failed workspace finalization resumes as non-maskable without replay", async () => {
@@ -564,13 +701,50 @@ test("budget exhaustion and cancellation are terminal, never allowed failures", 
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   }, "work", { max_total_effects: 1 });
-  const exhausted = await runWorkflowKernel(graph, { task: "budget" }, readOnlyDeps());
+  let calls = 0;
+  const exhausted = await runWorkflowKernel(graph, { task: "budget" }, readOnlyDeps({
+    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" } }; },
+  }));
   assert.equal(exhausted.code, "kernel-budget-exhausted");
+  assert.equal(calls, 0, "an impossible first wave launches no effects");
   const controller = new AbortController();
   controller.abort("operator-cancelled");
   const cancelled = await runWorkflowKernel(graph, { task: "cancel" }, readOnlyDeps({ signal: controller.signal }));
   assert.equal(cancelled.status, "cancelled");
   assert.equal(cancelled.budget.reserved, 0);
+});
+
+test("parallel and map propagate mid-effect cancellation as cancelled", async () => {
+  const parallelGraph = definition({
+    work: parallel([reviewer(), reviewer()], "objective", { max_concurrency: 2 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  });
+  const mappedGraph = definition({
+    work: map("/inputs/items", reviewer(), "objective", { max_items: 2 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", {}, {
+    type: "object", additionalProperties: false, required: ["task", "items"],
+    properties: {
+      task: { type: "string", minLength: 1, maxLength: 65_536 },
+      items: { type: "array", minItems: 2, maxItems: 2, items: { type: "string" } },
+    },
+  });
+  for (const [graph, input] of [[parallelGraph, { task: "cancel" }], [mappedGraph, { task: "cancel", items: ["a", "b"] }]]) {
+    const controller = new AbortController();
+    const resultPromise = runWorkflowKernel(graph, input, readOnlyDeps({
+      signal: controller.signal,
+      async executeAgent(_node, { signal }) {
+        return new Promise((resolve) => signal.addEventListener("abort", () => resolve({ ok: false, code: "kernel-effect-cancelled" }), { once: true }));
+      },
+    }));
+    setTimeout(() => controller.abort("operator-cancelled"), 5);
+    const result = await resultPromise;
+    assert.equal(result.status, "cancelled", JSON.stringify(result));
+  }
 });
 
 test("the scheduler hard deadline bounds a non-cooperative objective gate", async () => {
@@ -587,6 +761,40 @@ test("the scheduler hard deadline bounds a non-cooperative objective gate", asyn
   assert.equal(result.status, "cancelled");
   assert.equal(result.code, "kernel-run-cancelled");
   assert.ok(Date.now() - started < 2_500);
+});
+
+test("max_run_ms is cumulative across a paused continuation", async () => {
+  const graph = definition({
+    hold: checkpoint("operator-approval", "objective"),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "hold", { max_run_ms: 1_000 });
+  const workspaceRef = journalRef("deadline-resume-workspace");
+  let clock = 0;
+  let snapshot = null;
+  const base = readOnlyDeps({
+    task_ref: journalRef("deadline-resume-task"),
+    runtime_ref: journalRef("deadline-resume-runtime"),
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    now: () => clock,
+    async onCheckpoint(state) { snapshot = structuredClone(state); return { ok: true }; },
+  });
+  const paused = await runWorkflowKernel(graph, { task: "deadline resume" }, {
+    ...base,
+    checkpoint() { clock = 800; return { continue: false }; },
+  });
+  assert.equal(paused.status, "paused");
+  assert.equal(snapshot.elapsed_ms, 800);
+  const started = Date.now();
+  const resumed = await runWorkflowKernel(graph, { task: "deadline resume" }, {
+    ...base,
+    resume: snapshot,
+    checkpoint: () => ({ continue: true }),
+    async runGate() { return new Promise(() => {}); },
+  });
+  assert.equal(resumed.status, "cancelled");
+  assert.ok(Date.now() - started < 500);
 });
 
 test("isolated proposals promote atomically, roll back, and refuse stale-base conflicts", async () => {

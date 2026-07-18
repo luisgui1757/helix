@@ -48,6 +48,13 @@ test("exact attestation binds provider, model, effort, route, and account", () =
   const missingEffectiveAccount = structuredClone(good);
   delete missingEffectiveAccount.effective.account;
   assert.equal(validateCapabilityAttestation(missingEffectiveAccount, { now: 1 }).code, "runtime-attestation-invalid");
+  const nullAccounts = structuredClone(good);
+  nullAccounts.requested.expected_account = null;
+  nullAccounts.effective.account = null;
+  assert.equal(validateCapabilityAttestation(nullAccounts, { now: 1 }).code, "runtime-attestation-invalid");
+  const unexpectedRoute = createMockAttestation();
+  unexpectedRoute.effective.route = "unrequested-route";
+  assert.equal(exactAttestationStatus(unexpectedRoute, { now: 1 }).code, "provider-route-identity-mismatch");
 });
 
 test("provider-issued account labels are opaque identifiers, not paths", () => {

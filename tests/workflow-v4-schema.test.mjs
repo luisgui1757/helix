@@ -7,6 +7,7 @@ import {
   evaluateCondition,
   migrateWorkflowV1,
   normalizeWorkflowDefinition,
+  stableWorkflowStringify,
   validateWorkflowDefinition,
   workflowDefinitionHash,
 } from "../dispatch/workflow/schema.mjs";
@@ -19,12 +20,17 @@ function currentWorkflow() {
   return workflowFromExecution(chains.chains[0], configs.configs[0], { source: "built-in" });
 }
 
-test("every shipped chain normalizes losslessly into a closed v4 graph", () => {
+test("every kernel-compatible shipped chain normalizes losslessly and host-effect chains refuse migration", () => {
   const chains = JSON.parse(readFileSync(new URL("../dispatch/config/chains.json", import.meta.url), "utf8"));
   const base = JSON.parse(readFileSync(new URL("../dispatch/config/run-configs.json", import.meta.url), "utf8")).configs[0];
   for (const chain of chains.chains) {
     const config = { ...base, id: chain.id, chain: chain.id, max_iterations: chain.default_max_iterations };
     const migrated = migrateWorkflowV1(workflowFromExecution(chain, config, { source: "built-in" }));
+    const hasHostEffects = chain.stages.some((stage) => stage.steps.some((step) => step.kind !== "role"));
+    if (hasHostEffects) {
+      assert.equal(migrated.code, "workflow-migration-host-effects-unsupported", chain.id);
+      continue;
+    }
     assert.equal(migrated.ok, true, `${chain.id}: ${JSON.stringify(migrated.errors)}`);
     assert.equal(validateWorkflowDefinition(migrated.definition).valid, true);
     assert.match(workflowDefinitionHash(migrated.definition), /^sha256:[0-9a-f]{64}$/);
@@ -182,7 +188,7 @@ test("pure builder creates the same closed definition contract", () => {
       route: decision([
         { when: { op: "eq", path: "/outputs/build/by_role/reviewer/recommendation", value: "approve" }, target: "objective" },
         { when: { op: "eq", path: "/outputs/build/by_role/reviewer/recommendation", value: "revise" }, target: "build", loop: true },
-      ], "failed", { label: "Review decision" }),
+      ], "failed", { label: "Review decision", loops_off: "objective" }),
       objective: objectiveGate("success", "build"),
       success: terminal("succeeded"),
       failed: terminal("failed", "review-verdict-invalid"),
@@ -192,11 +198,47 @@ test("pure builder creates the same closed definition contract", () => {
   assert.equal(built.ok, true, JSON.stringify(built.errors));
 });
 
+test("every cyclic decision edge is explicitly marked and has a loops-off escape", () => {
+  const base = normalizeWorkflowDefinition(currentWorkflow()).definition;
+  const routeId = Object.keys(base.nodes).find((id) => base.nodes[id].kind === "decision"
+    && base.nodes[id].transitions.some((entry) => entry.loop === true));
+  assert.ok(routeId);
+  const unmarked = structuredClone(base);
+  delete unmarked.nodes[routeId].transitions.find((entry) => entry.loop === true).loop;
+  assert.equal(validateWorkflowDefinition(unmarked).errors.some((entry) => entry.message.includes("cyclic decision edge")), true);
+  const noEscape = structuredClone(base);
+  delete noEscape.nodes[routeId].loops_off;
+  assert.equal(validateWorkflowDefinition(noEscape).errors.some((entry) => entry.message.includes("loops_off")), true);
+  const acyclicMarked = structuredClone(base);
+  const acyclic = acyclicMarked.nodes[routeId].transitions.find((entry) => entry.loop !== true);
+  acyclic.loop = true;
+  assert.equal(validateWorkflowDefinition(acyclicMarked).errors.some((entry) => entry.message.includes("only on a cyclic")), true);
+});
+
 test("conditions use safe JSON pointers and missing values are false", () => {
   const context = { outputs: { review: { recommendation: "approve", risks: ["r1"] } } };
   assert.equal(evaluateCondition({ op: "eq", path: "/outputs/review/recommendation", value: "approve" }, context), true);
   assert.equal(evaluateCondition({ op: "contains", path: "/outputs/review/risks", value: "r1" }, context), true);
   assert.equal(evaluateCondition({ op: "eq", path: "/outputs/missing", value: "approve" }, context), false);
+});
+
+test("public workflow helpers are total on malformed and deeply nested JSON values", () => {
+  let deep = "leaf";
+  for (let index = 0; index < 20_000; index += 1) deep = [deep];
+  let serialized;
+  assert.doesNotThrow(() => { serialized = stableWorkflowStringify(deep); });
+  assert.equal(serialized, null);
+  let invalidAgent;
+  assert.doesNotThrow(() => { invalidAgent = agent(null); });
+  assert.equal(invalidAgent.kind, "agent");
+  const definition = normalizeWorkflowDefinition(currentWorkflow()).definition;
+  assert.deepEqual(observedWorkflowGraph(definition, {}), { ok: false, code: "workflow-events-invalid" });
+});
+
+test("direct v1 migration refuses host-effect steps instead of silently dropping them", () => {
+  const legacy = currentWorkflow();
+  legacy.stages[0].steps.push({ id: "host-check", kind: "local-check" });
+  assert.equal(migrateWorkflowV1(legacy).code, "workflow-migration-host-effects-unsupported");
 });
 
 test("planned and observed graphs share stable ids without prompt content", () => {

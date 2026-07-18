@@ -100,7 +100,7 @@ export const HELIX_USAGE = `Usage:
   /helix-chains
   /helix-workflows [list | show <id> | test <id>]
   /helix-workflows import <repository-relative-v4.json>
-  /helix-workflow-create <id> [implement-review|plan-implement|tdd-fix]
+  /helix-workflow-create <id> [implement-review|plan-implement|tdd-fix] [gate-path] [gate-text] [max-iterations]
   /helix-workflow-edit [id]
   /helix-workflow-clone [id]
   /helix-workflow-delete [id]
@@ -218,6 +218,30 @@ const REFUSAL_GUIDANCE = Object.freeze({
   "invalid-workflow": {
     reason: "The workflow does not satisfy the bounded workflow schema.",
     next: "Inspect /helix-workflows show <id>, then fix the named stage or transition.",
+  },
+  "invalid-workflow-v4": {
+    reason: "The WorkflowDefinition v4 document is malformed or violates a closed workflow invariant.",
+    next: "Run /helix-workflows test <id> for a saved workflow, or fix the reported import field and retry.",
+  },
+  "workflow-deployment-invalid": {
+    reason: "The workflow is structurally valid but its complete resolved cast cannot be deployed.",
+    next: "Inspect /helix-workflows show <id> and /helix-models, then correct the assignment or active profile.",
+  },
+  "workflow-canonical-worktree-required": {
+    reason: "Named workflow execution requires canonical per-run worktree isolation.",
+    next: "Enable Worktree in /helix-settings, then repeat preflight before confirming the run.",
+  },
+  "helix-workflow-exists": {
+    reason: "A user workflow already owns the requested id.",
+    next: "Choose a new id, or use /helix-workflow-edit or /helix-workflow-clone for the existing workflow.",
+  },
+  "kernel-subworkflow-binding-invalid": {
+    reason: "A pinned child workflow is missing, version-mismatched, or not a supported depth-one child.",
+    next: "Inspect the parent and child with /helix-workflows show, then restore the exact pinned child version.",
+  },
+  "workflow-input-invalid": {
+    reason: "The supplied runtime values do not match the workflow's closed typed-input schema.",
+    next: "Retry the attended run and enter values within the displayed type and bounds.",
   },
   "workflow-resume-unsupported": {
     reason: "This run is bound to an exact in-memory workflow task, but task-aware in-process resume is not shipped yet.",
@@ -707,9 +731,8 @@ function buildPreflight(configId, deps, workflowOverride = null) {
     }
   }
 
-  // Preflight mirrors the STAGED runner (the engine that actually executes),
-  // not the legacy task-loop: resolve the chain and the per-stage cast so the
-  // Live signal, providers, and staged-runnability reflect what will run.
+  // Resolve the v4 workflow projection and complete pinned child closure so the
+  // cast, provider inventory, and consent reflect what the kernel will run.
   const chainResult = workflowChain
     ? { ok: true, chain: workflowChain }
     : resolveChain(deps.chainRegistry, config.chain);
@@ -736,6 +759,8 @@ function buildPreflight(configId, deps, workflowOverride = null) {
   if (workflow && effectiveToggles.worktree === false) {
     return { ok: false, code: "workflow-canonical-worktree-required", detail: workflow.id };
   }
+  const bindingChildren = workflow ? workflowBindingChildren(workflow, deps) : { ok: true, definitions: [] };
+  if (!bindingChildren.ok) return bindingChildren;
   const castResult = resolveChainCast({
     chain,
     assignments: config.assignments ?? {},
@@ -745,7 +770,34 @@ function buildPreflight(configId, deps, workflowOverride = null) {
     availability: inventoryAvailability(deps),
   });
   if (!castResult.ok) return { ok: false, code: castResult.code, detail: castResult.detail, config, profile_applied: profileApplied };
-  const effortPreflight = preflightCastEfforts(castResult.cast, deps);
+  const effectiveCast = [...castResult.cast];
+  let requireLiveCertification = workflow?.schema_version === 4
+    && workflow.provider_policy.require_live_certification === true;
+  for (const child of bindingChildren.definitions) {
+    const childExecution = workflowToExecution(child);
+    if (!childExecution.ok) return { ok: false, code: childExecution.code, detail: child.id };
+    const childHostEffects = workflowRequiredHostEffects(child);
+    if (childHostEffects.length > 0) {
+      return { ok: false, code: "workflow-host-effects-unavailable", detail: `${child.id}:${childHostEffects.join("+")}` };
+    }
+    const childConfig = applyProfileToConfig(childExecution.config, active.profile, {
+      stageIds: childExecution.chain.stages.map((stage) => stage.id),
+    }).config;
+    const childCast = resolveChainCast({
+      chain: childExecution.chain,
+      assignments: childConfig.assignments ?? {},
+      defaults: childConfig.default_assignment ?? null,
+      presets: profiledPresets.presets,
+      toggles: effectiveToggles,
+      availability: inventoryAvailability(deps),
+    });
+    if (!childCast.ok) return { ok: false, code: childCast.code, detail: `${child.id}:${childCast.detail ?? "cast"}` };
+    effectiveCast.push(...childCast.cast.map((stage) => ({ ...stage, stage_id: `${child.id}/${stage.stage_id}` })));
+    const childGate = preflightObjectiveGate(deps.cwd, child.objective_gate);
+    if (!childGate.ok) return { ok: false, code: childGate.code, detail: `${child.id}:${child.objective_gate.type}` };
+    requireLiveCertification ||= child.provider_policy.require_live_certification === true;
+  }
+  const effortPreflight = preflightCastEfforts(effectiveCast, deps);
   if (!effortPreflight.ok) {
     return {
       ...effortPreflight,
@@ -755,13 +807,11 @@ function buildPreflight(configId, deps, workflowOverride = null) {
     };
   }
 
-  const providers = castProviders(castResult.cast);
+  const providers = castProviders(effectiveCast);
   const gatePreflight = preflightObjectiveGate(deps.cwd, config.objective_gate);
   if (!gatePreflight.ok) {
     return { ok: false, code: gatePreflight.code, detail: config.objective_gate.type, config, chain, profile_applied: profileApplied };
   }
-  const bindingChildren = workflow ? workflowBindingChildren(workflow, deps) : { ok: true, definitions: [] };
-  if (!bindingChildren.ok) return bindingChildren;
   const executionBindingRef = workflow
     ? workflowExecutionBindingRef({
       workflow,
@@ -779,9 +829,10 @@ function buildPreflight(configId, deps, workflowOverride = null) {
     ok: true,
     config,
     chain,
-    cast: castResult.cast,
+    cast: effectiveCast,
     cast_providers: providers,
-    live_status: castLiveStatus(castResult.cast),
+    live_status: castLiveStatus(effectiveCast),
+    require_live_certification: requireLiveCertification,
     warnings,
     profile_applied: profileApplied,
     workflow,
@@ -839,8 +890,7 @@ function renderPreflight(preflight, requestedId) {
       },
       runtime_limits: { ...preflight.runtime_limits },
       execution_binding_ref: preflight.execution_binding_ref,
-      require_live_certification: preflight.workflow?.schema_version === 4
-        && preflight.workflow.provider_policy.require_live_certification === true,
+      require_live_certification: preflight.require_live_certification === true,
       live_status: preflight.live_status,
       warnings,
       worktree_enabled: preflight.toggles.worktree !== false,
@@ -1239,7 +1289,7 @@ function workflowStopLines(workflow) {
   ];
 }
 
-function renderWorkflows(deps, tokens) {
+function renderWorkflows(deps, tokens, ctx = {}) {
   const sub = tokens[1] ?? "list";
   if (sub === "import") {
     const relativePath = tokens[2];
@@ -1268,6 +1318,8 @@ function renderWorkflows(deps, tokens) {
     if (!gate.ok) return fail(gate.code, normalized.definition.id, "Helix workflow import refused");
     const deployment = buildPreflight(normalized.definition.id, deps, normalized.definition);
     if (!deployment.ok) return fail(deployment.code, deployment.detail ?? normalized.definition.id, "Helix workflow import refused");
+    const mutationRefusal = authorizeMutation("workflow", ctx);
+    if (mutationRefusal) return mutationRefusal;
     const saved = saveUserWorkflowV4(deps.stateRoot, normalized.definition, {
       builtInIds: builtInWorkflows(deps.chainRegistry, deps.runRegistry).map((workflow) => workflow.id),
     });
@@ -1295,6 +1347,8 @@ function renderWorkflows(deps, tokens) {
       id, template, gate_path: gatePath, gate_contains: gateContains, max_iterations: maxIterations,
     });
     if (!created.ok) return fail(created.code, created.detail, "Helix workflow create refused");
+    const mutationRefusal = authorizeMutation("workflow", ctx);
+    if (mutationRefusal) return mutationRefusal;
     const builtInIds = builtInWorkflows(deps.chainRegistry, deps.runRegistry).map((workflow) => workflow.id);
     const saved = saveUserWorkflow(deps.stateRoot, created.workflow, { builtInIds });
     if (!saved.ok) return fail(saved.code, saved.detail, "Helix workflow create refused");
@@ -1899,7 +1953,8 @@ function renderKernelRunWatch(runId, deps, state) {
   }
   const graph = observedWorkflowGraph(definition, events);
   if (!graph.ok) return fail("run-record-invalid-or-unsafe", "kernel-graph", "Helix run watch refused");
-  const lastNode = [...graph.nodes].reverse().find((node) => node.status !== "pending");
+  const lastNodeId = [...events].reverse().find((event) => typeof event.node_id === "string")?.node_id ?? null;
+  const lastNode = lastNodeId == null ? null : graph.nodes.find((node) => node.id === lastNodeId);
   const lines = [
     `Run: ${runId} ${state.completed ? `(finished: ${state.status})` : "(in progress or interrupted)"}`,
     `Workflow: ${state.workflow_id} v${state.workflow_version}`,
@@ -2221,7 +2276,7 @@ export function executeHelixCommand(args = "", ctx = {}, options = {}) {
     const valid = validateRunId(tokens[2]);
     if (!valid.ok) return fail(valid.code, valid.detail, "Helix run prune refused");
   }
-  const mutationRefusal = authorizeMutation(requestedMutation, ctx);
+  const mutationRefusal = authorizeMutation(requestedMutation === "workflow" ? null : requestedMutation, ctx);
   if (mutationRefusal) return mutationRefusal;
 
   const [verb, subverb, runId] = tokens;
@@ -2243,7 +2298,7 @@ export function executeHelixCommand(args = "", ctx = {}, options = {}) {
   if (verb === "help") return renderHelp();
   if (verb === "models") return renderModels(deps);
   if (verb === "chains") return renderChains(deps);
-  if (verb === "workflows") return renderWorkflows(deps, tokens);
+  if (verb === "workflows") return renderWorkflows(deps, tokens, ctx);
   if (verb === "settings") return renderSettings(deps, tokens);
   if (verb === "profiles") return renderProfiles(deps, tokens);
   if (verb === "setup") return renderSetup(deps, tokens);

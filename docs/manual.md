@@ -38,6 +38,9 @@ than 256 KiB, schema version 4, `source: "user"`, a runnable objective gate, a
 closed single-gated graph, deployment-valid assignments, a non-conflicting id,
 and an atomic destination. All structural, deployment, gate, and workspace
 checks pass before the user definition is written.
+Pi's current model inventory is supplied to import/create preflight, including
+every pinned direct child's cast; invalid or undeployable input refuses before
+the mutation confirmation dialog.
 The pure API in `dispatch/workflow/builder.mjs` produces the same validated JSON;
 Helix does not execute the program that generated it.
 
@@ -49,14 +52,18 @@ objective gate, worktree, concurrency, and deadlines. Print/RPC modes stop at
 preflight. TUI mode requires confirmation and rechecks the complete binding
 before creating the run or contacting a provider. Every declared non-task input
 is editable: blank accepts a declared default, omits an optional value, or
-refuses a required value without a default. The complete object is validated
-before run creation and bound into the resume identity. Consent lists bound
-input names, not their values. Named workflows require canonical worktrees; disabling the
-worktree feature produces a pre-consent refusal rather than changing the
-approved mutation location.
+refuses a required value without a default. String inputs preserve spaces and
+accept `""` as an explicit empty string. The complete object is validated before
+run creation and bound into the resume identity. Consent lists bound input
+names, not their values, and includes every pinned direct child's effective
+cast. Named workflows require canonical worktrees; disabling the worktree
+feature produces a pre-consent refusal rather than changing the approved
+mutation location.
 
-Every named workflow, including legacy saved definitions and tracked built-ins,
-normalizes into WorkflowDefinition v4 and runs through the same kernel. The
+Every kernel-compatible named workflow, including legacy saved definitions and
+tracked built-ins, normalizes into WorkflowDefinition v4 and runs through the
+same kernel. A legacy definition that declares host-only check/handoff steps
+refuses migration rather than silently dropping them. The
 kernel reserves effects, propagates cancellation, serializes shared writers,
 promotes isolated proposals only from an unchanged base, records an append-only
 effect journal, and permits success only through the final objective gate.
@@ -64,6 +71,8 @@ The final node has no second objective: it executes the top-level
 `objective_gate`, and the successful terminal has no other incoming edge.
 Every candidate, panel member, and retry is one independently budgeted and
 journaled model effect; a panel cannot start unless its whole first wave fits.
+The whole-run deadline is cumulative: elapsed time is stored in the private
+checkpoint, and continuation receives only the remaining duration.
 
 - `/helix-runs` lists structural records.
 - `/helix-run-status <run-id>` shows one structural record.
@@ -74,9 +83,11 @@ journaled model effect; a panel cannot start unless its whole first wave fits.
 - `/helix-run-resume <run-id>` is attended for v4 runs. It asks for the original
   task and declared typed inputs, verifies their hash, reloads the pinned definition, revalidates policy and
   exact cast, restores the retained worktree from the last private bounded
-  snapshot, trims orphan event/journal suffixes, and resumes completed effects
-  without replaying them. Completed runs are a no-op. Old staged-run records
-  remain read-only compatible through their historical validator.
+  snapshot, reconciles any provable journal-ahead result, and resumes completed
+  effects without replaying them. Completed runs are a no-op. Historical staged
+  records remain validated and may still render their bound staged-run resume
+  invocation; they are compatibility records, not a second named-workflow
+  engine.
 
 A normal checkpoint is rendered as **paused**, not failed, and includes the
 exact `/helix-run-resume <run-id>` continue command. Checkpoints inside a pinned
@@ -89,11 +100,12 @@ and never advertises resume.
   confirmation. It does not guess ownership of retained worktrees or private
   checkpoints.
 
-A hard process stop can leave events or a journal record newer than the last
-scheduler checkpoint. Resume treats the checkpoint and its exact workspace
-snapshot as the commit point, discards only the uncommitted suffix, and refuses
+A hard process stop can leave a journal record newer than the last scheduler
+checkpoint. Resume never destructively truncates that evidence: it reconciles
+the suffix only against a durable in-flight/result identity and the exact
+workspace fingerprint where mutation occurred. A missing or ambiguous outcome,
 truncation, corruption, task drift, workflow drift, runtime drift, account
-drift, missing snapshots, wrong repositories, or worktree ownership mismatch.
+drift, missing snapshot, wrong repository, or ownership mismatch refuses.
 
 ## Models and settings
 
@@ -138,7 +150,10 @@ concurrency, visits, retries, runtime, call time, and serialized bytes. Raw
 tasks, credentials, provider bodies, and private outputs are never rendered by
 run views. Private checkpoints accept at most 16,384 regular files, 16 MiB per
 file, and 64 MiB total; exact boundaries are accepted and one-byte/file-over
-inputs refuse. Special files refuse.
+inputs refuse. Workspace proposal copies use those same exported constants.
+The complete workflow/input ceilings are listed in
+[the workflow guide](workflows.md) and checked from the runtime constants.
+Special files refuse.
 
 Pi tools and objective commands retain the user's local authority. Worktrees
 are Git-state isolation, not an OS sandbox. Read-only agents do not receive
@@ -164,7 +179,9 @@ npm run check:package
 
 Local `check:package` verifies the extracted artifact structurally. CI passes
 `--pi-bin node_modules/.bin/pi`, loads that extracted artifact through Pi RPC,
-and requires all Helix commands to be discovered on both supported Node jobs.
+and requires all Helix commands to be discovered across the complete Node
+22.19/26 and Pi 0.80.7/0.80.9 compatibility matrix. One aggregate `test` check
+requires every matrix leg.
 
 `bash tools/lockdown/no-egress-smoke.sh --active` performs the enforcing Docker
 proof with `--network none`. `tools/ci/run-node-matrix.sh` requires explicit

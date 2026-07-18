@@ -35,6 +35,7 @@ export function plannedWorkflowGraph(definition) {
 export function observedWorkflowGraph(definition, events = []) {
   const planned = plannedWorkflowGraph(definition);
   if (!planned.ok) return planned;
+  if (!Array.isArray(events)) return { ok: false, code: "workflow-events-invalid" };
   const byNode = new Map(planned.nodes.map((node) => [node.id, { ...node, visits: 0, effects: 0, status: "pending" }]));
   const edges = [];
   for (const event of events) {

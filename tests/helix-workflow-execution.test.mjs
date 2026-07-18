@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
 import { normalizeWorkflowDefinition } from "../dispatch/workflow/schema.mjs";
-import { agent, checkpoint, decision, map, objectiveGate, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { agent, checkpoint, decision, map, objectiveGate, parallel, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { executeNamedWorkflow, resumeNamedWorkflow } from "../extensions/lib/helix-execution.mjs";
 import { executeHelixCommand } from "../extensions/lib/helix-command-core.mjs";
 import { saveUserWorkflow, saveUserWorkflowV4 } from "../extensions/lib/helix-workflows.mjs";
@@ -194,7 +194,7 @@ test("typed named-workflow inputs validate before run creation and drive map nod
       type: "object", additionalProperties: false, required: ["task", "items"],
       properties: {
         task: { type: "string", minLength: 1, maxLength: 65_536 },
-        items: { type: "array", description: "Items to review", items: { type: "string", minLength: 1, maxLength: 32 }, minItems: 1, maxItems: 3 },
+        items: { type: "array", description: "Items to review", items: { type: "string", minLength: 2, maxLength: 32 }, minItems: 1, maxItems: 3 },
       },
     },
     nodes: {
@@ -207,6 +207,8 @@ test("typed named-workflow inputs validate before run creation and drive map nod
     objective_gate: objective,
   });
   assert.equal(built.ok, true, JSON.stringify(built.errors));
+  const smoke = await smokeTestWorkflowRuntime({ workflow: built.definition, cwd });
+  assert.equal(smoke.ok, true, JSON.stringify(smoke));
   assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
   const binding = executionBinding(stateRoot, "typed-map");
   const refused = await executeNamedWorkflow({
@@ -217,7 +219,7 @@ test("typed named-workflow inputs validate before run creation and drive map nod
   assert.equal(refused.code, "workflow-input-invalid");
   assert.equal(existsSync(join(stateRoot, "runs", "typed-missing")), false);
   const completed = await executeNamedWorkflow({
-    workflow_id: "typed-map", input: { task: "review", items: ["a", "b"] }, run_id: "typed-run", cwd,
+    workflow_id: "typed-map", input: { task: "review", items: ["aa", "bb"] }, run_id: "typed-run", cwd,
     state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
     expected_binding_ref: binding,
   });
@@ -250,6 +252,126 @@ test("product panels enforce invocation-level effect limits before the first mod
   });
   assert.equal(result.code, "kernel-budget-exhausted");
   assert.equal(result.calls.candidates, 0);
+});
+
+test("adapter and envelope failures are structurally non-maskable in product settlement", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-envelope-integrity-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const integrityCode = "kernel-agent-envelope-invalid";
+  const adapterCode = "kernel-agent-adapter-failed";
+  const built = workflow({
+    id: "envelope-integrity", name: "Envelope integrity", description: "Envelope failures cannot be settled.", start: "review",
+    nodes: {
+      review: parallel([
+        agent({ role: "reviewer", stage_id: "review", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 }),
+      ], "objective", { failure: "settle", allow_failure_codes: [integrityCode, adapterCode], max_concurrency: 1 }),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "objective-failed"),
+    },
+    provider_policy: {
+      exact: true,
+      assignments: {},
+      default_assignment: { kind: "model", provider: "openrouter", model: "vendor/integrity:free", effort: "high" },
+      require_live_certification: false,
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const inventory = [{ provider: "openrouter", model: "vendor/integrity:free", reasoning: true, supported_efforts: ["high"] }];
+  const exactRef = `sha256:${"8".repeat(64)}`;
+  let malformed = true;
+  const adapter = {
+    kind: "helix-pi-agent", exactMode: true, supportsProvider: () => true,
+    async preflightExact() { return { ok: true, bindings: [], binding_ref: exactRef }; },
+    attests: () => true,
+    async runCandidate() {
+      if (malformed) return {};
+      throw new Error("synthetic adapter failure");
+    },
+  };
+  const result = await executeNamedWorkflow({
+    workflow_id: "envelope-integrity", task: "must not converge", run_id: "envelope-integrity-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "envelope-integrity", inventory),
+    expected_exact_ref: exactRef,
+    adapter,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, integrityCode);
+  assert.equal(result.converged, false);
+  malformed = false;
+  const adapterFailure = await executeNamedWorkflow({
+    workflow_id: "envelope-integrity", task: "must not converge", run_id: "adapter-integrity-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "envelope-integrity", inventory),
+    expected_exact_ref: exactRef,
+    adapter,
+  });
+  assert.equal(adapterFailure.ok, false);
+  assert.equal(adapterFailure.code, adapterCode);
+  assert.equal(adapterFailure.converged, false);
+});
+
+test("mixed casts route mock members locally and real members through the exact adapter", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-mixed-cast-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const built = workflow({
+    id: "mixed-cast", name: "Mixed cast", description: "Mock and exact members share one workflow.", start: "review",
+    nodes: {
+      review: parallel([
+        agent({ role: "reviewer", stage_id: "mock-stage", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 }),
+        agent({ role: "reviewer", stage_id: "real-stage", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 }),
+      ], "objective", { max_concurrency: 2 }),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+    },
+    provider_policy: {
+      exact: true,
+      assignments: {
+        "real-stage": { kind: "model", provider: "openrouter", model: "vendor/mixed:free", effort: "high" },
+      },
+      default_assignment: { kind: "model", provider: "mock", model: "mock-model", effort: "medium" },
+      require_live_certification: false,
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const inventory = [{ provider: "openrouter", model: "vendor/mixed:free", reasoning: true, supported_efforts: ["high"] }];
+  const exactRef = `sha256:${"9".repeat(64)}`;
+  let adapterCalls = 0;
+  const adapter = {
+    kind: "helix-pi-agent", exactMode: true, supportsProvider: () => true,
+    async preflightExact() { return { ok: true, bindings: [{ provider: "openrouter" }], binding_ref: exactRef }; },
+    attests: () => true,
+    async runCandidate(spec, ctx) {
+      adapterCalls += 1;
+      return {
+        schema_version: 2, run_id: ctx.run_id, stage: "candidate", role: spec.role,
+        provider: spec.provider, model: spec.model,
+        requested: { provider: spec.provider, model: spec.model, effort: spec.effort },
+        effective: {
+          provider: spec.provider, model: spec.model, effort: spec.effort,
+          evidence: { provider: "verified-response", model: "verified-response", effort: "verified-session" },
+        },
+        attestation_ref: `sha256:${"7".repeat(64)}`,
+        usage: { input_tokens: 1, output_tokens: 1 }, attempt: 1, iteration: 1,
+        input_ref: { kind: "local-ref", value: "local-ref:input/mixed", algorithm: null },
+        claims_ref: "local-ref:claims/mixed", evidence_ref: "local-ref:evidence/mixed",
+        uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [], status: "ok",
+      };
+    },
+  };
+  const result = await executeNamedWorkflow({
+    workflow_id: "mixed-cast", task: "route each member exactly once", run_id: "mixed-cast-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "mixed-cast", inventory), expected_exact_ref: exactRef, adapter,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(adapterCalls, 1);
 });
 
 test("run-directory collisions refuse without creating a raw task artifact", async () => {
@@ -300,6 +422,8 @@ test("completed failed user workflow resume is a structural no-op and never prin
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-resume-"));
   const cwd = repo();
   installWorkflow(stateRoot);
+  const controller = new AbortController();
+  controller.abort("synthetic-terminal-cancel");
   const failed = await executeNamedWorkflow({
     workflow_id: "user-loop",
     task: "task that will be interrupted",
@@ -310,10 +434,7 @@ test("completed failed user workflow resume is a structural no-op and never prin
     chain_registry: chains,
     run_registry: runs,
     expected_binding_ref: executionBinding(stateRoot, "user-loop"),
-    adapter: {
-      kind: "test-failure",
-      runCandidate() { throw new Error("private adapter detail"); },
-    },
+    signal: controller.signal,
     now: 1_751_731_200,
   });
   assert.equal(failed.ok, false);
@@ -332,6 +453,8 @@ test("completed failed user workflow resume is a structural no-op and never prin
 test("built-in workflow keeps pinned workflow identity and completed resume never prints a broken CLI", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-built-in-resume-"));
   const cwd = repo();
+  const controller = new AbortController();
+  controller.abort("synthetic-terminal-cancel");
   const failed = await executeNamedWorkflow({
     workflow_id: "mock-core-loop",
     task: "exact built-in workflow task",
@@ -342,10 +465,7 @@ test("built-in workflow keeps pinned workflow identity and completed resume neve
     chain_registry: chains,
     run_registry: runs,
     expected_binding_ref: executionBinding(stateRoot, "mock-core-loop"),
-    adapter: {
-      kind: "test-failure",
-      runCandidate() { throw new Error("private adapter detail"); },
-    },
+    signal: controller.signal,
     now: 1_751_731_200,
   });
   assert.equal(failed.ok, false);
@@ -465,6 +585,9 @@ test("product execution pins and runs a depth-one named subworkflow through the 
   assert.equal(saveUserWorkflowV4(stateRoot, parent.definition).ok, true);
   const smoke = await smokeTestWorkflowRuntime({ workflow: parent.definition, subworkflows: [child.definition], cwd });
   assert.equal(smoke.ok, true, JSON.stringify(smoke));
+  assert.equal(smoke.nodes_exercised, 7);
+  assert.equal(smoke.effects_exercised, 2);
+  assert.equal(smoke.transitions_exercised, 5);
   const result = await executeNamedWorkflow({
     workflow_id: "parent-v4", task: "run parent and child", run_id: "subworkflow-run", cwd,
     state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
@@ -478,6 +601,52 @@ test("product execution pins and runs a depth-one named subworkflow through the 
     stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
   });
   assert.equal(watch.ok, true, JSON.stringify(watch));
+});
+
+test("parent preflight includes every pinned child cast and runtime requirement", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-child-cast-preflight-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const child = workflow({
+    id: "child-real-cast", name: "Child real cast", description: "Child with a non-mock assignment.", start: "work",
+    nodes: {
+      work: pipeline([agent({ role: "reviewer", stage_id: "work", mutation: "read-only", timeout_ms: 1_000 })], "objective"),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "child-failed"),
+    },
+    provider_policy: {
+      exact: true, assignments: {},
+      default_assignment: { kind: "model", provider: "openrouter", model: "vendor/child:free", effort: "high" },
+      require_live_certification: false,
+    },
+    objective_gate: objective,
+  });
+  const parent = workflow({
+    id: "parent-mock-cast", name: "Parent mock cast", description: "Parent whose child owns the real assignment.", start: "parent-work",
+    nodes: {
+      "parent-work": pipeline([agent({ role: "reviewer", stage_id: "parent-work", mutation: "read-only", timeout_ms: 1_000 })], "child"),
+      child: subworkflow("child-real-cast", 1, "objective"),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "parent-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  assert.equal(parent.ok, true, JSON.stringify(parent.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, child.definition).ok, true);
+  assert.equal(saveUserWorkflowV4(stateRoot, parent.definition).ok, true);
+  const inventory = [{ provider: "openrouter", model: "vendor/child:free", reasoning: true, supported_efforts: ["high"] }];
+  const preflight = executeHelixCommand("run parent-mock-cast", { mode: "print" }, {
+    stateRoot, chainRegistry: chains, runRegistry: runs, modelInventory: inventory, cwd,
+  });
+  assert.equal(preflight.ok, true, JSON.stringify(preflight));
+  assert.deepEqual(preflight.details.providers.sort(), ["mock", "openrouter"]);
+  assert.equal(preflight.details.cast.some((stage) => stage.stage_id === "child-real-cast/work"), true);
+  const result = await executeNamedWorkflow({
+    workflow_id: "parent-mock-cast", task: "must preflight the child", run_id: "child-cast-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: preflight.details.execution_binding_ref,
+  });
+  assert.equal(result.code, "provider-exact-adapter-required");
+  assert.equal(existsSync(join(stateRoot, "runs", "child-cast-run")), false);
 });
 
 test("a child checkpoint resumes through its namespaced parent state", async () => {
@@ -552,6 +721,11 @@ test("checkpoint node pauses durably and attended resume is its explicit continu
   });
   assert.equal(paused.stop_reason, "paused");
   assert.equal(JSON.parse(readFileSync(join(stateRoot, "runs", "checkpoint-run", "checkpoint-run.state.json"), "utf8")).completed, false);
+  const watched = executeHelixCommand("runs watch checkpoint-run", { mode: "print" }, {
+    stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
+  });
+  assert.equal(watched.ok, true, JSON.stringify(watched));
+  assert.match(watched.text, /Node: approval \(checkpoint, running\)/);
   const resumed = await resumeNamedWorkflow({
     run_id: "checkpoint-run", task: "pause and continue", cwd,
     state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,

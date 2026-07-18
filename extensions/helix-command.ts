@@ -181,7 +181,7 @@ function commandNeedsInventory(args: string): boolean {
   const tokens = args.trim().split(/\s+/);
   const verb = tokens[0] ?? "";
   return verb === "" || ["run", "models", "setup"].includes(verb)
-    || (verb === "workflows" && tokens[1] === "test");
+    || (verb === "workflows" && ["test", "import", "create"].includes(tokens[1] ?? ""));
 }
 
 async function availableModelInventory(args: string, ctx: ExtensionCommandContext) {
@@ -347,7 +347,7 @@ async function addStage(workflow: any, ctx: any) {
     if (!selected) return;
     if (selected === "Done adding roles") break;
     roles.push(selected);
-    if (available.length === 1) break;
+    if (selected === "verifier" || available.length === 1) break;
   }
   const outputPath = (await ctx.ui.input("Durable output file for this stage", `${id}.md`))?.trim() ?? "";
   if (!isSafeWorkflowPath(outputPath)) {
@@ -784,7 +784,7 @@ function parseRunArgs(args: string) {
 }
 
 function parseWorkflowInputValue(raw: string, schema: any) {
-  if (schema.type === "string") return raw;
+  if (schema.type === "string") return raw === '""' ? "" : raw;
   if (schema.type === "boolean") {
     if (raw === "true") return true;
     if (raw === "false") return false;
@@ -810,8 +810,9 @@ async function collectWorkflowInput(ctx: ExtensionCommandContext, workflow: any,
     const defaultHint = hasDefault
       ? `, default ${defaultText.length <= 64 ? defaultText : "declared"}; leave blank to use it`
       : required ? ", required" : ", optional; leave blank to omit";
-    const raw = await ctx.ui.input?.(`Workflow input '${key}' (${schema.type}${defaultHint}${schema.description ? `: ${schema.description}` : ""})`);
-    if (raw == null || raw.trim() === "") {
+    const stringHint = schema.type === "string" ? "; spaces are preserved; enter \"\" for an empty string" : "";
+    const raw = await ctx.ui.input?.(`Workflow input '${key}' (${schema.type}${defaultHint}${stringHint}${schema.description ? `: ${schema.description}` : ""})`);
+    if (raw == null || raw === "") {
       if (hasDefault) {
         input[key] = structuredClone(schema.default);
         continue;
@@ -819,7 +820,7 @@ async function collectWorkflowInput(ctx: ExtensionCommandContext, workflow: any,
       if (required) return { ok: false, code: `workflow-input-required:${key}` };
       continue;
     }
-    try { input[key] = parseWorkflowInputValue(raw.trim(), schema); }
+    try { input[key] = parseWorkflowInputValue(schema.type === "string" ? raw : raw.trim(), schema); }
     catch { return { ok: false, code: `workflow-input-invalid:${key}` }; }
   }
   const checked = normalizeWorkflowInput(normalized.definition.inputs, input);
@@ -983,7 +984,7 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
       },
     });
     if (!execution.ok && runAbortCode) execution.code = runAbortCode;
-    else if (!execution.ok && adapter?.lastFailureCode?.()) execution.code = adapter.lastFailureCode();
+    else if (!execution.ok && !execution.code && adapter?.lastFailureCode?.()) execution.code = adapter.lastFailureCode();
   } catch {
     execution = { ok: false, code: "helix-runner-failed", converged: false, stop_reason: null };
   } finally {
@@ -1420,9 +1421,20 @@ export default function helixCommand(pi: ExtensionAPI) {
         const coreArgs = command.coreArgs(args);
         let out: CoreResult;
         try {
-          const confirm = await confirmMutation(coreArgs, ctx);
           const modelInventory = await availableModelInventory(coreArgs, ctx);
-          out = executeHelixCommand(coreArgs, { mode: ctx.mode, confirm }, { modelInventory, cwd: ctx.cwd });
+          const workflowMutation = /^workflows\s+(?:create|import)(?:\s|$)/.test(coreArgs);
+          if (workflowMutation && ctx.mode === "tui") {
+            const preview = executeHelixCommand(coreArgs, { mode: ctx.mode, confirm: false }, { modelInventory, cwd: ctx.cwd });
+            if (preview.code !== "helix-mutation-cancelled") {
+              out = preview;
+            } else {
+              const confirm = await confirmMutation(coreArgs, ctx);
+              out = executeHelixCommand(coreArgs, { mode: ctx.mode, confirm }, { modelInventory, cwd: ctx.cwd });
+            }
+          } else {
+            const confirm = await confirmMutation(coreArgs, ctx);
+            out = executeHelixCommand(coreArgs, { mode: ctx.mode, confirm }, { modelInventory, cwd: ctx.cwd });
+          }
         } catch {
           out = internalError();
         }

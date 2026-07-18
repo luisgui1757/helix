@@ -91,6 +91,7 @@ test("static Pi load helper rejects skill drift and missing runtime files", () =
 test("runtime RPC helper allows a cold Pi startup", () => {
   assert.equal(DEFAULT_RUNTIME_RPC_TIMEOUT_MS, 60_000);
   assert.equal(resolvePiBinary("/workspace", "node_modules/.bin/pi"), "/workspace/node_modules/.bin/pi");
+  assert.equal(resolvePiBinary("/workspace", "/opt/pi/bin/pi"), "/opt/pi/bin/pi");
   assert.equal(resolvePiBinary("/workspace", "pi"), "pi");
   assert.throws(() => resolvePiBinary("/workspace", ""), /pi-bin-invalid/);
 });

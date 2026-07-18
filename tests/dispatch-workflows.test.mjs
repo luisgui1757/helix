@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { resolveChain } from "../dispatch/lib/chains.mjs";
 
 import {
   WORKFLOW_TEMPLATES,
@@ -326,6 +327,11 @@ test("existing shipped chains normalize into the same workflow blocks and back i
   assert.equal(execution.ok, true, JSON.stringify(execution));
   assert.equal(execution.chain.stages[1].transitions.find((rule) => rule.action === "back").target, "plan");
   assert.equal(execution.config.max_iterations, config.max_iterations);
+  const resolved = resolveChain(chains, chain.id);
+  assert.equal(resolved.ok, true);
+  const resolvedWorkflow = workflowFromExecution(resolved.chain, config);
+  assert.equal(validateWorkflow(resolvedWorkflow).valid, true);
+  assert.equal(workflowToExecution(resolvedWorkflow).ok, true);
 });
 
 test("user workflows persist atomically, reject collisions, and retain legacy tracked workflows", () => {

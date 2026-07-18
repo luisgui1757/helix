@@ -296,6 +296,52 @@ test("helix-setup projects Pi's available model inventory", async () => {
   assert.match(messages[0].message.content, /CustomProvider\/custom-model/);
 });
 
+test("workflow import receives live inventory and validates before confirmation", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-import-inventory-"));
+  const cwd = mkdtempSync(join(tmpdir(), "helix-import-inventory-cwd-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const built = workflow({
+    id: "inventory-import", name: "Inventory import", description: "Import with a real assignment.", start: "review",
+    nodes: {
+      review: pipeline([agent({ role: "reviewer", stage_id: "review", mutation: "read-only", timeout_ms: 1_000 })], "objective"),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+    },
+    provider_policy: {
+      exact: true, assignments: {},
+      default_assignment: { kind: "model", provider: "openrouter", model: "vendor/import:free", effort: "high" },
+      require_live_certification: false,
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  writeFileSync(join(cwd, "flow.json"), JSON.stringify(built.definition));
+  writeFileSync(join(cwd, "malformed.json"), "{}\n");
+  let inventoryCalls = 0;
+  let confirmations = 0;
+  try {
+    const { commands, messages } = loadHelixCommands();
+    const ctx = {
+      mode: "tui", cwd,
+      modelRegistry: { async getAvailable() { inventoryCalls += 1; return [{ provider: "openrouter", id: "vendor/import:free", reasoning: true }]; } },
+      ui: { async confirm() { confirmations += 1; return false; }, notify() {} },
+    };
+    await commandByName(commands, "helix-workflows").handler("import flow.json", ctx);
+    assert.equal(messages.at(-1).message.details.code, "helix-mutation-cancelled");
+    assert.equal(inventoryCalls, 1);
+    assert.equal(confirmations, 1);
+    await commandByName(commands, "helix-workflows").handler("import malformed.json", ctx);
+    assert.equal(messages.at(-1).message.details.code, "workflow-migration-input-invalid");
+    assert.equal(confirmations, 1, "invalid imports never reach mutation confirmation");
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("whole-cast effort preflight refuses one unsupported mixed-panel member before confirmation or any session", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-effort-preflight-"));
   const previous = process.env.HELIX_STATE_DIR;
@@ -473,7 +519,7 @@ test("helix-run collects required and optional typed inputs and renders only bou
   assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
   const { commands } = loadHelixCommands();
   const prompts = [];
-  const answers = ['["a","b"]', "", ""];
+  const answers = ['["a","b"]', "   ", ""];
   let confirmation = null;
   try {
     await commandByName(commands, "helix-run").handler("typed-ui -- Review typed data", {
@@ -487,7 +533,8 @@ test("helix-run collects required and optional typed inputs and renders only bou
     assert.match(prompts[0], /items.*required.*Items to inspect/);
     assert.match(prompts[1], /note.*optional; leave blank to omit.*Optional note/);
     assert.match(prompts[2], /strict.*default true; leave blank to use it/);
-    assert.match(confirmation, /Bound inputs: items, strict, task/);
+    assert.match(prompts[1], /spaces are preserved/);
+    assert.match(confirmation, /Bound inputs: items, note, strict, task/);
     assert.equal(confirmation.includes("a\",\"b"), false, "consent never renders input values");
     assert.equal(existsSync(join(stateRoot, "runs")), false);
   } finally {

@@ -12,18 +12,62 @@ import { ROLES } from "../lib/role-envelope.mjs";
 
 const ID = /^[a-z0-9][a-z0-9._-]*$/;
 const NODE_ID = /^[a-z][a-z0-9-]*$/;
-const MAX_WORKFLOW_BYTES = 256 * 1024;
-const MAX_NODES = 256;
-const MAX_INLINE_STAGES = 16;
-const MAX_TRANSITIONS = 16;
-const MAX_CONDITION_DEPTH = 32;
-const MAX_INPUT_DEPTH = 4;
-const MAX_INPUT_BYTES = 1024 * 1024;
-const MAX_TOTAL_EFFECTS = 1_000;
-const MAX_CONCURRENCY = 16;
-const MAX_MAP_ITEMS = 256;
-const MAX_RUN_MS = 8 * 60 * 60 * 1000;
-const MAX_CALL_MS = 60 * 60 * 1000;
+export const WORKFLOW_LIMITS = Object.freeze({
+  max_id_length: 64,
+  max_name_length: 128,
+  max_description_length: 1_024,
+  max_version: 1_000_000,
+  max_workflow_bytes: 256 * 1024,
+  max_nodes: 256,
+  max_inline_stages: 16,
+  max_transitions: 16,
+  max_condition_depth: 32,
+  max_condition_width: 8,
+  max_pointer_length: 512,
+  max_pointer_segment_length: 128,
+  max_input_depth: 4,
+  max_input_bytes: 1024 * 1024,
+  max_input_fields: 32,
+  max_input_description_length: 256,
+  max_input_string_length: 65_536,
+  max_prompt_length: 16_384,
+  max_agent_tools: 16,
+  max_retry_attempts: 3,
+  max_retry_backoff_ms: 60_000,
+  max_total_effects: 1_000,
+  max_concurrency: 16,
+  max_map_items: 256,
+  max_run_ms: 8 * 60 * 60 * 1000,
+  max_call_ms: 60 * 60 * 1000,
+  max_parallel_branches: 64,
+  max_failure_codes: 16,
+  max_node_visits: 32,
+  max_implicit_node_visits: 1_256,
+  max_reduce_separator_length: 32,
+  max_checkpoint_reason_length: 128,
+  max_gate_marker_length: 256,
+  max_gate_command_length: 128,
+  max_gate_args: 32,
+  max_gate_arg_length: 256,
+  max_gate_timeout_ms: 10 * 60 * 1000,
+  max_structured_repair_attempts: 2,
+  max_canonical_depth: 64,
+  max_canonical_bytes: 2 * 1024 * 1024,
+});
+const {
+  max_workflow_bytes: MAX_WORKFLOW_BYTES,
+  max_nodes: MAX_NODES,
+  max_inline_stages: MAX_INLINE_STAGES,
+  max_transitions: MAX_TRANSITIONS,
+  max_condition_depth: MAX_CONDITION_DEPTH,
+  max_input_depth: MAX_INPUT_DEPTH,
+  max_input_bytes: MAX_INPUT_BYTES,
+  max_total_effects: MAX_TOTAL_EFFECTS,
+  max_concurrency: MAX_CONCURRENCY,
+  max_map_items: MAX_MAP_ITEMS,
+  max_run_ms: MAX_RUN_MS,
+  max_call_ms: MAX_CALL_MS,
+} = WORKFLOW_LIMITS;
 
 export const WORKFLOW_SCHEMA_VERSION = 4;
 export const WORKFLOW_DEFAULTS = Object.freeze({
@@ -59,7 +103,7 @@ function exactKeys(value, required, optional = []) {
     && Object.keys(value).every((key) => allowed.has(key));
 }
 
-function safeId(value, pattern = ID, max = 64) {
+function safeId(value, pattern = ID, max = WORKFLOW_LIMITS.max_id_length) {
   return typeof value === "string" && value.length <= max && pattern.test(value);
 }
 
@@ -68,16 +112,59 @@ function safeInteger(value, min, max) {
 }
 
 function stable(value) {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
-  if (plain(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
-  return JSON.stringify(value);
+  const output = [];
+  let bytes = 0;
+  const append = (text) => {
+    bytes += Buffer.byteLength(text, "utf8");
+    if (bytes > WORKFLOW_LIMITS.max_canonical_bytes) return false;
+    output.push(text);
+    return true;
+  };
+  const stack = [{ kind: "value", value, depth: 0 }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current.kind === "text") {
+      if (!append(current.value)) return null;
+      continue;
+    }
+    if (current.depth > WORKFLOW_LIMITS.max_canonical_depth) return null;
+    if (current.value === null || typeof current.value === "string" || typeof current.value === "boolean"
+      || (typeof current.value === "number" && Number.isFinite(current.value))) {
+      if (!append(JSON.stringify(current.value))) return null;
+      continue;
+    }
+    if (Array.isArray(current.value)) {
+      stack.push({ kind: "text", value: "]" });
+      for (let index = current.value.length - 1; index >= 0; index -= 1) {
+        stack.push({ kind: "value", value: Object.hasOwn(current.value, index) ? current.value[index] : null, depth: current.depth + 1 });
+        if (index > 0) stack.push({ kind: "text", value: "," });
+      }
+      stack.push({ kind: "text", value: "[" });
+      continue;
+    }
+    if (plain(current.value)) {
+      const keys = Object.keys(current.value).sort();
+      stack.push({ kind: "text", value: "}" });
+      for (let index = keys.length - 1; index >= 0; index -= 1) {
+        const key = keys[index];
+        stack.push({ kind: "value", value: current.value[key], depth: current.depth + 1 });
+        stack.push({ kind: "text", value: ":" });
+        stack.push({ kind: "text", value: JSON.stringify(key) });
+        if (index > 0) stack.push({ kind: "text", value: "," });
+      }
+      stack.push({ kind: "text", value: "{" });
+      continue;
+    }
+    return null;
+  }
+  return output.join("");
 }
 
 function pointerSegments(pointer) {
   if (pointer === "") return [];
-  if (typeof pointer !== "string" || !pointer.startsWith("/") || pointer.length > 512) return null;
+  if (typeof pointer !== "string" || !pointer.startsWith("/") || pointer.length > WORKFLOW_LIMITS.max_pointer_length) return null;
   const parts = pointer.slice(1).split("/");
-  if (parts.some((part) => part === "" || part.length > 128 || /~(?![01])/.test(part))) return null;
+  if (parts.some((part) => part === "" || part.length > WORKFLOW_LIMITS.max_pointer_segment_length || /~(?![01])/.test(part))) return null;
   return parts.map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
 }
 
@@ -87,20 +174,21 @@ function validateInputSchema(schema, path, errors, depth = 0, { root = false } =
     return;
   }
   const common = ["type", "description", "default"];
-  if (schema.description != null && (typeof schema.description !== "string" || schema.description.length > 256)) {
+  if (schema.description != null && (typeof schema.description !== "string"
+    || schema.description.length > WORKFLOW_LIMITS.max_input_description_length)) {
     errors.push(issue(`${path}.description`, "must be a bounded string"));
   }
   if (schema.type === "object") {
     if (!exactKeys(schema, ["type", "additionalProperties", "required", "properties"], ["description", "default"])
       || schema.additionalProperties !== false || !plain(schema.properties)
-      || Object.keys(schema.properties).length > 32 || !Array.isArray(schema.required)
+      || Object.keys(schema.properties).length > WORKFLOW_LIMITS.max_input_fields || !Array.isArray(schema.required)
       || new Set(schema.required).size !== schema.required.length
-      || schema.required.some((key) => !safeId(key, ID, 64) || !Object.hasOwn(schema.properties, key))) {
+      || schema.required.some((key) => !safeId(key, ID, WORKFLOW_LIMITS.max_id_length) || !Object.hasOwn(schema.properties, key))) {
       errors.push(issue(path, "must be a closed object schema with unique declared required fields"));
       return;
     }
     for (const [key, child] of Object.entries(schema.properties)) {
-      if (!safeId(key, ID, 64)) errors.push(issue(`${path}.properties.${key}`, "property name must be safe"));
+      if (!safeId(key, ID, WORKFLOW_LIMITS.max_id_length)) errors.push(issue(`${path}.properties.${key}`, "property name must be safe"));
       validateInputSchema(child, `${path}.properties.${key}`, errors, depth + 1);
     }
     if (root && (!schema.required.includes("task") || schema.properties.task?.type !== "string"
@@ -109,9 +197,9 @@ function validateInputSchema(schema, path, errors, depth = 0, { root = false } =
     }
   } else if (schema.type === "string") {
     if (!exactKeys(schema, ["type"], [...common.slice(1), "minLength", "maxLength"])
-      || (schema.minLength != null && !safeInteger(schema.minLength, 0, 65_536))
-      || (schema.maxLength != null && !safeInteger(schema.maxLength, 1, 65_536))
-      || (schema.minLength ?? 0) > (schema.maxLength ?? 65_536)) {
+      || (schema.minLength != null && !safeInteger(schema.minLength, 0, WORKFLOW_LIMITS.max_input_string_length))
+      || (schema.maxLength != null && !safeInteger(schema.maxLength, 1, WORKFLOW_LIMITS.max_input_string_length))
+      || (schema.minLength ?? 0) > (schema.maxLength ?? WORKFLOW_LIMITS.max_input_string_length)) {
       errors.push(issue(path, "must be a bounded string schema"));
     }
   } else if (["number", "integer"].includes(schema.type)) {
@@ -152,7 +240,7 @@ function validateInputValue(schema, value, path = "$", depth = 0) {
       else errors.push(...validateInputValue(schema.properties[key], value[key], `${path}.${key}`, depth + 1));
     }
   } else if (schema.type === "string") {
-    if (typeof value !== "string" || value.length < (schema.minLength ?? 0) || value.length > (schema.maxLength ?? 65_536)) {
+    if (typeof value !== "string" || value.length < (schema.minLength ?? 0) || value.length > (schema.maxLength ?? WORKFLOW_LIMITS.max_input_string_length)) {
       errors.push(issue(path, "must be a string within declared length bounds"));
     }
   } else if (schema.type === "number") {
@@ -216,17 +304,17 @@ function validateGate(gate, path, errors) {
   if (gate.type === "file-contains") {
     if (!exactKeys(gate, ["type", "path", "contains"])
       || !isSafeWorkflowPath(gate.path) || typeof gate.contains !== "string"
-      || gate.contains.length < 1 || gate.contains.length > 256) {
+      || gate.contains.length < 1 || gate.contains.length > WORKFLOW_LIMITS.max_gate_marker_length) {
       errors.push(issue(path, "must be a bounded contained file-contains gate"));
     }
     return;
   }
   if (gate.type === "command-exit-zero") {
     if (!exactKeys(gate, ["type", "command", "args", "timeout_ms"])
-      || typeof gate.command !== "string" || gate.command.length > 128
-      || !Array.isArray(gate.args) || gate.args.length > 32
-      || gate.args.some((arg) => typeof arg !== "string" || arg.length > 256 || arg.includes("\0"))
-      || !safeInteger(gate.timeout_ms, 1_000, 10 * 60 * 1000)) {
+      || typeof gate.command !== "string" || gate.command.length > WORKFLOW_LIMITS.max_gate_command_length
+      || !Array.isArray(gate.args) || gate.args.length > WORKFLOW_LIMITS.max_gate_args
+      || gate.args.some((arg) => typeof arg !== "string" || arg.length > WORKFLOW_LIMITS.max_gate_arg_length || arg.includes("\0"))
+      || !safeInteger(gate.timeout_ms, 1_000, WORKFLOW_LIMITS.max_gate_timeout_ms)) {
       errors.push(issue(path, "must be a bounded argv-only command-exit-zero gate"));
     }
     return;
@@ -236,8 +324,8 @@ function validateGate(gate, path, errors) {
 
 function validateRetry(retry, path, errors) {
   if (!exactKeys(retry, ["max_attempts", "backoff_ms"])
-    || !safeInteger(retry.max_attempts, 1, 3)
-    || !safeInteger(retry.backoff_ms, 0, 60_000)) {
+    || !safeInteger(retry.max_attempts, 1, WORKFLOW_LIMITS.max_retry_attempts)
+    || !safeInteger(retry.backoff_ms, 0, WORKFLOW_LIMITS.max_retry_backoff_ms)) {
     errors.push(issue(path, "must contain max_attempts 1..3 and backoff_ms 0..60000"));
   }
 }
@@ -251,7 +339,7 @@ function validateAgent(node, path, errors, { inline = false } = {}) {
   }
   if (!ROLES.includes(node.role)) errors.push(issue(`${path}.role`, "must be a known Helix role"));
   if (!safeId(node.stage_id, NODE_ID)) errors.push(issue(`${path}.stage_id`, "must be a safe stage id"));
-  if (typeof node.prompt !== "string" || node.prompt.length < 1 || node.prompt.length > 16_384) {
+  if (typeof node.prompt !== "string" || node.prompt.length < 1 || node.prompt.length > WORKFLOW_LIMITS.max_prompt_length) {
     errors.push(issue(`${path}.prompt`, "must be a non-empty bounded prompt template id"));
   }
   if (!plain(node.output_schema) || typeof node.output_schema.id !== "string"
@@ -259,7 +347,7 @@ function validateAgent(node, path, errors, { inline = false } = {}) {
     || Object.keys(node.output_schema).some((key) => key !== "id")) {
     errors.push(issue(`${path}.output_schema`, "must name a supported closed output schema"));
   }
-  const toolsValid = Array.isArray(node.tools) && node.tools.length <= 16
+  const toolsValid = Array.isArray(node.tools) && node.tools.length <= WORKFLOW_LIMITS.max_agent_tools
     && new Set(node.tools).size === node.tools.length
     && node.tools.every((tool) => ["read", "grep", "find", "ls", "bash", "edit", "write"].includes(tool));
   if (!toolsValid) {
@@ -275,7 +363,7 @@ function validateAgent(node, path, errors, { inline = false } = {}) {
   }
   if (!safeInteger(node.timeout_ms, 1_000, MAX_CALL_MS)) errors.push(issue(`${path}.timeout_ms`, "must be 1000..3600000"));
   validateRetry(node.retry, `${path}.retry`, errors);
-  if (!inline && node.max_visits != null && !safeInteger(node.max_visits, 1, 32)) {
+  if (!inline && node.max_visits != null && !safeInteger(node.max_visits, 1, WORKFLOW_LIMITS.max_node_visits)) {
     errors.push(issue(`${path}.max_visits`, "must be 1..32"));
   }
   if (!inline && node.artifact != null && (!exactKeys(node.artifact, ["path", "kind"])
@@ -306,7 +394,7 @@ function validateCondition(condition, path, errors, depth = 0) {
   }
   if (["and", "or"].includes(condition.op)) {
     if (!exactKeys(condition, ["op", "conditions"]) || !Array.isArray(condition.conditions)
-      || condition.conditions.length < 1 || condition.conditions.length > 8) {
+      || condition.conditions.length < 1 || condition.conditions.length > WORKFLOW_LIMITS.max_condition_width) {
       errors.push(issue(path, "boolean condition requires 1..8 child conditions"));
     } else condition.conditions.forEach((child, index) => validateCondition(child, `${path}.conditions[${index}]`, errors, depth + 1));
     return;
@@ -340,7 +428,7 @@ function validateNode(node, id, path, errors) {
       return;
     }
     node.stages.forEach((stage, index) => validateInlineAgent(stage, `${path}.stages[${index}]`, errors));
-    if (!safeInteger(node.max_visits, 1, 32)) errors.push(issue(`${path}.max_visits`, "must be 1..32"));
+    if (!safeInteger(node.max_visits, 1, WORKFLOW_LIMITS.max_node_visits)) errors.push(issue(`${path}.max_visits`, "must be 1..32"));
     if (node.artifact != null && (!exactKeys(node.artifact, ["path", "kind"])
       || !isSafeWorkflowPath(node.artifact.path) || !["plan", "brief", "notes"].includes(node.artifact.kind))) {
       errors.push(issue(`${path}.artifact`, "must be a contained plan, brief, or notes artifact"));
@@ -349,14 +437,14 @@ function validateNode(node, id, path, errors) {
   }
   if (node.kind === "parallel") {
     if (!exactKeys(node, ["kind", "branches", "max_concurrency", "failure", "next"], ["label", "allow_failure_codes"])
-      || !Array.isArray(node.branches) || node.branches.length < 1 || node.branches.length > 64
+      || !Array.isArray(node.branches) || node.branches.length < 1 || node.branches.length > WORKFLOW_LIMITS.max_parallel_branches
       || !safeInteger(node.max_concurrency, 1, MAX_CONCURRENCY)
       || !["abort", "settle"].includes(node.failure)) {
       errors.push(issue(path, "parallel requires bounded agent branches, concurrency, failure, and next"));
       return;
     }
     if ((node.failure === "settle" && (!Array.isArray(node.allow_failure_codes)
-      || node.allow_failure_codes.length < 1 || node.allow_failure_codes.length > 16
+      || node.allow_failure_codes.length < 1 || node.allow_failure_codes.length > WORKFLOW_LIMITS.max_failure_codes
       || new Set(node.allow_failure_codes).size !== node.allow_failure_codes.length
       || node.allow_failure_codes.some((code) => !isPublicCode(code))))
       || (node.failure === "abort" && node.allow_failure_codes != null)) {
@@ -373,7 +461,7 @@ function validateNode(node, id, path, errors) {
       return;
     }
     if ((node.failure === "settle" && (!Array.isArray(node.allow_failure_codes)
-      || node.allow_failure_codes.length < 1 || node.allow_failure_codes.length > 16
+      || node.allow_failure_codes.length < 1 || node.allow_failure_codes.length > WORKFLOW_LIMITS.max_failure_codes
       || new Set(node.allow_failure_codes).size !== node.allow_failure_codes.length
       || node.allow_failure_codes.some((code) => !isPublicCode(code))))
       || (node.failure === "abort" && node.allow_failure_codes != null)) {
@@ -385,7 +473,8 @@ function validateNode(node, id, path, errors) {
   if (node.kind === "reduce") {
     if (!exactKeys(node, ["kind", "items_path", "strategy", "next"], ["separator", "label"])
       || pointerSegments(node.items_path) == null || !["collect", "count", "concat"].includes(node.strategy)
-      || (node.strategy === "concat" && (typeof node.separator !== "string" || node.separator.length > 32))
+      || (node.strategy === "concat" && (typeof node.separator !== "string"
+        || node.separator.length > WORKFLOW_LIMITS.max_reduce_separator_length))
       || (node.strategy !== "concat" && node.separator != null)) {
       errors.push(issue(path, "reduce requires a safe items_path and collect, count, or concat strategy"));
     }
@@ -427,12 +516,13 @@ function validateNode(node, id, path, errors) {
   }
   if (node.kind === "checkpoint") {
     if (!exactKeys(node, ["kind", "reason", "next"], ["label"])
-      || !isPublicCode(node.reason) || node.reason.length > 128) errors.push(issue(path, "checkpoint requires a stable reason and next"));
+      || !isPublicCode(node.reason)
+      || node.reason.length > WORKFLOW_LIMITS.max_checkpoint_reason_length) errors.push(issue(path, "checkpoint requires a stable reason and next"));
     return;
   }
   if (node.kind === "subworkflow") {
     if (!exactKeys(node, ["kind", "workflow_id", "version", "next"], ["label"])
-      || !safeId(node.workflow_id) || !safeInteger(node.version, 1, 1_000_000)) {
+      || !safeId(node.workflow_id) || !safeInteger(node.version, 1, WORKFLOW_LIMITS.max_version)) {
       errors.push(issue(path, "subworkflow requires a safe id, pinned version, and next"));
     }
     return;
@@ -469,6 +559,10 @@ function nodeEdges(node) {
   return [];
 }
 
+function runtimeEdges(node) {
+  return nodeEdges(node).filter((edge) => edge.field !== "loops_off");
+}
+
 function reverseReachable(nodes, target) {
   const seen = new Set([target]);
   let changed = true;
@@ -495,9 +589,11 @@ export function validateWorkflowDefinition(definition) {
   }
   if (definition.schema_version !== WORKFLOW_SCHEMA_VERSION) errors.push(issue("$.schema_version", "must equal 4"));
   if (!safeId(definition.id)) errors.push(issue("$.id", "must be a safe workflow id"));
-  if (typeof definition.name !== "string" || definition.name.trim() === "" || definition.name.length > 128) errors.push(issue("$.name", "must be non-empty and at most 128 characters"));
-  if (typeof definition.description !== "string" || definition.description.trim() === "" || definition.description.length > 1024) errors.push(issue("$.description", "must be non-empty and at most 1024 characters"));
-  if (!safeInteger(definition.version, 1, 1_000_000)) errors.push(issue("$.version", "must be a positive safe version"));
+  if (typeof definition.name !== "string" || definition.name.trim() === ""
+    || definition.name.length > WORKFLOW_LIMITS.max_name_length) errors.push(issue("$.name", "must be non-empty and at most 128 characters"));
+  if (typeof definition.description !== "string" || definition.description.trim() === ""
+    || definition.description.length > WORKFLOW_LIMITS.max_description_length) errors.push(issue("$.description", "must be non-empty and at most 1024 characters"));
+  if (!safeInteger(definition.version, 1, WORKFLOW_LIMITS.max_version)) errors.push(issue("$.version", "must be a positive safe version"));
   if (!["built-in", "user"].includes(definition.source)) errors.push(issue("$.source", "must be built-in or user"));
   validateInputSchema(definition.inputs, "$.inputs", errors, 0, { root: true });
   if (!safeId(definition.start, NODE_ID)) errors.push(issue("$.start", "must be a safe node id"));
@@ -529,6 +625,18 @@ export function validateWorkflowDefinition(definition) {
     }
   }
   for (const id of nodeIds) if (!reachable.has(id)) errors.push(issue(`$.nodes.${id}`, "is unreachable from start"));
+  const distanceFromStart = new Map();
+  const distanceQueue = Object.hasOwn(nodes, definition.start) ? [definition.start] : [];
+  if (distanceQueue.length > 0) distanceFromStart.set(definition.start, 0);
+  while (distanceQueue.length > 0) {
+    const id = distanceQueue.shift();
+    for (const { target } of runtimeEdges(nodes[id])) {
+      if (Object.hasOwn(nodes, target) && !distanceFromStart.has(target)) {
+        distanceFromStart.set(target, distanceFromStart.get(id) + 1);
+        distanceQueue.push(target);
+      }
+    }
+  }
   const reaches = (start, target) => {
     const seen = new Set();
     const pending = [start];
@@ -537,15 +645,26 @@ export function validateWorkflowDefinition(definition) {
       if (current === target) return true;
       if (seen.has(current) || !Object.hasOwn(nodes, current)) continue;
       seen.add(current);
-      pending.push(...nodeEdges(nodes[current]).map((edge) => edge.target));
+      pending.push(...runtimeEdges(nodes[current]).map((edge) => edge.target));
     }
     return false;
   };
   for (const [id, node] of Object.entries(nodes)) {
     if (node.kind !== "decision" || !Array.isArray(node.transitions) || !plain(node.default)) continue;
-    if (safeId(node.default.target, NODE_ID) && reaches(node.default.target, id)
-      && (node.default.loop !== true || !safeId(node.loops_off, NODE_ID))) {
-      errors.push(issue(`$.nodes.${id}.default`, "a cyclic default requires loop:true and a loops_off target"));
+    const edges = [
+      ...node.transitions.map((edge, index) => ({ edge, path: `$.nodes.${id}.transitions[${index}]`, isDefault: false })),
+      { edge: node.default, path: `$.nodes.${id}.default`, isDefault: true },
+    ];
+    for (const { edge, path, isDefault } of edges) {
+      if (!safeId(edge?.target, NODE_ID)) continue;
+      const participatesInCycle = reaches(edge.target, id);
+      const cyclic = participatesInCycle && (isDefault
+        || (distanceFromStart.get(edge.target) ?? Number.POSITIVE_INFINITY) <= (distanceFromStart.get(id) ?? -1));
+      if (cyclic && (edge.loop !== true || !safeId(node.loops_off, NODE_ID))) {
+        errors.push(issue(path, "a cyclic decision edge requires loop:true and a loops_off target"));
+      } else if (!cyclic && edge.loop === true) {
+        errors.push(issue(`${path}.loop`, "loop:true is valid only on a cyclic decision edge"));
+      }
     }
   }
   const successIds = nodeIds.filter((id) => nodes[id]?.kind === "terminal" && nodes[id].status === "succeeded");
@@ -580,7 +699,7 @@ export function validateWorkflowDefinition(definition) {
     || !safeInteger(definition.limits.max_map_items, 0, MAX_MAP_ITEMS)
     || !safeInteger(definition.limits.max_run_ms, 1_000, MAX_RUN_MS)
     || !safeInteger(definition.limits.max_call_ms, 1_000, MAX_CALL_MS)
-    || !safeInteger(definition.limits.structured_repair_attempts, 0, 2)) {
+    || !safeInteger(definition.limits.structured_repair_attempts, 0, WORKFLOW_LIMITS.max_structured_repair_attempts)) {
     errors.push(issue("$.limits", "contains invalid hard workflow limits"));
   }
   if (!exactKeys(definition.provider_policy, ["exact", "assignments", "default_assignment", "require_live_certification"])
@@ -636,6 +755,9 @@ function actionTarget(action, { stageId, previousStage, nextStage, finalGate, st
 }
 
 function migrateWorkflowV1Checked(workflow) {
+  if (workflow.stages.some((stage) => stage.steps.some((step) => step.kind !== "role"))) {
+    return { ok: false, code: "workflow-migration-host-effects-unsupported" };
+  }
   const nodes = {};
   const stopTerminal = "stopped";
   const hasStop = workflow.stages.some((stage) => stage.transitions.some((entry) => entry.action === "stop"));
@@ -706,7 +828,7 @@ function migrateWorkflowV1Checked(workflow) {
   const definition = {
     schema_version: WORKFLOW_SCHEMA_VERSION,
     id: workflow.id,
-    name: workflow.description.split(/[.!?]/, 1)[0].slice(0, 128) || workflow.id,
+    name: workflow.description.split(/[.!?]/, 1)[0].slice(0, WORKFLOW_LIMITS.max_name_length) || workflow.id,
     description: workflow.description,
     version: 1,
     source: workflow.source,
@@ -714,7 +836,7 @@ function migrateWorkflowV1Checked(workflow) {
       type: "object",
       additionalProperties: false,
       required: ["task"],
-      properties: { task: { type: "string", minLength: 1, maxLength: 65_536 } },
+      properties: { task: { type: "string", minLength: 1, maxLength: WORKFLOW_LIMITS.max_input_string_length } },
     },
     start: workflow.stages[0]?.id ?? failedTerminal,
     nodes,

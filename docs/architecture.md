@@ -42,18 +42,28 @@ The scheduler uses stable node/instance/attempt ids. Parallel and map output is
 definition-ordered. Every actual model invocation is a budgeted, journaled
 effect; multi-member panels reserve the complete first wave atomically before
 dispatch, then journal each member and retry independently. Resume reuses
-completed member attempts before reserving only the unfinished first wave. One run abort
-signal propagates through nodes, provider calls, objective commands, and
+completed member attempts before reserving only the unfinished first wave.
+Agent failures carry an explicit scheduler-recognized class; authored allowlists
+can settle only that class, never kernel-owned integrity or recovery failures.
+One run abort signal propagates through nodes, provider calls, objective commands, and
 workspaces. Scheduler-owned races bound even a non-cooperative injected gate,
 artifact, checkpoint, or child-resolution promise; child workflows receive the
-parent abort signal. Read-only work may overlap; mutating work enters one writer queue.
+parent abort signal. The elapsed run deadline is checkpointed and cumulative
+across pause/interruption continuations. Read-only work may overlap; mutating
+work enters one writer queue.
 
-Every model effect identity binds the workflow hash, node/attempt, canonical
-inputs/upstream outputs, runtime/cast ref, tool and mutation policy, and current
-workspace fingerprint. A result becomes complete only after response
-validation, workspace apply and fingerprint, budget reconciliation, journal
-append, scheduler checkpoint, and bounded workspace snapshot. Recovery material
-is finalized only after that durable checkpoint; a cleanup failure is itself
+Every model effect identity binds the workflow hash, node/attempt/invocation,
+canonical inputs/upstream outputs, runtime/cast ref, tool and mutation policy,
+and current workspace fingerprint. Before a provider call, the scheduler
+consumes one effect and durably checkpoints an in-flight intent. After the call,
+it checkpoints the validated result and any pending workspace finalization,
+appends the matching journal record, then checkpoints that journal position.
+This ordering lets continuation reconcile a journal-ahead read-only result
+without another call. Mutating work may be reused only with its verified
+workspace fingerprint; a rolled-back attempt is a failed invocation and any
+retry consumes a new effect. An in-flight intent with no provable result refuses
+as outcome-unknown instead of guessing or replaying. Recovery material is
+finalized only after the durable result/journal checkpoints; cleanup failure is
 checkpointed and retried idempotently on resume.
 
 ## Workspace model
@@ -77,24 +87,29 @@ refuse. This is Git-state isolation, not an OS sandbox.
 ## Recovery
 
 The public state/event projection contains hashes and structural fields. The
-private checkpoint contains scheduler outputs, visit counts, completed attempt
-results, journal length, budget usage, event sequence, and the exact workspace
-snapshot ref—but not the raw task. Files and totals are bounded and streamed.
+private checkpoint contains scheduler outputs, visit counts, completed and
+in-flight attempt state, cumulative elapsed time, journal length, budget usage,
+event sequence, and the exact workspace snapshot ref—but not the raw task.
+Files and totals are bounded and streamed.
 
 At resume, Helix requires the original task and fresh consent/runtime evidence.
 It verifies task hash, pinned definition/version, subworkflow closure, policy,
 profile/toggles/presets, cast, runtime ref, repository, owner ref, event prefix,
-journal prefix, and snapshot. An event/journal suffix newer than the checkpoint
-is an orphan transaction and is removed only after restoring the checkpoint
-workspace. Completed attempts recorded in the checkpoint are not re-executed.
-Corrupt, missing, stale, or mismatched state refuses.
+journal prefix, and snapshot. A journal suffix newer than the checkpoint is
+preserved and accepted only when the durable in-flight/result state can
+reconcile it exactly; otherwise drift refuses. Completed attempts and reconciled
+read-only results are not re-executed. Mutating reconciliation additionally
+requires the recorded workspace fingerprint. Corrupt, missing, stale,
+ambiguous, or mismatched state refuses.
 
 Checkpoint nodes use the same mechanism: the first encounter pauses; an
 attended resume is the explicit continue action. Child checkpoint state is
 stored under its parent node and child-run namespace, so one attended resume
 continues exactly that checkpoint. Version-pinned subworkflows share parent
 budget, journal, cancellation, and canonical workspace, have depth one, and
-project child events into parent structural events.
+project child events into parent structural events. Import, run preflight,
+inventory checks, exact-runtime preparation, and consent resolve the same closed
+direct-child bundle and complete effective cast.
 
 ## Runtime and identity
 

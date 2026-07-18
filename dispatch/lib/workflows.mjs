@@ -118,7 +118,14 @@ function verdictTransitions(role, backTarget = null) {
 /** Normalize a v2 chain stage into the explicit transition-block shape. */
 export function normalizeWorkflowStage(stage) {
   if (Array.isArray(stage?.transitions)) {
-    return structuredClone(stage);
+    return {
+      id: stage.id,
+      ...(stage.label ? { label: stage.label } : {}),
+      steps: structuredClone(stage.steps ?? []),
+      max_passes: stage.max_passes,
+      transitions: structuredClone(stage.transitions),
+      ...(stage.artifact ? { artifact: structuredClone(stage.artifact) } : {}),
+    };
   }
   let transitions;
   let maxPasses = 1;
