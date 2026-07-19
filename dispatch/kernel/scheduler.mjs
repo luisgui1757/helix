@@ -32,11 +32,13 @@ async function mapConcurrent(values, limit, task, shouldStop = null) {
   const output = new Array(values.length);
   let cursor = 0;
   let stopped = false;
+  let stoppedBy = null;
   const started = new Set();
   const controller = new AbortController();
   const stop = (result, index) => {
     if (!stopped && shouldStop?.(result, index) === true) {
       stopped = true;
+      stoppedBy = { result, index };
       controller.abort("kernel-branch-aborted");
     }
   };
@@ -49,7 +51,11 @@ async function mapConcurrent(values, limit, task, shouldStop = null) {
     }
   });
   await Promise.all(workers);
-  return { output, started };
+  return { output, started, stopped_by: stoppedBy };
+}
+
+function decisiveFailure(concurrent, predicate) {
+  return concurrent.stopped_by?.result ?? concurrent.output.find((entry) => entry && predicate(entry)) ?? null;
 }
 
 function normalizedUsage(value) {
@@ -109,14 +115,21 @@ function journalResult(result) {
   return cloned;
 }
 
-function validateCompletedJournalState(active, records) {
+function recordMatchesIntent(record, { run_id: runId, node_id: nodeId, instance_id: instanceId, base_identity: baseIdentity, mutating }) {
+  return record?.run_id === runId && record.node_id === nodeId && record.instance_id === instanceId
+    && record.base_identity === baseIdentity && record.mutating === mutating;
+}
+
+function validateCompletedJournalState(active, records, runId) {
   if (active == null) return { ok: true };
   if (typeof active !== "object" || Array.isArray(active)) return { ok: false };
   const byIdentity = new Map(records.map((record) => [record.identity, record]));
   for (const [instanceId, intent] of Object.entries(active.inflight ?? {})) {
     const record = byIdentity.get(intent.identity);
-    if (record && (record.node_id !== active.node_id || record.instance_id !== instanceId
-      || record.base_identity !== intent.base_identity || record.mutating !== intent.mutating)) {
+    if (record && !recordMatchesIntent(record, {
+      run_id: runId, node_id: active.node_id, instance_id: instanceId,
+      base_identity: intent.base_identity, mutating: intent.mutating,
+    })) {
       return { ok: false };
     }
   }
@@ -130,17 +143,18 @@ function validateCompletedJournalState(active, records) {
     if (pending != null) {
       if (typeof pending !== "object" || Array.isArray(pending)
         || !HASH.test(pending.identity ?? "") || !HASH.test(pending.base_identity ?? "")
-        || pending.node_id !== active.node_id || pending.instance_id !== instanceId
+        || pending.run_id !== runId || pending.node_id !== active.node_id || pending.instance_id !== instanceId
         || pending.status !== clean.status || tryJournalRef(pending.result) !== resultRef
         || typeof pending.mutating !== "boolean") return { ok: false };
       identity = pending.identity;
     }
-    const matches = records.filter((record) => record.node_id === active.node_id
+    const matches = records.filter((record) => record.run_id === runId && record.node_id === active.node_id
       && record.instance_id === instanceId && record.result_ref === resultRef);
     if (identity != null && !HASH.test(identity)) return { ok: false };
     if (identity != null && byIdentity.has(identity)) {
       const record = byIdentity.get(identity);
-      if (record.node_id !== active.node_id || record.instance_id !== instanceId || record.result_ref !== resultRef) return { ok: false };
+      if (record.run_id !== runId || record.node_id !== active.node_id
+        || record.instance_id !== instanceId || record.result_ref !== resultRef) return { ok: false };
     } else if (pending == null && matches.length !== 1) {
       return { ok: false };
     } else if (pending == null) {
@@ -148,7 +162,7 @@ function validateCompletedJournalState(active, records) {
     }
     if (completed._journal_identity != null && completed._journal_identity !== identity) return { ok: false };
   }
-  return validateCompletedJournalState(active.child?.scheduler?.active ?? null, records);
+  return validateCompletedJournalState(active.child?.scheduler?.active ?? null, records, active.child?.run_id ?? null);
 }
 
 function checkpointBudgetEvidence(checkpoint, records) {
@@ -282,7 +296,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
   });
   if (resume) {
     const records = journal.records();
-    const consistent = validateCompletedJournalState(resume.active, records);
+    const consistent = validateCompletedJournalState(resume.active, records, runId);
     if (!consistent.ok) return { ok: false, status: "refused", code: "kernel-checkpoint-journal-invalid" };
     if ((deps.depth ?? 0) === 0) {
       const evidence = checkpointBudgetEvidence(resume, records);
@@ -482,8 +496,12 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
   const resumeCompleted = async (nodeId, instanceId) => {
     if (active?.node_id === nodeId && Object.hasOwn(active.inflight, instanceId)) {
       const intent = active.inflight[instanceId];
-      const record = journal.find(intent.identity, { mutating: intent.mutating });
-      if (!record || (record.status === "ok" && intent.mutating && journal.lookup(intent.identity, { mutating: true }) == null)) {
+      const record = journal.find(intent.identity, { mutating: intent.mutating, run_id: runId });
+      if (!record || !recordMatchesIntent(record, {
+        run_id: runId, node_id: nodeId, instance_id: instanceId,
+        base_identity: intent.base_identity, mutating: intent.mutating,
+      }) || (record.status === "ok" && intent.mutating
+        && journal.lookup(intent.identity, { mutating: true, run_id: runId }) == null)) {
         return { found: true, result: settled("failed", { code: "kernel-effect-outcome-unknown" }) };
       }
       const usage = normalizedUsage(record.result?.usage);
@@ -571,14 +589,14 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       if (preReservation) budget.release(preReservation.id);
       return settled("failed", { code: "kernel-effect-input-invalid" });
     }
-    const baseIdentity = effectIdentity({ definition_ref: definitionRef, node_id: nodeId, instance_id: instanceId, agent, input_ref: inputRef, runtime_ref: runtimeRef, before_ref: beforeRef });
-    const cached = journal.lookupBase(baseIdentity, { mutating });
+    const baseIdentity = effectIdentity({ run_id: runId, definition_ref: definitionRef, node_id: nodeId, instance_id: instanceId, agent, input_ref: inputRef, runtime_ref: runtimeRef, before_ref: beforeRef });
+    const cached = journal.lookupBase(baseIdentity, { mutating, run_id: runId });
     if (cached) {
       if (preReservation) budget.release(preReservation.id);
       emit("effect-cache-hit", { node_id: nodeId, instance_id: instanceId, effect_ref: cached.identity });
       return cached.result;
     }
-    const invocation = journal.nextInvocation(baseIdentity);
+    const invocation = journal.nextInvocation(baseIdentity, { run_id: runId });
     if (!Number.isSafeInteger(invocation) || invocation < 1) return settled("failed", { code: "kernel-journal-state-invalid" });
     const identity = effectIdentity({ base_identity: baseIdentity, invocation });
     const reservation = preReservation ?? budget.reserve({
@@ -731,7 +749,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         return settled("failed", { code: workspaceRecoveryCode });
       }
       let journalRecord = {
-        identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
+        run_id: runId, identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
         before_ref: beforeRef, workspace_ref: workspaceRef, mutating, status: result.status, result,
       };
       if (result.status === "ok" && journal.canCommit?.(journalRecord, {
@@ -743,7 +761,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         workspaceRef = null;
         workspaceApplied = false;
         journalRecord = {
-          identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
+          run_id: runId, identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
           before_ref: beforeRef, workspace_ref: null, mutating, status: result.status, result,
         };
       }
@@ -759,7 +777,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
             workspaceApplied = false;
             pending = null;
             journalRecord = {
-              identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
+              run_id: runId, identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
               before_ref: beforeRef, workspace_ref: null, mutating, status: result.status, result,
             };
           }
@@ -782,7 +800,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           workspaceApplied = false;
           pending = null;
           journalRecord = {
-            identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
+            run_id: runId, identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
             before_ref: beforeRef, workspace_ref: null, mutating, status: result.status, result,
           };
           installCompleted();
@@ -954,7 +972,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         { ...prepared.local, ...(prepared.isExpanded ? { member_index: member.index } : {}) },
         member.reservation, member.completed, coordination));
     const results = concurrent.output;
-    const failed = results.find((entry) => entry.status !== "ok");
+    const failed = decisiveFailure(concurrent, (entry) => entry.status !== "ok");
     if (failed) return failed;
     if (results.length === 1) return results[0];
     const values = results.map((entry) => entry.value);
@@ -999,7 +1017,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       if (!concurrent.started.has(index)) releasePrepared(prepared[index]);
     }
     const values = concurrent.output;
-    const hardFailure = values.find((entry) => entry && entry.status !== "ok"
+    const hardFailure = decisiveFailure(concurrent, (entry) => entry.status !== "ok"
       && (failure === "abort" || !allowedFailure(entry, allow_failure_codes)));
     return hardFailure
       ? { ok: false, status: hardFailure.status, code: hardFailure.code ?? "kernel-child-failed", values }
@@ -1096,7 +1114,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           if (!concurrent.started.has(index)) releasePrepared(prepared[index]);
         }
         const values = concurrent.output;
-        const hardFailure = values.find((entry) => entry && entry.status !== "ok"
+        const hardFailure = decisiveFailure(concurrent, (entry) => entry.status !== "ok"
           && (node.failure === "abort" || !allowedFailure(entry, node.allow_failure_codes ?? [])));
         if (!storeOutput(current, values.map((entry, index) => ({ item: resolved.value[index], result: entry ?? null })))) {
           return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };

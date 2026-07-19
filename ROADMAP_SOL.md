@@ -152,6 +152,17 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > suffix admission; the two-result crash-window regression proves refusal with
 > zero replay.
 
+> **Cross-level journal and abort-attribution closure (2026-07-19):** final
+> Fable review then promoted genuine child journal-ahead state into a colliding
+> parent node and showed that string-only bindings could consume the child's
+> result as parent work. Journal schema 3 now records the executing run
+> namespace, effect base identities include it, and active reconciliation plus
+> reuse require an exact namespace match; legacy records remain readable but
+> cannot prove continuation. The same review showed a lower-index retrying
+> sibling could replace the decisive abort failure with a synthetic stopped
+> result. Fan-out coordination now retains the first stop-triggering result
+> across parallel, map, and expanded members.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:

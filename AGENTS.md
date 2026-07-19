@@ -353,13 +353,19 @@ The single source for test rules.
   The root checkpoint totals must also cover its exact durable journal prefix
   and every checkpointed invocation not yet represented in that prefix.
   Abort-policy fan-out stops dequeuing after the first decisive failure and
-  releases reservations for work that never started.
+  releases reservations for work that never started. Its terminal result is
+  the exact failure that triggered the stop; a synthetic stopped-sibling result
+  never replaces that failure or becomes operator cancellation.
 - Agent, pipeline, parallel, map, and child effect identities include the
   current node visit. A resumed completion is reusable only when its exact
   journal identity exists in the reconciled parent/child journal; visit counts,
   active state, nested child state, and budget totals are recursively validated.
   A journal-ahead in-flight result must also match its checkpointed node,
-  instance, base identity, and mutation mode before it can be reconciled.
+  instance, base identity, mutation mode, and executing run namespace before it
+  can be reconciled. Current journal records persist that namespace and effect
+  base identities include it, so parent and child nodes with colliding names
+  cannot exchange results. Older journal records remain readable history but
+  cannot prove an active continuation.
 - Agent execution binds the validated `tracked-step-v1` prompt contract,
   output schema, exact tool allowlist, mutation mode, artifact contract, visit,
   attempt, and run namespace through the product and runtime boundaries.

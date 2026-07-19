@@ -1,6 +1,8 @@
-// Private effect journal. A cache hit binds workflow/node/input/runtime/base
-// identity. Mutating entries additionally require a durable workspace ref and
-// a caller-supplied verification of that ref before reuse.
+// Private effect journal. Current records bind the executing run namespace plus
+// workflow/node/input/runtime/base identity. Mutating entries additionally
+// require a durable workspace ref and a caller-supplied verification of that ref
+// before reuse. Legacy records remain readable but cannot prove current-run
+// continuation identity.
 
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
@@ -39,10 +41,13 @@ function validResult(result, status) {
 function validRecord(record, seq) {
   return record && typeof record === "object" && !Array.isArray(record)
     && Object.keys(record).every((key) => [
-      "schema_version", "seq", "identity", "node_id", "instance_id", "input_ref", "runtime_ref",
+      "schema_version", "seq", "run_id", "identity", "node_id", "instance_id", "input_ref", "runtime_ref",
       "before_ref", "base_identity", "result_ref", "workspace_ref", "mutating", "status", "result",
     ].includes(key))
-    && [1, 2].includes(record.schema_version) && record.seq === seq
+    && [1, 2, 3].includes(record.schema_version) && record.seq === seq
+    && (record.schema_version === 3
+      ? typeof record.run_id === "string" && record.run_id.length > 0
+      : !Object.hasOwn(record, "run_id"))
     && ["ok", "failed", "refused", "cancelled"].includes(record.status)
     && [record.identity, record.input_ref, record.runtime_ref, record.before_ref, record.result_ref]
       .every((value) => HASH.test(value))
@@ -86,15 +91,16 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
       throw new Error("kernel-journal-corrupt");
     }
   }
-  const prepareRecord = ({ identity, base_identity = identity, node_id, instance_id, input_ref, runtime_ref, before_ref, workspace_ref = null, mutating, status, result }) => {
+  const prepareRecord = ({ run_id: recordRunId, identity, base_identity = identity, node_id, instance_id, input_ref, runtime_ref, before_ref, workspace_ref = null, mutating, status, result }) => {
     let clonedResult;
     try { clonedResult = structuredClone(result); }
     catch { return { ok: false, code: "kernel-journal-value-invalid" }; }
     const resultRef = hash(clonedResult);
     if (resultRef == null) return { ok: false, code: "kernel-journal-value-invalid" };
     const record = {
-      schema_version: 2,
+      schema_version: 3,
       seq: records.length + 1,
+      run_id: recordRunId,
       identity,
       base_identity,
       node_id,
@@ -122,18 +128,21 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
       }
       return { ok: true, records: structuredClone(records.slice(expected)) };
     },
-    nextInvocation(baseIdentity) {
+    nextInvocation(baseIdentity, { run_id: recordRunId = null } = {}) {
       if (!HASH.test(baseIdentity ?? "")) return null;
-      return records.filter((record) => (record.base_identity ?? record.identity) === baseIdentity).length + 1;
+      return records.filter((record) => (record.base_identity ?? record.identity) === baseIdentity
+        && (recordRunId == null || record.run_id === recordRunId)).length + 1;
     },
-    find(identity, { mutating = null } = {}) {
+    find(identity, { mutating = null, run_id: recordRunId = null } = {}) {
       const record = byIdentity.get(identity);
-      if (!record || (mutating !== null && record.mutating !== mutating)) return null;
+      if (!record || (mutating !== null && record.mutating !== mutating)
+        || (recordRunId != null && record.run_id !== recordRunId)) return null;
       return structuredClone(record);
     },
-    lookup(identity, { mutating = false } = {}) {
+    lookup(identity, { mutating = false, run_id: recordRunId = null } = {}) {
       const record = byIdentity.get(identity);
-      if (!record || record.status !== "ok" || record.mutating !== mutating) return null;
+      if (!record || record.status !== "ok" || record.mutating !== mutating
+        || (recordRunId != null && record.run_id !== recordRunId)) return null;
       if (mutating) {
         if (record.workspace_ref == null || typeof verify_workspace !== "function") return null;
         try { if (verify_workspace(record.workspace_ref) !== true) return null; }
@@ -141,9 +150,10 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
       }
       return structuredClone(record);
     },
-    lookupBase(baseIdentity, { mutating = false } = {}) {
+    lookupBase(baseIdentity, { mutating = false, run_id: recordRunId = null } = {}) {
       const record = records.findLast((entry) => (entry.base_identity ?? entry.identity) === baseIdentity
-        && entry.status === "ok" && entry.mutating === mutating);
+        && entry.status === "ok" && entry.mutating === mutating
+        && (recordRunId == null || entry.run_id === recordRunId));
       if (!record) return null;
       if (mutating) {
         if (record.workspace_ref == null || typeof verify_workspace !== "function") return null;

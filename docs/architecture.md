@@ -49,7 +49,9 @@ Agent failures carry an explicit scheduler-recognized class; authored allowlists
 can settle only that class, never kernel-owned integrity or recovery failures.
 With abort policy, the first decisive failure stops workers from claiming more
 indices; already-started effects settle, and every unused reservation is
-released. Provider usage is a closed pair of nonnegative safe integers, and
+released. The scheduler retains that first decisive result as the terminal
+failure; a lower-index sibling stopped afterward cannot replace it with a
+synthetic cancellation. Provider usage is a closed pair of nonnegative safe integers, and
 every reservation, provider sum, and lifetime-total addition is checked before
 state changes. Failed provider calls retain and durably account any valid usage;
 malformed usage becomes a stable failure. Definition ceilings are immutable,
@@ -151,8 +153,11 @@ journal prefix, and snapshot. A journal suffix newer than the checkpoint is
 preserved and accepted only when every suffix identity maps to durable pending
 or in-flight state in the complete parent/child checkpoint tree; extra or
 conflicting evidence is terminal drift. An in-flight suffix record must match
-its checkpointed node, instance, base identity, and mutation mode; an identity
-cannot move between parallel or map instances. Every loaded result is re-hashed and
+its checkpointed run namespace, node, instance, base identity, and mutation
+mode; an identity cannot move between parallel/map instances or between parent
+and child schedulers. Journal schema 3 records the executing run namespace and
+the effect base identity includes it. Schema 1/2 journal records remain readable
+history but cannot reconcile active continuation state. Every loaded result is re-hashed and
 its status must match its journal record. Every `active.completed` entry must
 map to that exact journal identity; active visit state, visit counters, budget
 totals, and nested child scheduler state are recursively validated before any

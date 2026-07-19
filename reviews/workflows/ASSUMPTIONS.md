@@ -241,12 +241,19 @@ Rejected findings / bounded false alarms:
   instance must have exact reconciled journal evidence, and active visit,
   nested child scheduler, and budget state must validate as one recursive
   continuation document before any effect can be reused.
+- Journal evidence is scoped to the scheduler run namespace that produced it.
+  Schema-3 records persist that namespace and effect base identities include it;
+  schema-1/2 records remain readable but cannot reconcile active state. Matching
+  node and instance strings are insufficient across a parent/child boundary.
 - Workflow budget maxima are immutable lifetime bindings. A provider may
   truthfully overshoot an enforced soft token/cost maximum, but resume or an
   injected ledger cannot increase the configured ceiling to legalize it.
 - Usage from a completed failed provider call is still consumed lifetime usage.
   It must be durably accounted exactly once; malformed or partial usage cannot
   be replaced with zero, and unsafe aggregate arithmetic cannot mutate totals.
+- Abort fan-out reports the exact result that first triggered the stop. A later
+  `kernel-branch-aborted` placeholder describes only the stopped sibling and
+  cannot replace the decisive failure or be rendered as operator cancellation.
 - Node visit is part of effect and child-run identity. Stable node ids alone are
   insufficient when an authored loop revisits parallel, map, pipeline, agent,
   checkpoint, or subworkflow work.

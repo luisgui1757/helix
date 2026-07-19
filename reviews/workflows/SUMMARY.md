@@ -600,3 +600,29 @@ package with Pi RPC/default-factory proof, and active Docker 5/5 all pass. The
 focused kernel suite and the journal-ahead parent/child recovery paths also pass.
 Exact-head CI and a fresh final review remain pending until this closure is
 committed and pushed.
+
+The final Fable exact-head review confirmed every prior closure but reproduced
+two composition defects. First, a genuine child journal-ahead intent could be
+promoted into a colliding parent node because journal records and effect base
+identities lacked the executing scheduler namespace. Resume then consumed the
+child result as parent work, skipped the declared parent call, and succeeded.
+Journal schema 3 now persists `run_id`, base identities include it, every
+lookup/reconciliation path requires it, and schema-1/2 records remain readable
+but cannot prove active continuation. The regression constructs the exact
+parent/child collision, proves refusal with zero additional calls, then proves
+the unchanged checkpoint resumes the child and executes the real parent effect.
+
+Second, abort fan-out rediscovered its terminal failure by definition order, so
+a lower-index retrying sibling's synthetic `kernel-branch-aborted` result could
+replace the higher-index agent failure that triggered the stop and render as an
+operator cancellation. Coordination now retains the first stop-triggering
+result and all three selection sites use it. Parallel, map, and expanded-member
+regressions prove the decisive agent code remains a failed terminal while no
+unstarted provider work is launched.
+
+Post-fix local evidence: `npm test` passes 731/731 with zero failures or skips,
+worktree 12/12, and objective loop 8/8; workflow conformance passes 101/101 and
+provider contracts 35/35. Documentation truth, resources, both deterministic
+smokes, static checks, `git diff --check`, the extracted 99-file package with Pi
+RPC/default-factory proof, and active Docker 5/5 all pass. Exact-head CI and a
+fresh-context review remain pending until this closure is committed and pushed.

@@ -233,6 +233,71 @@ test("parallel and map abort release unstarted reservations after the first deci
   }
 });
 
+test("abort reports the decisive failure instead of a stopped retrying sibling", async () => {
+  const retrying = { ...reviewer(), retry: { max_attempts: 2, backoff_ms: 0 } };
+  const decisive = { ...reviewer(), retry: { max_attempts: 1, backoff_ms: 0 } };
+  const cases = [
+    {
+      name: "parallel",
+      graph: definition({
+        work: parallel([retrying, decisive], "objective", { max_concurrency: 2, failure: "abort" }),
+        objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+      }),
+      input: { task: "attribute parallel abort" },
+    },
+    {
+      name: "map",
+      graph: definition({
+        work: map("/inputs/items", retrying, "objective", { max_items: 2, failure: "abort" }),
+        objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+      }, "work", { max_concurrency: 2 }, {
+        type: "object", additionalProperties: false, required: ["task", "items"],
+        properties: {
+          task: { type: "string", minLength: 1, maxLength: 64 },
+          items: { type: "array", minItems: 2, maxItems: 2, items: { type: "string", minLength: 1, maxLength: 8 } },
+        },
+      }),
+      input: { task: "attribute map abort", items: ["a", "b"] },
+    },
+    {
+      name: "expanded members",
+      graph: definition({
+        work: parallel([reviewer()], "objective", { max_concurrency: 1, failure: "abort" }),
+        objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+      }, "work", { max_concurrency: 2 }),
+      input: { task: "attribute expanded abort" },
+      expandAgent: () => [retrying, decisive],
+    },
+  ];
+  for (const candidate of cases) {
+    let calls = 0;
+    let releaseSecond;
+    const secondStarted = new Promise((resolve) => { releaseSecond = resolve; });
+    const result = await runWorkflowKernel(candidate.graph, candidate.input, readOnlyDeps({
+      ...(candidate.expandAgent ? { expandAgent: candidate.expandAgent } : {}),
+      async executeAgent(_node, ctx) {
+        calls += 1;
+        const index = ctx.local.member_index ?? ctx.local.index;
+        if (index === 0 && ctx.local.attempt === 1) {
+          await secondStarted;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        } else if (index === 1) {
+          releaseSecond();
+        }
+        return {
+          ok: false,
+          code: index === 1 ? "decisive-agent-failure" : "retrying-agent-failure",
+          failure_class: "agent",
+          usage: { tokens: 0, cost_micros: 0 },
+        };
+      },
+    }));
+    assert.equal(result.status, "failed", candidate.name);
+    assert.equal(result.code, "decisive-agent-failure", candidate.name);
+    assert.ok(calls >= 2 && calls <= 3, `${candidate.name}: unexpected call count ${calls}`);
+  }
+});
+
 test("malformed usage fails closed and budget arithmetic never creates unsafe totals", async () => {
   const graph = definition({
     work: pipeline([reviewer()], "objective", { max_visits: 1 }),
@@ -619,15 +684,23 @@ test("journal read/write paths agree for Unicode roots and missing expected jour
     const journal = createEffectJournal({ root, run_id: "unicode-run" });
     const ref = journalRef("journal-field");
     assert.equal(journal.commit({
-      identity: journalRef("identity"), node_id: "work", instance_id: "work:1",
+      run_id: "unicode-run", identity: journalRef("identity"), node_id: "work", instance_id: "work:1",
       input_ref: ref, runtime_ref: ref, before_ref: ref, mutating: false,
       status: "ok", result: { status: "ok", value: "done" },
     }).ok, true);
     assert.equal(createEffectJournal({ root, run_id: "unicode-run", expected_records: 1 }).records().length, 1);
     const journalPath = join(root, "unicode-run.kernel.journal.jsonl");
     const record = JSON.parse(readFileSync(journalPath, "utf8"));
-    record.result.value = "corrupted";
-    writeFileSync(journalPath, `${JSON.stringify(record)}\n`, "utf8");
+    assert.equal(record.schema_version, 3);
+    assert.equal(record.run_id, "unicode-run");
+    const legacy = { ...record, schema_version: 2 };
+    delete legacy.run_id;
+    writeFileSync(journalPath, `${JSON.stringify(legacy)}\n`, "utf8");
+    const legacyJournal = createEffectJournal({ root, run_id: "unicode-run", expected_records: 1 });
+    assert.equal(legacyJournal.records()[0].schema_version, 2);
+    assert.equal(legacyJournal.find(legacy.identity, { run_id: "unicode-run" }), null);
+    legacy.result.value = "corrupted";
+    writeFileSync(journalPath, `${JSON.stringify(legacy)}\n`, "utf8");
     assert.throws(() => createEffectJournal({ root, run_id: "unicode-run", expected_records: 1 }), /kernel-journal-corrupt/);
     unlinkSync(journalPath);
     assert.throws(() => createEffectJournal({ root, run_id: "unicode-run", expected_records: 1 }), /kernel-journal-corrupt/);
@@ -660,7 +733,7 @@ test("resume refuses every journal suffix identity not bound to durable pending 
   assert.equal((await runWorkflowKernel(graph, { task: "exact suffix" }, deps)).code, "kernel-checkpoint-write-failed");
   const ref = journalRef("foreign-record");
   assert.equal(journal.commit({
-    identity: journalRef("foreign-identity"), node_id: "foreign", instance_id: "foreign:1",
+    run_id: "run-1", identity: journalRef("foreign-identity"), node_id: "foreign", instance_id: "foreign:1",
     input_ref: ref, runtime_ref: ref, before_ref: ref, mutating: false,
     status: "ok", result: { status: "ok", value: "foreign" },
   }).ok, true);
@@ -1729,6 +1802,80 @@ test("a child journal-ahead result reconciles through the parent checkpoint with
   const resumed = await runWorkflowKernel(parent, { task: "child ahead" }, { ...deps, resume: snapshot });
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   assert.equal(calls, 1);
+});
+
+test("journal-ahead results cannot move between parent and child run namespaces", async () => {
+  const child = workflow({
+    id: "colliding-child", name: "Colliding child", description: "Child with a colliding node name.", start: "work",
+    nodes: {
+      work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "child-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  const parent = definition({
+    child: subworkflow("colliding-child", 1, "work"),
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "parent-failed"),
+  }, "child", { max_total_effects: 2 });
+  const workspaceRef = journalRef("cross-level-workspace");
+  const journal = createEffectJournal({ verify_workspace: () => true });
+  let durable = null;
+  let failed = false;
+  let calls = 0;
+  const deps = readOnlyDeps({
+    task_ref: journalRef("cross-level-task"), runtime_ref: journalRef("cross-level-runtime"), journal,
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    resolveSubworkflow: () => child.definition,
+    async executeAgent(_node, ctx) {
+      calls += 1;
+      return {
+        ok: true,
+        value: { recommendation: "approve", run_id: ctx.run_id },
+        usage: { tokens: 1, cost_micros: 1 },
+      };
+    },
+    async onCheckpoint(state) {
+      const childActive = state.active?.child?.scheduler?.active;
+      const resultPending = Object.values(childActive?.completed ?? {}).some((entry) => entry._journal_pending);
+      if (!failed && resultPending) {
+        failed = true;
+        return { ok: false, code: "kernel-checkpoint-write-failed" };
+      }
+      durable = structuredClone(state);
+      return { ok: true };
+    },
+  });
+  const interrupted = await runWorkflowKernel(parent, { task: "bind cross-level result" }, deps);
+  assert.equal(interrupted.code, "kernel-checkpoint-write-failed");
+  assert.equal(calls, 1);
+  assert.equal(journal.records().length, 1);
+  assert.equal(journal.records()[0].run_id, "run-1.child.1");
+  assert.equal(Object.keys(durable.active.child.scheduler.active.inflight).length, 1);
+
+  const forged = structuredClone(durable);
+  const childScheduler = forged.active.child.scheduler;
+  forged.current = "work";
+  forged.visits.work = childScheduler.visits.work;
+  forged.active = structuredClone(childScheduler.active);
+  forged.journal_entries = 0;
+  const refused = await runWorkflowKernel(parent, { task: "bind cross-level result" }, {
+    ...deps,
+    resume: forged,
+    async onCheckpoint() { return { ok: true }; },
+  });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.code, "kernel-checkpoint-journal-invalid");
+  assert.equal(calls, 1);
+
+  const resumed = await runWorkflowKernel(parent, { task: "bind cross-level result" }, { ...deps, resume: durable });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(calls, 2);
+  assert.equal(resumed.outputs.work.values[0].run_id, "run-1");
+  assert.equal(resumed.budget.effects, 2);
+  assert.equal(resumed.budget.tokens, 2);
+  assert.equal(resumed.budget.cost_micros, 2);
 });
 
 test("workspace fingerprint exceptions return a stable kernel failure", async () => {

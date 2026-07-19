@@ -150,7 +150,10 @@ only when the canonical workspace still has the exact captured fingerprint.
 Conflict or cleanup ambiguity refuses; Helix does not auto-resolve semantics.
 Repeated visits use distinct agent, map, parallel, and child-run identities.
 Continuation accepts a completed entry only when its exact journal record,
-visit, recursively nested child state, and budget state all validate.
+executing run namespace, visit, recursively nested child state, and budget state
+all validate. Current schema-3 journal records persist that namespace and effect
+identities include it; readable schema-1/2 records cannot prove an active
+continuation.
 
 ## Programmatic example
 
@@ -246,7 +249,10 @@ failures. Scheduler/runtime integrity, identity, policy, workspace, budget,
 cancellation, and final-gate failures are structurally non-maskable regardless
 of an authored code allowlist. After the first decisive abort result, workers
 claim no new branches/items. Only already-started work settles, and reserved
-capacity for every unstarted effect is released deterministically.
+capacity for every unstarted effect is released deterministically. The
+decisive result remains the node's terminal failure even when an earlier-indexed
+retrying sibling later observes the stop; that synthetic sibling result is not
+reported as operator cancellation.
 
 ### Map/reduce
 

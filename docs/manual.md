@@ -81,7 +81,9 @@ checkpoint, and continuation receives only the remaining duration. Historical
 schema-1 checkpoints can still be inspected, but named kernel continuation
 refuses them because they contain no trustworthy elapsed lifetime. A deadline
 is rendered as a timeout; only an external/operator abort is rendered as
-operator cancellation.
+operator cancellation. An internal fan-out stop retains the decisive branch
+failure and cannot be rendered as an operator action merely because a sibling
+observed the stop.
 
 - `/helix-runs` lists structural records.
 - `/helix-run-status <run-id>` shows one structural record.
@@ -92,8 +94,10 @@ operator cancellation.
 - `/helix-run-resume <run-id>` is attended for v4 runs. It asks for the original
   task and declared typed inputs, verifies their hash, reloads the pinned definition, revalidates policy and
   exact cast, restores the retained worktree from the last private bounded
-  snapshot, reconciles any provable journal-ahead result, and resumes completed
-  effects without replaying them. Completed runs are a no-op. Historical staged
+snapshot, reconciles any provable journal-ahead result, and resumes completed
+effects without replaying them. Journal evidence must bind the exact parent or
+child run namespace; older journal schemas remain readable but cannot prove an
+active continuation. Completed runs are a no-op. Historical staged
   records remain validated and may still render their bound staged-run resume
   invocation; they are compatibility records, not a second named-workflow
   engine.
