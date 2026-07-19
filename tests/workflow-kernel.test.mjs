@@ -1513,7 +1513,7 @@ test("a paused child preserves its local effect allowance across parent continua
     resolveSubworkflow: () => child.definition,
     async executeAgent() {
       calls += 1;
-      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 1, cost_micros: 0 } };
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 1, cost_micros: 1 } };
     },
     async onCheckpoint(state) { snapshot = structuredClone(state); return { ok: true }; },
   });
@@ -1524,7 +1524,21 @@ test("a paused child preserves its local effect allowance across parent continua
   assert.equal(paused.status, "paused");
   assert.equal(calls, 1);
   assert.equal(snapshot.active.child.scheduler.budget.effects, 1);
+  assert.equal(snapshot.active.child.scheduler.budget.tokens, 1);
+  assert.equal(snapshot.active.child.scheduler.budget.cost_micros, 1);
   assert.equal(snapshot.active.child.scheduler.budget.max_effects, 2);
+  const resetParentBudget = structuredClone(snapshot);
+  resetParentBudget.budget.effects = 0;
+  resetParentBudget.budget.tokens = 0;
+  resetParentBudget.budget.cost_micros = 0;
+  const inconsistent = await runWorkflowKernel(parent, { task: "child budget pause" }, {
+    ...deps,
+    resume: resetParentBudget,
+    checkpoint: () => ({ continue: true }),
+  });
+  assert.equal(inconsistent.ok, false);
+  assert.equal(inconsistent.code, "kernel-checkpoint-child-invalid");
+  assert.equal(calls, 1);
   const resumed = await runWorkflowKernel(parent, { task: "child budget pause" }, {
     ...deps,
     resume: snapshot,
@@ -1533,6 +1547,8 @@ test("a paused child preserves its local effect allowance across parent continua
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   assert.equal(calls, 2);
   assert.equal(resumed.budget.effects, 2);
+  assert.equal(resumed.budget.tokens, 2);
+  assert.equal(resumed.budget.cost_micros, 2);
 });
 
 test("a namespaced child checkpoint advances exactly once on parent resume", async () => {

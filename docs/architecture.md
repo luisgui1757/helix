@@ -60,7 +60,9 @@ checkpointed locally while every reservation, consumption, and usage value is
 also committed to the one shared parent lifetime ledger. A larger parent limit
 cannot raise the child, a larger child limit cannot raise the parent, and a
 fresh later child invocation gets a fresh local allowance without resetting
-the parent total.
+the parent total. Continuation recursively verifies that the child's effects,
+tokens, cost, and reservations do not exceed the enclosing parent snapshot;
+an inconsistent nested checkpoint refuses before any new invocation.
 One run abort signal propagates through nodes, provider calls, objective commands, and
 workspaces. Scheduler-owned races bound even a non-cooperative injected gate,
 artifact, checkpoint, or child-resolution promise; child workflows receive the

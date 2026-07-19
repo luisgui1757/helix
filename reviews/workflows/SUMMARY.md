@@ -540,3 +540,26 @@ otherwise requires the supported in-memory AuthStorage/ModelRegistry pair. The
 adapter builds the same isolated exact provider/model/key binding through either
 surface. The failed run remains historical evidence; a new exact-head run must
 pass every leg before rereview.
+
+## 2026-07-19 — Nested continuation-budget containment
+
+Exact-head CI run `29680060803` passed all four Node/Pi matrix legs and the
+aggregate gate at `836b8efef8cdb02fc4738ac313f94de592f33102`. A fresh-context
+Sol rereview passed the identity gate and independently reproduced a checkpoint
+consistency defect twice before its review run was interrupted: a paused parent
+and child snapshot could reset the outer effects/tokens/cost totals below the
+nested child ledger. Resume then treated the reset parent total as authoritative,
+made additional provider calls beyond the declared parent lifetime ceiling, and
+could report success with the understated outer total.
+
+Recursive checkpoint validation now requires nested child effects, tokens,
+cost, and reservations to be no greater than the enclosing parent snapshot.
+The paused-child continuation regression resets all consumed parent totals,
+expects `kernel-checkpoint-child-invalid`, and proves that no additional call
+starts; the unchanged checkpoint still resumes and preserves exact totals.
+Post-fix local evidence: `npm test` passes the unchanged 728/728 Node baseline,
+worktree 12/12, and objective loop 8/8; workflow conformance passes 98/98 and
+provider contracts 35/35. Documentation truth, resources, static checks, both
+deterministic smokes, `git diff --check`, the 99-file extracted package with
+real default-factory proof, and active Docker 5/5 all pass. Exact-head CI and
+fresh-context review evidence follow only after they run on the committed fix.

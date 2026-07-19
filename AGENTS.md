@@ -348,6 +348,8 @@ The single source for test rules.
   continuation; neither injected budget state nor a checkpoint may raise them.
   A subworkflow retains its own declared effect ceiling while consuming from
   the shared parent lifetime ledger; neither ceiling may raise the other.
+  A resumed nested child checkpoint is accepted only when every consumed and
+  reserved child total is contained by the enclosing parent lifetime totals.
   Abort-policy fan-out stops dequeuing after the first decisive failure and
   releases reservations for work that never started.
 - Agent, pipeline, parallel, map, and child effect identities include the

@@ -128,6 +128,15 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > default-factory proof, and active Docker 5/5. Exact-head CI and independent
 > rereview remain mandatory before live testing.
 
+> **Nested continuation-budget containment (2026-07-19):** exact-head Sol
+> rereview found that recursive checkpoint validation accepted a child ledger
+> whose consumed totals exceeded a reset enclosing parent ledger. Continuation
+> could therefore execute beyond the parent lifetime ceiling while reporting
+> only the reset outer total. The checkpoint validator now requires every
+> nested child's effects, tokens, cost, and reservations to be contained by its
+> parent snapshot before execution; the paused-child regression resets all
+> three consumed totals and proves refusal with zero additional calls.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:

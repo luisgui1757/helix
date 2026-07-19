@@ -106,7 +106,9 @@ export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, r
         task_ref: child.task_ref,
         node_ids: new Set(plain(child.visits) ? Object.keys(child.visits) : []),
       });
-      if (!childChecked.valid || checkpoint.active.child.run_id !== child.run_id) {
+      const childBudgetExceedsParent = ["effects", "tokens", "cost_micros", "reserved"]
+        .some((field) => child.budget?.[field] > checkpoint.budget[field]);
+      if (!childChecked.valid || checkpoint.active.child.run_id !== child.run_id || childBudgetExceedsParent) {
         return { valid: false, code: "kernel-checkpoint-child-invalid" };
       }
     }
