@@ -72,6 +72,9 @@ test("requested-only, stale, uncertified, and prohibited paths refuse", () => {
   const uncertified = createMockAttestation();
   uncertified.certification = "contract-verified";
   assert.equal(exactAttestationStatus(uncertified, { now: 1, require_live: true }).code, "provider-live-certification-required");
+  const disabled = createMockAttestation();
+  disabled.certification = "uncertified-disabled";
+  assert.equal(exactAttestationStatus(disabled, { now: 1 }).code, "provider-exact-certification-required");
   const blocked = createMockAttestation();
   blocked.policy = "prohibited";
   assert.equal(exactAttestationStatus(blocked, { now: 1 }).code, "provider-policy-blocked");

@@ -8,15 +8,28 @@ import { appendText, resolveConfinedFile } from "../lib/persistence.mjs";
 import { stableWorkflowStringify } from "../workflow/schema.mjs";
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
+const FAILURE_CODE = /^[a-z0-9][a-z0-9-]{0,159}$/;
 
 function hash(value) {
   const serialized = stableWorkflowStringify(value);
-  if (typeof serialized !== "string") throw new Error("kernel-journal-value-invalid");
+  if (typeof serialized !== "string") return null;
   return `sha256:${createHash("sha256").update(serialized).digest("hex")}`;
 }
 
+function requiredHash(value) {
+  const ref = hash(value);
+  if (ref == null) throw new Error("kernel-journal-value-invalid");
+  return ref;
+}
+
 export function effectIdentity(binding) {
-  return hash(binding);
+  return requiredHash(binding);
+}
+
+function validResult(result, status) {
+  return result !== null && typeof result === "object" && !Array.isArray(result)
+    && result.status === status
+    && (status === "ok" || FAILURE_CODE.test(result.code ?? ""));
 }
 
 function validRecord(record, seq) {
@@ -32,7 +45,9 @@ function validRecord(record, seq) {
     && (record.schema_version === 1 ? !Object.hasOwn(record, "base_identity") : HASH.test(record.base_identity))
     && (record.workspace_ref === null || HASH.test(record.workspace_ref))
     && typeof record.node_id === "string" && typeof record.instance_id === "string"
-    && typeof record.mutating === "boolean";
+    && typeof record.mutating === "boolean"
+    && validResult(record.result, record.status)
+    && hash(record.result) === record.result_ref;
 }
 
 export function createEffectJournal({ root = null, run_id = null, verify_workspace = null, expected_records = null } = {}) {
@@ -98,6 +113,11 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
       return structuredClone(record);
     },
     commit({ identity, base_identity = identity, node_id, instance_id, input_ref, runtime_ref, before_ref, workspace_ref = null, mutating, status, result }) {
+      let clonedResult;
+      try { clonedResult = structuredClone(result); }
+      catch { return { ok: false, code: "kernel-journal-value-invalid" }; }
+      const resultRef = hash(clonedResult);
+      if (resultRef == null) return { ok: false, code: "kernel-journal-value-invalid" };
       const record = {
         schema_version: 2,
         seq: records.length + 1,
@@ -108,11 +128,11 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
         input_ref,
         runtime_ref,
         before_ref,
-        result_ref: hash(result),
+        result_ref: resultRef,
         workspace_ref,
         mutating,
         status,
-        result: structuredClone(result),
+        result: clonedResult,
       };
       if (!validRecord(record, record.seq) || (mutating && status === "ok" && workspace_ref == null)) {
         return { ok: false, code: "kernel-journal-record-invalid" };
@@ -136,5 +156,9 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
 }
 
 export function journalRef(value) {
+  return requiredHash(value);
+}
+
+export function tryJournalRef(value) {
   return hash(value);
 }

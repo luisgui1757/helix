@@ -90,24 +90,39 @@ The public state/event projection contains hashes and structural fields. The
 private checkpoint contains scheduler outputs, visit counts, completed and
 in-flight attempt state, cumulative elapsed time, journal length, budget usage,
 event sequence, and the exact workspace snapshot ref—but not the raw task.
-Files and totals are bounded and streamed.
+Files and totals are bounded and streamed. Agent results and derived effect
+inputs must also fit bounded canonical journal serialization; values outside
+that boundary return stable kernel failures rather than throwing.
+
+The private checkpoint's atomic install is the scheduler commit point.
+Old-snapshot cleanup and public-state projection run afterward as explicit
+maintenance fields in checkpoint document schema 2. Failure in either phase
+leaves conservative durable debt for the next checkpoint; it never rewrites an
+already-published scheduler checkpoint as an undurable failure. Schema-1
+documents remain readable and acquire the maintenance fields on their next
+successful write.
 
 At resume, Helix requires the original task and fresh consent/runtime evidence.
 It verifies task hash, pinned definition/version, subworkflow closure, policy,
 profile/toggles/presets, cast, runtime ref, repository, owner ref, event prefix,
 journal prefix, and snapshot. A journal suffix newer than the checkpoint is
-preserved and accepted only when the durable in-flight/result state can
-reconcile it exactly; otherwise drift refuses. Completed attempts and reconciled
+preserved and accepted only when every suffix identity maps to durable pending
+or in-flight state in the complete parent/child checkpoint tree; extra or
+conflicting evidence is terminal drift. Every loaded result is re-hashed and
+its status must match its journal record. Completed attempts and reconciled
 read-only results are not re-executed. Mutating reconciliation additionally
 requires the recorded workspace fingerprint. Corrupt, missing, stale,
 ambiguous, or mismatched state refuses.
 
 Checkpoint nodes use the same mechanism: the first encounter pauses; an
-attended resume is the explicit continue action. Child checkpoint state is
+attended resume is a one-shot continue action bound to the recorded visit.
+Revisiting the same node requires fresh consent. Child checkpoint state is
 stored under its parent node and child-run namespace, so one attended resume
 continues exactly that checkpoint. Version-pinned subworkflows share parent
 budget, journal, cancellation, and canonical workspace, have depth one, and
-project child events into parent structural events. Import, run preflight,
+project child events into parent structural events. A child receives its own
+definition id and objective at the prompt boundary, and its input schema must
+accept the complete normalized parent input. Import, run preflight,
 inventory checks, exact-runtime preparation, and consent resolve the same closed
 direct-child bundle and complete effective cast.
 

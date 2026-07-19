@@ -902,7 +902,7 @@ export function workflowToExecution(workflow) {
       claims_ref: `local-ref:claims/${workflow.id}`,
       evidence_ref: `local-ref:evidence/${workflow.id}`,
     };
-    const runValid = stages.length > 0 ? validateRunConfig(config) : { valid: false, errors: [issue("$.nodes", "must contain an agent effect")] };
+    const runValid = validateRunConfig(config);
     return runValid.valid ? { ok: true, chain, config, definition: structuredClone(workflow) }
       : { ok: false, code: "workflow-deployment-invalid", errors: runValid.errors };
   }

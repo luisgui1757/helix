@@ -18,6 +18,7 @@ export const WORKFLOW_LIMITS = Object.freeze({
   max_description_length: 1_024,
   max_version: 1_000_000,
   max_workflow_bytes: 256 * 1024,
+  max_workflow_read_bytes: 512 * 1024,
   max_nodes: 256,
   max_inline_stages: 16,
   max_transitions: 16,
@@ -173,6 +174,10 @@ function validateInputSchema(schema, path, errors, depth = 0, { root = false } =
     errors.push(issue(path, depth > MAX_INPUT_DEPTH ? "exceeds maximum input schema depth 4" : "must be a supported input schema"));
     return;
   }
+  if (root && schema.type !== "object") {
+    errors.push(issue(path, "root input schema must be a closed object with a required non-empty string task field"));
+    return;
+  }
   const common = ["type", "description", "default"];
   if (schema.description != null && (typeof schema.description !== "string"
     || schema.description.length > WORKFLOW_LIMITS.max_input_description_length)) {
@@ -203,10 +208,14 @@ function validateInputSchema(schema, path, errors, depth = 0, { root = false } =
       errors.push(issue(path, "must be a bounded string schema"));
     }
   } else if (["number", "integer"].includes(schema.type)) {
+    const minimum = schema.minimum ?? Number.NEGATIVE_INFINITY;
+    const maximum = schema.maximum ?? Number.POSITIVE_INFINITY;
+    const integerRangeEmpty = schema.type === "integer"
+      && Math.ceil(Math.max(minimum, Number.MIN_SAFE_INTEGER)) > Math.floor(Math.min(maximum, Number.MAX_SAFE_INTEGER));
     if (!exactKeys(schema, ["type"], [...common.slice(1), "minimum", "maximum"])
       || (schema.minimum != null && !Number.isFinite(schema.minimum))
       || (schema.maximum != null && !Number.isFinite(schema.maximum))
-      || (schema.minimum ?? Number.NEGATIVE_INFINITY) > (schema.maximum ?? Number.POSITIVE_INFINITY)) {
+      || minimum > maximum || integerRangeEmpty) {
       errors.push(issue(path, "must be a bounded numeric schema"));
     }
   } else if (schema.type === "boolean") {
@@ -294,6 +303,41 @@ export function normalizeWorkflowInput(schema, input) {
   catch { return { valid: false, input: null, errors: [issue("$", "must be serializable within the declared input depth")] }; }
   const checked = validateWorkflowInput(schema, normalized);
   return { ...checked, input: checked.valid ? normalized : null };
+}
+
+function inputSchemaAccepts(parent, child) {
+  if (!plain(parent) || !plain(child)) return false;
+  if (parent.type !== child.type && !(parent.type === "integer" && child.type === "number")) return false;
+  if (parent.type === "string") {
+    return (child.minLength ?? 0) <= (parent.minLength ?? 0)
+      && (child.maxLength ?? WORKFLOW_LIMITS.max_input_string_length)
+        >= (parent.maxLength ?? WORKFLOW_LIMITS.max_input_string_length);
+  }
+  if (["number", "integer"].includes(parent.type)) {
+    return (child.minimum ?? Number.NEGATIVE_INFINITY) <= (parent.minimum ?? Number.NEGATIVE_INFINITY)
+      && (child.maximum ?? Number.POSITIVE_INFINITY) >= (parent.maximum ?? Number.POSITIVE_INFINITY);
+  }
+  if (parent.type === "boolean") return true;
+  if (parent.type === "array") {
+    return (child.minItems ?? 0) <= (parent.minItems ?? 0)
+      && (child.maxItems ?? MAX_MAP_ITEMS) >= (parent.maxItems ?? MAX_MAP_ITEMS)
+      && inputSchemaAccepts(parent.items, child.items);
+  }
+  if (parent.type !== "object") return false;
+  for (const [key, parentProperty] of Object.entries(parent.properties ?? {})) {
+    if (!Object.hasOwn(child.properties ?? {}, key)
+      || !inputSchemaAccepts(parentProperty, child.properties[key])) return false;
+  }
+  const alwaysPresent = new Set([
+    ...(parent.required ?? []),
+    ...Object.entries(parent.properties ?? {}).filter(([, value]) => Object.hasOwn(value, "default")).map(([key]) => key),
+  ]);
+  return (child.required ?? []).every((key) => alwaysPresent.has(key)
+    || Object.hasOwn(child.properties?.[key] ?? {}, "default"));
+}
+
+export function childInputSchemaAcceptsParent(parentSchema, childSchema) {
+  return inputSchemaAccepts(parentSchema, childSchema);
 }
 
 function validateGate(gate, path, errors) {
@@ -625,18 +669,6 @@ export function validateWorkflowDefinition(definition) {
     }
   }
   for (const id of nodeIds) if (!reachable.has(id)) errors.push(issue(`$.nodes.${id}`, "is unreachable from start"));
-  const distanceFromStart = new Map();
-  const distanceQueue = Object.hasOwn(nodes, definition.start) ? [definition.start] : [];
-  if (distanceQueue.length > 0) distanceFromStart.set(definition.start, 0);
-  while (distanceQueue.length > 0) {
-    const id = distanceQueue.shift();
-    for (const { target } of runtimeEdges(nodes[id])) {
-      if (Object.hasOwn(nodes, target) && !distanceFromStart.has(target)) {
-        distanceFromStart.set(target, distanceFromStart.get(id) + 1);
-        distanceQueue.push(target);
-      }
-    }
-  }
   const reaches = (start, target) => {
     const seen = new Set();
     const pending = [start];
@@ -649,18 +681,37 @@ export function validateWorkflowDefinition(definition) {
     }
     return false;
   };
+  const reachesWithLoopsDisabled = (start, target) => {
+    const seen = new Set();
+    const pending = [start];
+    while (pending.length) {
+      const current = pending.pop();
+      if (current === target) return true;
+      if (seen.has(current) || !Object.hasOwn(nodes, current)) continue;
+      seen.add(current);
+      const node = nodes[current];
+      if (node?.kind === "decision") {
+        const authored = [...(node.transitions ?? []), node.default].filter(Boolean);
+        pending.push(...authored.filter((edge) => edge.loop !== true).map((edge) => edge.target));
+        if (authored.some((edge) => edge.loop === true) && node.loops_off) pending.push(node.loops_off);
+      } else if (node?.kind === "gate" && node.loops_off) {
+        pending.push(node.on_pass, node.loops_off);
+      } else pending.push(...runtimeEdges(node).map((edge) => edge.target));
+    }
+    return false;
+  };
   for (const [id, node] of Object.entries(nodes)) {
     if (node.kind !== "decision" || !Array.isArray(node.transitions) || !plain(node.default)) continue;
     const edges = [
-      ...node.transitions.map((edge, index) => ({ edge, path: `$.nodes.${id}.transitions[${index}]`, isDefault: false })),
-      { edge: node.default, path: `$.nodes.${id}.default`, isDefault: true },
+      ...node.transitions.map((edge, index) => ({ edge, path: `$.nodes.${id}.transitions[${index}]` })),
+      { edge: node.default, path: `$.nodes.${id}.default` },
     ];
-    for (const { edge, path, isDefault } of edges) {
+    for (const { edge, path } of edges) {
       if (!safeId(edge?.target, NODE_ID)) continue;
-      const participatesInCycle = reaches(edge.target, id);
-      const cyclic = participatesInCycle && (isDefault
-        || (distanceFromStart.get(edge.target) ?? Number.POSITIVE_INFINITY) <= (distanceFromStart.get(id) ?? -1));
-      if (cyclic && (edge.loop !== true || !safeId(node.loops_off, NODE_ID))) {
+      const cyclic = reaches(edge.target, id);
+      const validEscape = safeId(node.loops_off, NODE_ID) && Object.hasOwn(nodes, node.loops_off)
+        && !reachesWithLoopsDisabled(node.loops_off, id);
+      if (cyclic && (edge.loop !== true || !validEscape)) {
         errors.push(issue(path, "a cyclic decision edge requires loop:true and a loops_off target"));
       } else if (!cyclic && edge.loop === true) {
         errors.push(issue(`${path}.loop`, "loop:true is valid only on a cyclic decision edge"));
@@ -825,6 +876,25 @@ function migrateWorkflowV1Checked(workflow) {
   nodes[successTerminal] = { kind: "terminal", status: "succeeded" };
   nodes[failedTerminal] = { kind: "terminal", status: "failed", code: "workflow-condition-unmatched" };
   if (hasStop) nodes[stopTerminal] = { kind: "terminal", status: "refused", code: "workflow-stopped" };
+  const reachesDecision = (start, target) => {
+    const seen = new Set();
+    const pending = [start];
+    while (pending.length) {
+      const current = pending.pop();
+      if (current === target) return true;
+      if (seen.has(current) || !Object.hasOwn(nodes, current)) continue;
+      seen.add(current);
+      pending.push(...runtimeEdges(nodes[current]).map((edge) => edge.target));
+    }
+    return false;
+  };
+  for (const [id, node] of Object.entries(nodes)) {
+    if (node.kind !== "decision") continue;
+    const edges = [...node.transitions, node.default];
+    const cyclic = edges.filter((edge) => reachesDecision(edge.target, id));
+    for (const edge of cyclic) edge.loop = true;
+    if (cyclic.length > 0 && node.loops_off == null) node.loops_off = finalGate;
+  }
   const definition = {
     schema_version: WORKFLOW_SCHEMA_VERSION,
     id: workflow.id,

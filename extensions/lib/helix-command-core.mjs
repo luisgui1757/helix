@@ -29,7 +29,11 @@ import {
   workflowRequiredHostEffects,
   workflowToExecution,
 } from "../../dispatch/lib/workflows.mjs";
-import { normalizeWorkflowDefinition } from "../../dispatch/workflow/schema.mjs";
+import {
+  childInputSchemaAcceptsParent,
+  normalizeWorkflowDefinition,
+  WORKFLOW_LIMITS,
+} from "../../dispatch/workflow/schema.mjs";
 import { observedWorkflowGraph, plannedWorkflowGraph } from "../../dispatch/workflow/visualize.mjs";
 import { isRecoverableKernelFailure } from "../../dispatch/kernel/state.mjs";
 import { preflightObjectiveGate } from "../../dispatch/lib/task-loop.mjs";
@@ -672,7 +676,8 @@ function workflowBindingChildren(workflow, deps) {
     if (!resolved.ok) return { ok: false, code: resolved.code, detail: node.workflow_id };
     const normalized = normalizeWorkflowDefinition(resolved.workflow);
     if (!normalized.ok || normalized.definition.version !== node.version
-      || Object.values(normalized.definition.nodes).some((child) => child.kind === "subworkflow")) {
+      || Object.values(normalized.definition.nodes).some((child) => child.kind === "subworkflow")
+      || !childInputSchemaAcceptsParent(workflow.inputs, normalized.definition.inputs)) {
       return { ok: false, code: "kernel-subworkflow-binding-invalid", detail: node.workflow_id };
     }
     definitions.push(normalized.definition);
@@ -899,7 +904,10 @@ function renderPreflight(preflight, requestedId) {
   });
 }
 
-export function renderHelixRunCompletion({ runId, configId, exitCode, converged = false, stopReason = null, failureCode = null, resumable = false }) {
+export function renderHelixRunCompletion({
+  runId, configId, exitCode, converged = false, stopReason = null, failureCode = null,
+  resumable = false, hasRunRecord = true,
+}) {
   if (!validateRunId(runId).ok
     || !isPublicCode(configId)
     || !Number.isSafeInteger(exitCode)
@@ -907,6 +915,7 @@ export function renderHelixRunCompletion({ runId, configId, exitCode, converged 
     || exitCode > 255
     || typeof converged !== "boolean"
     || typeof resumable !== "boolean"
+    || typeof hasRunRecord !== "boolean"
     || (failureCode != null && !isPublicCode(failureCode))
     || (exitCode === 0 && !isPublicCode(stopReason))) {
     return fail("helix-runner-result-invalid", null, "Helix run result refused");
@@ -938,6 +947,14 @@ export function renderHelixRunCompletion({ runId, configId, exitCode, converged 
       details: { run_id: runId, config_id: configId, exit_code: 0, converged: false, stop_reason: "interrupted" },
     });
   }
+  if (safeStopReason === "cancelled" || ["workflow-run-cancelled", "kernel-run-cancelled", "kernel-effect-cancelled"].includes(failureCode)) {
+    return result({
+      status: "cancelled",
+      title: "Helix run cancelled",
+      lines: [`Run: ${runId}`, `Config: ${configId}`, "Result: cancelled by the operator"],
+      details: { run_id: runId, config_id: configId, exit_code: exitCode, converged: false, stop_reason: "cancelled" },
+    });
+  }
   if (exitCode !== 0) {
     const safeFailure = failureCode ?? "helix-runner-failed";
     return result({
@@ -949,7 +966,9 @@ export function renderHelixRunCompletion({ runId, configId, exitCode, converged 
         `Helix refusal: ${safeFailure}`,
         "Reason: workflow execution stopped at a stable fail-closed boundary.",
         `Run: ${runId}`,
-        `Next safe action: inspect /helix-run-watch ${runId}; no raw runner output was rendered.`,
+        hasRunRecord
+          ? `Next safe action: inspect /helix-run-watch ${runId}; no raw runner output was rendered.`
+          : "Next safe action: correct the refusal and start a fresh run; no run record was created.",
       ],
       details: { run_id: runId, config_id: configId, exit_code: exitCode, converged: false, stop_reason: safeStopReason },
     });
@@ -1298,7 +1317,8 @@ function renderWorkflows(deps, tokens, ctx = {}) {
     try {
       const path = join(deps.cwd, relativePath);
       const entry = lstatSync(path);
-      if (entry.isSymbolicLink() || !entry.isFile() || entry.size < 1 || entry.size > 256 * 1024) throw new Error("file");
+      if (entry.isSymbolicLink() || !entry.isFile() || entry.size < 1
+        || entry.size > WORKFLOW_LIMITS.max_workflow_read_bytes) throw new Error("file");
       definition = JSON.parse(readFileSync(path, "utf8"));
     } catch {
       return fail("invalid-workflow-v4", "import-file", "Helix workflow import refused");
@@ -1916,7 +1936,8 @@ function renderKernelRunWatch(runId, deps, state) {
   let events = [];
   try {
     const definitionEntry = lstatSync(definitionPath);
-    if (definitionEntry.isSymbolicLink() || !definitionEntry.isFile() || definitionEntry.size > 256 * 1024) throw new Error("definition-file");
+    if (definitionEntry.isSymbolicLink() || !definitionEntry.isFile()
+      || definitionEntry.size > WORKFLOW_LIMITS.max_workflow_bytes + 1) throw new Error("definition-file");
     definition = JSON.parse(readFileSync(definitionPath, "utf8"));
     const normalized = normalizeWorkflowDefinition(definition);
     if (!normalized.ok || normalized.migrated || normalized.definition.id !== state.workflow_id) throw new Error("definition-shape");
@@ -1956,7 +1977,8 @@ function renderKernelRunWatch(runId, deps, state) {
   const lastNodeId = [...events].reverse().find((event) => typeof event.node_id === "string")?.node_id ?? null;
   const lastNode = lastNodeId == null ? null : graph.nodes.find((node) => node.id === lastNodeId);
   const lines = [
-    `Run: ${runId} ${state.completed ? `(finished: ${state.status})` : "(in progress or interrupted)"}`,
+    `Run: ${runId} ${state.completed ? `(finished: ${state.status})`
+      : state.status === "paused" ? "(paused; resume required)" : "(in progress or interrupted)"}`,
     `Workflow: ${state.workflow_id} v${state.workflow_version}`,
     `Node: ${lastNode ? `${lastNode.id} (${lastNode.kind}, ${lastNode.status})` : "not started"}`,
     `Effects journaled: ${state.journal_entries}`,

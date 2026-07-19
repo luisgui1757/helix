@@ -812,7 +812,7 @@ async function collectWorkflowInput(ctx: ExtensionCommandContext, workflow: any,
       : required ? ", required" : ", optional; leave blank to omit";
     const stringHint = schema.type === "string" ? "; spaces are preserved; enter \"\" for an empty string" : "";
     const raw = await ctx.ui.input?.(`Workflow input '${key}' (${schema.type}${defaultHint}${stringHint}${schema.description ? `: ${schema.description}` : ""})`);
-    if (raw == null || raw === "") {
+    if (raw == null || raw === "" || (schema.type !== "string" && raw.trim() === "")) {
       if (hasDefault) {
         input[key] = structuredClone(schema.default);
         continue;
@@ -1001,6 +1001,7 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
     stopReason: execution.stop_reason,
     failureCode: execution.ok ? null : execution.code,
     resumable: execution.resumable === true,
+    hasRunRecord: typeof execution.state_path === "string",
   }));
 }
 
@@ -1118,6 +1119,7 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
     stopReason: execution.stop_reason,
     failureCode: execution.ok ? null : execution.code,
     resumable: execution.resumable === true,
+    hasRunRecord: typeof execution.state_path === "string",
   }));
 }
 

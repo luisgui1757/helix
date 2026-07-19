@@ -504,6 +504,7 @@ test("helix-run collects required and optional typed inputs and renders only bou
         task: { type: "string", minLength: 1, maxLength: 65_536 },
         items: { type: "array", description: "Items to inspect", items: { type: "string", minLength: 1, maxLength: 32 }, minItems: 1, maxItems: 3 },
         note: { type: "string", description: "Optional note", maxLength: 64 },
+        count: { type: "integer", default: 7 },
         strict: { type: "boolean", default: true },
       },
     },
@@ -519,7 +520,7 @@ test("helix-run collects required and optional typed inputs and renders only bou
   assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
   const { commands } = loadHelixCommands();
   const prompts = [];
-  const answers = ['["a","b"]', "   ", ""];
+  const answers = ["   ", '["a","b"]', "   ", ""];
   let confirmation = null;
   try {
     await commandByName(commands, "helix-run").handler("typed-ui -- Review typed data", {
@@ -530,11 +531,12 @@ test("helix-run collects required and optional typed inputs and renders only bou
         notify() {},
       },
     });
-    assert.match(prompts[0], /items.*required.*Items to inspect/);
-    assert.match(prompts[1], /note.*optional; leave blank to omit.*Optional note/);
-    assert.match(prompts[2], /strict.*default true; leave blank to use it/);
-    assert.match(prompts[1], /spaces are preserved/);
-    assert.match(confirmation, /Bound inputs: items, note, strict, task/);
+    assert.match(prompts[0], /count.*default 7; leave blank to use it/);
+    assert.match(prompts[1], /items.*required.*Items to inspect/);
+    assert.match(prompts[2], /note.*optional; leave blank to omit.*Optional note/);
+    assert.match(prompts[3], /strict.*default true; leave blank to use it/);
+    assert.match(prompts[2], /spaces are preserved/);
+    assert.match(confirmation, /Bound inputs: count, items, note, strict, task/);
     assert.equal(confirmation.includes("a\",\"b"), false, "consent never renders input values");
     assert.equal(existsSync(join(stateRoot, "runs")), false);
   } finally {

@@ -226,7 +226,7 @@ function processIsAlive(pid) {
   }
 }
 
-function acquireResumeLease(cwd, runId) {
+export function acquireRunLease(cwd, runId) {
   const identity = gitIdentity(cwd);
   if (!identity) return { ok: false, code: RUNNER_CODES.REPOSITORY_INVALID };
   let dir;
@@ -262,7 +262,7 @@ function acquireResumeLease(cwd, runId) {
   return { ok: false, code: RUNNER_CODES.RESUME_IN_PROGRESS };
 }
 
-function releaseResumeLease(lease) {
+export function releaseRunLease(lease) {
   if (!lease?.ok) return false;
   let valid = true;
   try { closeSync(lease.fd); } catch { valid = false; }
@@ -653,6 +653,11 @@ export function makePrivateCheckpointEffect(repoRoot) {
         rmSync(path, { recursive: true, force: true });
         return { ok: true };
       } catch {
+        try {
+          lstatSync(join(identity.common, relativePath));
+        } catch (error) {
+          if (error?.code === "ENOENT") return { ok: true, missing: true };
+        }
         return { ok: false, code: RUNNER_CODES.CHECKPOINT_FAILED };
       }
     },
@@ -2437,7 +2442,7 @@ export async function runStagedTaskLoop(config, registries, deps = {}) {
   if (typeof runId !== "string" || !/^[A-Za-z0-9._-]+$/.test(runId) || runId === "." || runId === "..") {
     return fail("unsafe-run-id");
   }
-  const lease = acquireResumeLease(deps.cwd, runId);
+  const lease = acquireRunLease(deps.cwd, runId);
   if (!lease.ok) return fail(deps.resume_state == null ? RUNNER_CODES.RUN_IN_PROGRESS : lease.code);
   const runController = new AbortController();
   let runAbortCode = null;
@@ -2491,7 +2496,7 @@ export async function runStagedTaskLoop(config, registries, deps = {}) {
   } finally {
     if (runTimer) clearTimeout(runTimer);
     deps.signal?.removeEventListener?.("abort", cancelRun);
-    cleanupOk = releaseResumeLease(lease);
+    cleanupOk = releaseRunLease(lease);
   }
   if (runAbortCode && result) {
     result = {

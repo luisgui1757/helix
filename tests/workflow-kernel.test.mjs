@@ -471,9 +471,83 @@ test("journal read/write paths agree for Unicode roots and missing expected jour
       status: "ok", result: { status: "ok", value: "done" },
     }).ok, true);
     assert.equal(createEffectJournal({ root, run_id: "unicode-run", expected_records: 1 }).records().length, 1);
-    unlinkSync(join(root, "unicode-run.kernel.journal.jsonl"));
+    const journalPath = join(root, "unicode-run.kernel.journal.jsonl");
+    const record = JSON.parse(readFileSync(journalPath, "utf8"));
+    record.result.value = "corrupted";
+    writeFileSync(journalPath, `${JSON.stringify(record)}\n`, "utf8");
+    assert.throws(() => createEffectJournal({ root, run_id: "unicode-run", expected_records: 1 }), /kernel-journal-corrupt/);
+    unlinkSync(journalPath);
     assert.throws(() => createEffectJournal({ root, run_id: "unicode-run", expected_records: 1 }), /kernel-journal-corrupt/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("resume refuses every journal suffix identity not bound to durable pending state", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 2 });
+  const workspaceRef = journalRef("exact-suffix-workspace");
+  const journal = createEffectJournal({ verify_workspace: () => true });
+  let checkpoint = null;
+  let failed = false;
+  const deps = readOnlyDeps({
+    task_ref: journalRef("exact-suffix-task"), runtime_ref: journalRef("exact-suffix-runtime"), journal,
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    async onCheckpoint(state) {
+      if (!failed && Object.values(state.active?.completed ?? {}).some((entry) => entry._journal_pending)) {
+        failed = true;
+        return { ok: false, code: "kernel-checkpoint-write-failed" };
+      }
+      checkpoint = structuredClone(state);
+      return { ok: true };
+    },
+  });
+  assert.equal((await runWorkflowKernel(graph, { task: "exact suffix" }, deps)).code, "kernel-checkpoint-write-failed");
+  const ref = journalRef("foreign-record");
+  assert.equal(journal.commit({
+    identity: journalRef("foreign-identity"), node_id: "foreign", instance_id: "foreign:1",
+    input_ref: ref, runtime_ref: ref, before_ref: ref, mutating: false,
+    status: "ok", result: { status: "ok", value: "foreign" },
+  }).ok, true);
+  const resumed = await runWorkflowKernel(graph, { task: "exact suffix" }, { ...deps, resume: checkpoint });
+  assert.equal(resumed.code, "kernel-journal-checkpoint-drift");
+  assert.equal(kernelResultIsComplete(resumed, { has_checkpoint: true }), true);
+});
+
+test("oversized and deeply nested agent values return closed kernel failures", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  });
+  for (const value of ["x".repeat(3 * 1024 * 1024), (() => {
+    let nested = "leaf";
+    for (let index = 0; index < 70; index += 1) nested = [nested];
+    return nested;
+  })()]) {
+    let checkpoint = null;
+    let calls = 0;
+    const workspaceRef = journalRef("bounded-result-workspace");
+    const journal = createEffectJournal({ verify_workspace: () => true });
+    const deps = readOnlyDeps({
+      task_ref: journalRef("bounded-result-task"),
+      runtime_ref: journalRef("bounded-result-runtime"),
+      journal,
+      workspace: { currentRef: () => workspaceRef, verifyRef: () => true },
+      async executeAgent() { calls += 1; return { ok: true, value }; },
+      async onCheckpoint(state) { checkpoint = structuredClone(state); return { ok: true }; },
+    });
+    let result;
+    await assert.doesNotReject(async () => { result = await runWorkflowKernel(graph, { task: "bounded result" }, deps); });
+    assert.equal(result.code, "kernel-agent-result-invalid");
+    assert.equal(result.status, "failed");
+    const resumed = await runWorkflowKernel(graph, { task: "bounded result" }, { ...deps, resume: checkpoint });
+    assert.equal(resumed.code, "kernel-agent-result-invalid");
+    assert.equal(calls, 1);
+  }
 });
 
 test("effect-boundary checkpoint resumes without repeating a completed effect", async () => {
@@ -938,4 +1012,57 @@ test("a namespaced child checkpoint advances exactly once on parent resume", asy
   });
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   assert.equal(resumed.budget.effects, 0);
+});
+
+test("a child journal-ahead result reconciles through the parent checkpoint without replay", async () => {
+  const child = workflow({
+    id: "child-journal-ahead", name: "Child journal ahead", description: "Child recovery workflow.", start: "work",
+    nodes: {
+      work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "child-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  const parent = definition({
+    child: subworkflow("child-journal-ahead", 1, "objective"),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "parent-failed"),
+  }, "child", { max_total_effects: 1 });
+  const workspaceRef = journalRef("child-ahead-workspace");
+  const journal = createEffectJournal({ verify_workspace: () => true });
+  let snapshot = null;
+  let failed = false;
+  let calls = 0;
+  const deps = readOnlyDeps({
+    task_ref: journalRef("child-ahead-task"), runtime_ref: journalRef("child-ahead-runtime"), journal,
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    resolveSubworkflow: () => child.definition,
+    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" } }; },
+    async onCheckpoint(state) {
+      if (!failed && state.active?.child?.scheduler?.journal_entries === 1) {
+        failed = true;
+        return { ok: false, code: "kernel-checkpoint-write-failed" };
+      }
+      snapshot = structuredClone(state);
+      return { ok: true };
+    },
+  });
+  const interrupted = await runWorkflowKernel(parent, { task: "child ahead" }, deps);
+  assert.equal(interrupted.code, "kernel-checkpoint-write-failed");
+  assert.equal(calls, 1);
+  assert.equal(journal.records().length, 1);
+  const resumed = await runWorkflowKernel(parent, { task: "child ahead" }, { ...deps, resume: snapshot });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(calls, 1);
+});
+
+test("workspace fingerprint exceptions return a stable kernel failure", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  });
+  const result = await runWorkflowKernel(graph, { task: "fingerprint" }, readOnlyDeps({
+    workspace: { currentRef() { throw new Error("filesystem failure"); } },
+  }));
+  assert.equal(result.code, "kernel-workspace-ref-invalid");
 });

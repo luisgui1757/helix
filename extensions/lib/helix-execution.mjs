@@ -11,20 +11,33 @@ import { prepareRunDirectory, validateRunId } from "../../dispatch/lib/run-manag
 import { writeTextAtomic } from "../../dispatch/lib/persistence.mjs";
 import { hashRef, stableStringify } from "../../dispatch/lib/run-record.mjs";
 import {
+  acquireRunLease,
   createStagedMockAdapter,
   makeGitWorktreeEffect,
   makePrivateCheckpointEffect,
+  releaseRunLease,
+  RUNNER_CODES,
 } from "../../dispatch/lib/runner.mjs";
 import { resolveChainCast } from "../../dispatch/lib/presets.mjs";
 import { compileStepPrompt } from "../../dispatch/lib/prompt-compiler.mjs";
 import { assertRoleEnvelope } from "../../dispatch/lib/role-envelope.mjs";
 import { makeObjectiveGate } from "../../dispatch/lib/task-loop.mjs";
 import { appendText } from "../../dispatch/lib/persistence.mjs";
-import { normalizeWorkflowDefinition, normalizeWorkflowInput, workflowDefinitionHash } from "../../dispatch/workflow/schema.mjs";
+import {
+  childInputSchemaAcceptsParent,
+  normalizeWorkflowDefinition,
+  normalizeWorkflowInput,
+  WORKFLOW_LIMITS,
+  workflowDefinitionHash,
+} from "../../dispatch/workflow/schema.mjs";
 import { runWorkflowKernel } from "../../dispatch/kernel/scheduler.mjs";
 import { createCanonicalWorkspace } from "../../dispatch/kernel/workspace.mjs";
 import { createEffectJournal } from "../../dispatch/kernel/journal.mjs";
-import { kernelResultIsComplete, validateKernelCheckpoint } from "../../dispatch/kernel/state.mjs";
+import {
+  KERNEL_CHECKPOINT_LIMITS,
+  kernelResultIsComplete,
+  validateKernelCheckpoint,
+} from "../../dispatch/kernel/state.mjs";
 import { frameContent } from "../../dispatch/kernel/content.mjs";
 import {
   workflowExecutionBindingRef,
@@ -136,6 +149,10 @@ async function executeKernelDefinition({
     new Map(entry.cast.map((stage) => [stage.stage_id, stage])),
   ]));
   const definitionsByKey = new Map(subworkflows.map((entry) => [`${entry.definition.id}@${entry.definition.version}`, entry.definition]));
+  const definitionsById = new Map([
+    [definition.id, definition],
+    ...subworkflows.map((entry) => [entry.definition.id, entry.definition]),
+  ]);
   const exactSpecs = nonMockSpecs(castContexts);
   const nonMock = exactSpecs.map((spec) => spec.provider);
   if (exactSpecs.length > 0 && (adapter?.exactMode !== true || typeof adapter.attests !== "function")) {
@@ -224,6 +241,8 @@ async function executeKernelDefinition({
   const executeAgent = async (node, ctx) => {
     const spec = node._helix_member;
     if (!spec) return { ok: false, code: "kernel-agent-cast-missing" };
+    const activeDefinition = definitionsById.get(ctx.definition_id);
+    if (!activeDefinition) return { ok: false, code: "kernel-subworkflow-binding-invalid" };
     let compiled;
     try {
       compiled = compileStepPrompt({
@@ -232,10 +251,10 @@ async function executeKernelDefinition({
         briefs_dir: briefsDir,
         role: node.role,
         fields: {
-          chain_id: definition.id,
+          chain_id: activeDefinition.id,
           stage_id: node.stage_id,
           pass: 1,
-          gate_summary: JSON.stringify(definition.objective_gate),
+          gate_summary: JSON.stringify(activeDefinition.objective_gate),
           artifact_summary: "workflow-node-output",
           task_instruction: frameContent("operator-task", task),
           handoff: frameContent("agent-output", ctx.local.upstream ?? ctx.local.item ?? null),
@@ -248,7 +267,7 @@ async function executeKernelDefinition({
     let envelope;
     try {
       envelope = await selected.runCandidate(spec, {
-          run_id: `${runId}-${ctx.node_id}-${node._helix_member_index}`,
+          run_id: `${ctx.run_id}-${ctx.node_id}-${node._helix_member_index}`,
           stage_id: node.stage_id,
           verdict_role: node.role === "reviewer" ? "reviewer" : null,
           prompt: compiled.prompt,
@@ -343,16 +362,27 @@ async function executeKernelDefinition({
     }
   }
   runningState = started;
-  const journal = createEffectJournal({
-    root: prepared.path,
-    run_id: runId,
-    verify_workspace: workspace.verifyRef,
-    expected_records: resumeDocument?.scheduler.journal_entries ?? null,
-  });
+  let journal;
+  try {
+    journal = createEffectJournal({
+      root: prepared.path,
+      run_id: runId,
+      verify_workspace: workspace.verifyRef,
+      expected_records: resumeDocument?.scheduler.journal_entries ?? null,
+    });
+  } catch {
+    return {
+      ok: false, status: "fail-closed", code: "kernel-journal-corrupt", resumable: false,
+      run_id: runId, state_path: join(prepared.path, `${runId}.state.json`),
+    };
+  }
   let previousSnapshot = resumeDocument ? {
     generation: resumeDocument.snapshot_generation,
     ref: resumeDocument.snapshot_ref,
   } : null;
+  let checkpointMaintenance = resumeDocument?.schema_version === 2
+    ? structuredClone(resumeDocument.maintenance)
+    : { cleanup_generations: [], public_projection_pending: false };
   const onCheckpoint = async (schedulerState) => {
     const snapshotGeneration = `kernel-${schedulerState.event_seq}-${schedulerState.journal_entries}`;
     const snapshot = checkpoint.snapshot(runId, snapshotGeneration, created.path);
@@ -360,30 +390,55 @@ async function executeKernelDefinition({
       return { ok: false, code: "kernel-checkpoint-snapshot-failed" };
     }
     const document = {
-      schema_version: 1,
+      schema_version: 2,
       scheduler: schedulerState,
       snapshot_generation: snapshotGeneration,
       snapshot_ref: snapshot.tree_ref,
+      maintenance: {
+        cleanup_generations: [...new Set([
+          ...checkpointMaintenance.cleanup_generations,
+          ...(previousSnapshot && previousSnapshot.generation !== snapshotGeneration ? [previousSnapshot.generation] : []),
+        ])].filter((generation) => generation !== snapshotGeneration),
+        public_projection_pending: true,
+      },
     };
+    const checkpointPath = join("private", "runs", runId, "kernel-checkpoint.json");
     try {
-      writeTextAtomic(stateRoot, join("private", "runs", runId, "kernel-checkpoint.json"), `${stableStringify(document)}\n`);
-    } catch {
+      const text = `${stableStringify(document)}\n`;
+      if (Buffer.byteLength(text, "utf8") > KERNEL_CHECKPOINT_LIMITS.max_document_bytes) {
+        throw new Error("kernel-checkpoint-too-large");
+      }
+      writeTextAtomic(stateRoot, checkpointPath, text);
+    } catch (error) {
       if (previousSnapshot?.generation !== snapshotGeneration) checkpoint.remove(runId, snapshotGeneration);
-      return { ok: false, code: "kernel-checkpoint-write-failed" };
-    }
-    if (previousSnapshot && previousSnapshot.generation !== snapshotGeneration) {
-      const removed = checkpoint.remove(runId, previousSnapshot.generation);
-      if (!removed.ok) return { ok: false, code: "kernel-checkpoint-cleanup-failed" };
+      return { ok: false, code: error?.message === "kernel-checkpoint-too-large"
+        ? "kernel-checkpoint-too-large" : "kernel-checkpoint-write-failed" };
     }
     previousSnapshot = { generation: snapshotGeneration, ref: snapshot.tree_ref };
     runningState.journal_entries = schedulerState.journal_entries;
     runningState.event_count = schedulerState.event_seq;
-    writeTextAtomic(prepared.path, `${runId}.state.json`, `${stableStringify(publicKernelState({
-      runId, definition, definitionRef, result: runningState,
-      worktree: { ...created, baseline_ref: baselineRef },
-    }))}\n`);
+    try {
+      writeTextAtomic(prepared.path, `${runId}.state.json`, `${stableStringify(publicKernelState({
+        runId, definition, definitionRef, result: runningState,
+        worktree: { ...created, baseline_ref: baselineRef },
+      }))}\n`);
+      document.maintenance.public_projection_pending = false;
+    } catch {
+      // The authoritative private checkpoint records this projection debt.
+    }
+    document.maintenance.cleanup_generations = document.maintenance.cleanup_generations.filter((generation) => {
+      const removed = checkpoint.remove(runId, generation);
+      return !removed.ok;
+    });
+    checkpointMaintenance = structuredClone(document.maintenance);
+    try {
+      writeTextAtomic(stateRoot, checkpointPath, `${stableStringify(document)}\n`, { replace: true });
+    } catch {
+      // The first canonical write retained a conservative superset of the debt.
+    }
     return { ok: true };
   };
+  let checkpointConsentAvailable = resumeDocument != null;
   const result = await runWorkflowKernel(definition, input, {
     run_id: runId,
     cwd: created.path,
@@ -397,12 +452,16 @@ async function executeKernelDefinition({
     executeAgent,
     verifyArtifact,
     runGate,
-    checkpoint: ({ node_id, child_run_id = null }) => ({
-      continue: child_run_id == null
+    checkpoint: ({ node_id, visit, child_run_id = null }) => {
+      const allowed = checkpointConsentAvailable && (child_run_id == null
         ? resumeDocument?.scheduler?.current === node_id
+          && resumeDocument.scheduler.active?.visit === visit
         : resumeDocument?.scheduler?.active?.child?.run_id === child_run_id
-          && resumeDocument.scheduler.active.child.scheduler?.current === node_id,
-    }),
+          && resumeDocument.scheduler.active.child.scheduler?.current === node_id
+          && resumeDocument.scheduler.active.child.scheduler?.active?.visit === visit);
+      if (allowed) checkpointConsentAvailable = false;
+      return { continue: allowed };
+    },
     resolveSubworkflow: (workflowId, version) => definitionsByKey.get(`${workflowId}@${version}`) ?? null,
     depth: 0,
     loops: toggles.loops !== false,
@@ -459,7 +518,8 @@ function resolveSubworkflowBundles(definition, { stateRoot, chainRegistry, runRe
     if (!resolved.ok) return { ok: false, code: resolved.code };
     const normalized = normalizeWorkflowDefinition(resolved.workflow);
     if (!normalized.ok || normalized.definition.version !== node.version
-      || Object.values(normalized.definition.nodes).some((child) => child.kind === "subworkflow")) {
+      || Object.values(normalized.definition.nodes).some((child) => child.kind === "subworkflow")
+      || !childInputSchemaAcceptsParent(definition.inputs, normalized.definition.inputs)) {
       return { ok: false, code: "kernel-subworkflow-binding-invalid" };
     }
     const execution = workflowToExecution(normalized.definition);
@@ -472,7 +532,7 @@ function resolveSubworkflowBundles(definition, { stateRoot, chainRegistry, runRe
   return { ok: true, bundles };
 }
 
-export async function executeNamedWorkflow({
+async function executeNamedWorkflowLeased({
   workflow_id,
   task,
   input = null,
@@ -601,7 +661,7 @@ function readBoundJson(path, maxBytes) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-export async function resumeNamedWorkflow({
+async function resumeNamedWorkflowLeased({
   run_id,
   task,
   input = null,
@@ -631,8 +691,11 @@ export async function resumeNamedWorkflow({
     const runEntry = lstatSync(runPath);
     if (runEntry.isSymbolicLink() || !runEntry.isDirectory()) throw new Error("run-dir");
     publicState = readBoundJson(join(runPath, `${run_id}.state.json`), 64 * 1024);
-    definition = readBoundJson(join(runPath, `${run_id}.definition.json`), 256 * 1024);
-    resumeDocument = readBoundJson(join(state_root, "private", "runs", run_id, "kernel-checkpoint.json"), 16 * 1024 * 1024);
+    definition = readBoundJson(join(runPath, `${run_id}.definition.json`), WORKFLOW_LIMITS.max_workflow_bytes + 1);
+    resumeDocument = readBoundJson(
+      join(state_root, "private", "runs", run_id, "kernel-checkpoint.json"),
+      KERNEL_CHECKPOINT_LIMITS.max_document_bytes,
+    );
   } catch {
     return { ok: false, status: "fail-closed", code: "kernel-resume-record-invalid" };
   }
@@ -640,7 +703,21 @@ export async function resumeNamedWorkflow({
     || typeof publicState.workflow_id !== "string" || !/^sha256:[0-9a-f]{64}$/.test(publicState.definition_ref ?? "")
     || !/^sha256:[0-9a-f]{64}$/.test(publicState.baseline_ref ?? "")
     || !/^sha256:[0-9a-f]{64}$/.test(publicState.worktree_owner_ref ?? "")
-    || resumeDocument?.schema_version !== 1
+    || ![1, 2].includes(resumeDocument?.schema_version)
+    || Object.keys(resumeDocument).some((key) => ![
+      "schema_version", "scheduler", "snapshot_generation", "snapshot_ref", "maintenance",
+    ].includes(key))
+    || (resumeDocument.schema_version === 1 && Object.hasOwn(resumeDocument, "maintenance"))
+    || (resumeDocument.schema_version === 2
+      && (!resumeDocument.maintenance
+        || Object.keys(resumeDocument.maintenance).length !== 2
+        || !Object.hasOwn(resumeDocument.maintenance, "cleanup_generations")
+        || !Object.hasOwn(resumeDocument.maintenance, "public_projection_pending")
+        || !Array.isArray(resumeDocument.maintenance.cleanup_generations)
+        || new Set(resumeDocument.maintenance.cleanup_generations).size !== resumeDocument.maintenance.cleanup_generations.length
+        || resumeDocument.maintenance.cleanup_generations.some((entry) => typeof entry !== "string" || !/^[A-Za-z0-9._-]+$/.test(entry))
+        || resumeDocument.maintenance.cleanup_generations.includes(resumeDocument.snapshot_generation)
+        || typeof resumeDocument.maintenance.public_projection_pending !== "boolean"))
     || !/^[A-Za-z0-9._-]+$/.test(resumeDocument.snapshot_generation ?? "")
     || !/^sha256:[0-9a-f]{64}$/.test(resumeDocument.snapshot_ref ?? "")) {
     return { ok: false, status: "fail-closed", code: "kernel-resume-record-invalid" };
@@ -726,4 +803,35 @@ export async function resumeNamedWorkflow({
     resumeDocument: { ...resumeDocument, public_state: publicState },
     subworkflows: childWorkflows.bundles,
   });
+}
+
+async function withNamedRunLease(options, operation, busyCode) {
+  const { cwd, run_id: runId } = options ?? {};
+  if (!validateRunId(runId).ok) return { ok: false, status: "fail-closed", code: "unsafe-run-id" };
+  if (![cwd, options?.state_root, options?.package_root].every((value) => typeof value === "string" && value.length > 0)
+    || (options?.input == null && (typeof options?.task !== "string" || options.task.trim() === ""))) {
+    return operation(options);
+  }
+  const lease = acquireRunLease(cwd, runId);
+  if (!lease.ok) return {
+    ok: false,
+    status: "fail-closed",
+    code: lease.code === RUNNER_CODES.RESUME_IN_PROGRESS ? busyCode : lease.code,
+  };
+  let result;
+  let released = false;
+  try { result = await operation(options); }
+  finally { released = releaseRunLease(lease); }
+  return released ? result : {
+    ...result,
+    warnings: [...new Set([...(result?.warnings ?? []), "run-lease-cleanup-pending"])],
+  };
+}
+
+export async function executeNamedWorkflow(options = {}) {
+  return withNamedRunLease(options, executeNamedWorkflowLeased, RUNNER_CODES.RUN_IN_PROGRESS);
+}
+
+export async function resumeNamedWorkflow(options = {}) {
+  return withNamedRunLease(options, resumeNamedWorkflowLeased, RUNNER_CODES.RESUME_IN_PROGRESS);
 }

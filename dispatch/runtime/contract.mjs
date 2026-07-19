@@ -83,6 +83,9 @@ export function exactAttestationStatus(attestation, { now = Date.now(), require_
   if (attestation.policy === "prohibited" || attestation.certification === "policy-blocked") {
     return { ok: false, code: "provider-policy-blocked" };
   }
+  if (attestation.certification === "uncertified-disabled") {
+    return { ok: false, code: "provider-exact-certification-required" };
+  }
   if (require_live && attestation.certification !== "live-certified") {
     return { ok: false, code: "provider-live-certification-required" };
   }

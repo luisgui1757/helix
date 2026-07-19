@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
-import { normalizeWorkflowDefinition } from "../dispatch/workflow/schema.mjs";
+import { normalizeWorkflowDefinition, stableWorkflowStringify, WORKFLOW_LIMITS } from "../dispatch/workflow/schema.mjs";
 import { agent, checkpoint, decision, map, objectiveGate, parallel, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { executeNamedWorkflow, resumeNamedWorkflow } from "../extensions/lib/helix-execution.mjs";
 import { executeHelixCommand } from "../extensions/lib/helix-command-core.mjs";
@@ -109,6 +109,71 @@ test("native v4 runtime smoke follows a real kernel decision and reports only ob
   assert.equal(outcome.nodes_exercised, 4);
   assert.equal(outcome.effects_exercised, 1);
   assert.equal(outcome.transitions_exercised, 3);
+});
+
+test("a valid zero-agent workflow deploys through the product boundary", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-zero-agent-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const built = workflow({
+    id: "zero-agent", name: "Zero agent", description: "A deterministic gate-only workflow.", start: "objective",
+    nodes: { objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed") },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const binding = executionBinding(stateRoot, "zero-agent");
+  const result = await executeNamedWorkflow({
+    workflow_id: "zero-agent", task: "run deterministic gate", run_id: "zero-agent-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.converged, true);
+  assert.deepEqual(result.cast, []);
+});
+
+test("an exact-limit persisted definition can be watched and resumed", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-definition-limit-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const stages = Array.from({ length: WORKFLOW_LIMITS.max_inline_stages }, (_, index) => agent({
+    role: "reviewer", stage_id: `review-${index}`, prompt: "p", mutation: "read-only", timeout_ms: 1_000,
+  }));
+  const built = workflow({
+    id: "definition-limit", name: "Definition limit", description: "Exact byte-limit workflow.", start: "approval",
+    nodes: {
+      approval: checkpoint("limit-approval", "work"), work: pipeline(stages, "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+    },
+    limits: { max_total_effects: stages.length }, objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  let remaining = WORKFLOW_LIMITS.max_workflow_bytes - Buffer.byteLength(stableWorkflowStringify(built.definition));
+  for (const stage of built.definition.nodes.work.stages) {
+    const added = Math.min(WORKFLOW_LIMITS.max_prompt_length - stage.prompt.length, remaining);
+    stage.prompt += "p".repeat(added);
+    remaining -= added;
+  }
+  assert.equal(remaining, 0);
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const binding = executionBinding(stateRoot, "definition-limit");
+  const paused = await executeNamedWorkflow({
+    workflow_id: "definition-limit", task: "exercise exact definition", run_id: "definition-limit-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(paused.stop_reason, "paused");
+  const watched = executeHelixCommand("runs watch definition-limit-run", { mode: "print" }, {
+    stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
+  });
+  assert.equal(watched.ok, true, JSON.stringify(watched));
+  const resumed = await resumeNamedWorkflow({
+    run_id: "definition-limit-run", task: "exercise exact definition", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
 });
 
 function executionBinding(stateRoot, id, modelInventory = null) {
@@ -553,6 +618,37 @@ test("interrupted product workflow resumes from its private effect checkpoint wi
   assert.equal(JSON.parse(readFileSync(statePath, "utf8")).completed, true);
 });
 
+test("post-publication snapshot cleanup failure remains durable maintenance debt", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-checkpoint-maintenance-"));
+  const cwd = repo();
+  installWorkflow(stateRoot, "checkpoint-maintenance");
+  const runId = "checkpoint-maintenance-run";
+  const outside = mkdtempSync(join(tmpdir(), "helix-checkpoint-symlink-"));
+  let obstructed = null;
+  const result = await executeNamedWorkflow({
+    workflow_id: "checkpoint-maintenance", task: "retain cleanup debt", run_id: runId, cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "checkpoint-maintenance"),
+    onEvent(event) {
+      if (obstructed != null || event.kind !== "effect-start") return;
+      const root = join(cwd, ".git", "helix-checkpoints", runId);
+      const generation = readdirSync(root).find((entry) => entry.startsWith("kernel-"));
+      assert.ok(generation);
+      obstructed = generation;
+      rmSync(join(root, generation), { recursive: true, force: true });
+      symlinkSync(outside, join(root, generation), "dir");
+    },
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const document = JSON.parse(readFileSync(join(stateRoot, "private", "runs", runId, "kernel-checkpoint.json"), "utf8"));
+  assert.equal(document.schema_version, 2);
+  assert.equal(document.maintenance.cleanup_generations.includes(obstructed), true, JSON.stringify({ obstructed, maintenance: document.maintenance }));
+  assert.equal(JSON.parse(readFileSync(join(stateRoot, "runs", runId, `${runId}.state.json`), "utf8")).completed, true);
+  rmSync(stateRoot, { recursive: true, force: true });
+  rmSync(cwd, { recursive: true, force: true });
+  rmSync(outside, { recursive: true, force: true });
+});
+
 test("product execution pins and runs a depth-one named subworkflow through the same kernel", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-product-subworkflow-"));
   const cwd = repo();
@@ -649,6 +745,182 @@ test("parent preflight includes every pinned child cast and runtime requirement"
   assert.equal(existsSync(join(stateRoot, "runs", "child-cast-run")), false);
 });
 
+test("child-only workflows deploy and compile agent prompts from the child objective", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-child-only-"));
+  const cwd = repo();
+  const childObjective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)", "child-objective-marker"], timeout_ms: 1_000 };
+  const child = workflow({
+    id: "child-only-work", name: "Child only work", description: "The child owns all model work.", start: "work",
+    nodes: {
+      work: pipeline([agent({ role: "reviewer", stage_id: "child-stage", mutation: "read-only", timeout_ms: 1_000 })], "objective"),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "child-failed"),
+    },
+    provider_policy: {
+      exact: true, assignments: {},
+      default_assignment: { kind: "model", provider: "openrouter", model: "vendor/child-only:free", effort: "high" },
+      require_live_certification: false,
+    },
+    objective_gate: childObjective,
+  });
+  const parent = workflow({
+    id: "parent-child-only", name: "Parent child only", description: "The parent has no local agent.", start: "child",
+    nodes: {
+      child: subworkflow("child-only-work", 1, "objective"),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "parent-failed"),
+    },
+    objective_gate: { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)", "parent-objective-marker"], timeout_ms: 1_000 },
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  assert.equal(parent.ok, true, JSON.stringify(parent.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, child.definition).ok, true);
+  assert.equal(saveUserWorkflowV4(stateRoot, parent.definition).ok, true);
+  const inventory = [{ provider: "openrouter", model: "vendor/child-only:free", reasoning: true, supported_efforts: ["high"] }];
+  const preflight = executeHelixCommand("run parent-child-only", { mode: "print" }, {
+    stateRoot, chainRegistry: chains, runRegistry: runs, modelInventory: inventory, cwd,
+  });
+  assert.equal(preflight.ok, true, JSON.stringify(preflight));
+  const exactRef = `sha256:${"8".repeat(64)}`;
+  let prompt = null;
+  const adapter = {
+    kind: "helix-pi-agent", exactMode: true, supportsProvider: () => true, attests: () => true,
+    async preflightExact() { return { ok: true, bindings: [{ provider: "openrouter" }], binding_ref: exactRef }; },
+    async runCandidate(spec, ctx) {
+      prompt = ctx.prompt;
+      return {
+        schema_version: 2, run_id: ctx.run_id, stage: "candidate", role: spec.role,
+        provider: spec.provider, model: spec.model,
+        requested: { provider: spec.provider, model: spec.model, effort: spec.effort },
+        effective: { provider: spec.provider, model: spec.model, effort: spec.effort,
+          evidence: { provider: "verified-response", model: "verified-response", effort: "verified-session" } },
+        attestation_ref: `sha256:${"7".repeat(64)}`, usage: { input_tokens: 1, output_tokens: 1 }, attempt: 1, iteration: 1,
+        input_ref: { kind: "local-ref", value: "local-ref:input/child-only", algorithm: null },
+        claims_ref: "local-ref:claims/child-only", evidence_ref: "local-ref:evidence/child-only",
+        uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [], status: "ok",
+      };
+    },
+  };
+  const result = await executeNamedWorkflow({
+    workflow_id: "parent-child-only", task: "execute the child", run_id: "child-only-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: preflight.details.execution_binding_ref, expected_exact_ref: exactRef, adapter,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.match(prompt, /child-only-work/);
+  assert.match(prompt, /child-objective-marker/);
+  assert.doesNotMatch(prompt, /parent-objective-marker/);
+});
+
+test("parent and child input incompatibility refuses during deployment preflight", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-child-input-binding-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const child = workflow({
+    id: "child-input-closed", name: "Child input closed", description: "Child accepts only task.", start: "objective",
+    nodes: { objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "child-failed") },
+    objective_gate: objective,
+  });
+  const parent = workflow({
+    id: "parent-input-extra", name: "Parent input extra", description: "Parent adds an input field.", start: "child",
+    inputs: {
+      type: "object", additionalProperties: false, required: ["task"],
+      properties: { task: { type: "string", minLength: 1 }, mode: { type: "string", default: "safe" } },
+    },
+    nodes: {
+      child: subworkflow("child-input-closed", 1, "objective"), objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"), failed: terminal("failed", "parent-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  assert.equal(parent.ok, true, JSON.stringify(parent.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, child.definition).ok, true);
+  assert.equal(saveUserWorkflowV4(stateRoot, parent.definition).ok, true);
+  const preflight = executeHelixCommand("run parent-input-extra", { mode: "print" }, {
+    stateRoot, chainRegistry: chains, runRegistry: runs, cwd,
+  });
+  assert.equal(preflight.ok, false);
+  assert.equal(preflight.code, "kernel-subworkflow-binding-invalid");
+});
+
+test("checkpoint resume consent is consumed by exactly one recorded visit", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-checkpoint-once-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const built = workflow({
+    id: "checkpoint-once", name: "Checkpoint once", description: "Every visit requires fresh consent.", start: "approval",
+    nodes: {
+      approval: checkpoint("operator-approval", "route"),
+      route: decision([{ when: { op: "always" }, target: "approval", loop: true }], "failed", { loops_off: "objective" }),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const binding = executionBinding(stateRoot, "checkpoint-once");
+  const paused = await executeNamedWorkflow({
+    workflow_id: "checkpoint-once", task: "approve one visit", run_id: "checkpoint-once-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(paused.stop_reason, "paused");
+  const resumed = await resumeNamedWorkflow({
+    run_id: "checkpoint-once-run", task: "approve one visit", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(resumed.stop_reason, "paused");
+  const privateState = JSON.parse(readFileSync(join(stateRoot, "private", "runs", "checkpoint-once-run", "kernel-checkpoint.json"), "utf8"));
+  assert.equal(privateState.scheduler.current, "approval");
+  assert.equal(privateState.scheduler.active.visit, 2);
+});
+
+test("child checkpoint consent cannot auto-approve a fresh child execution", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-child-checkpoint-once-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const child = workflow({
+    id: "child-checkpoint-once", name: "Child checkpoint once", description: "Child consent is visit-bound.", start: "approval",
+    nodes: {
+      approval: checkpoint("child-approval", "objective"), objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"), failed: terminal("failed", "child-failed"),
+    },
+    objective_gate: objective,
+  });
+  const parent = workflow({
+    id: "parent-child-checkpoint-once", name: "Parent child checkpoint once", description: "A fresh child pauses again.", start: "child",
+    nodes: {
+      child: subworkflow("child-checkpoint-once", 1, "route"),
+      route: decision([{ when: { op: "always" }, target: "child", loop: true }], "failed", { loops_off: "objective" }),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "parent-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  assert.equal(parent.ok, true, JSON.stringify(parent.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, child.definition).ok, true);
+  assert.equal(saveUserWorkflowV4(stateRoot, parent.definition).ok, true);
+  const binding = executionBinding(stateRoot, "parent-child-checkpoint-once");
+  const paused = await executeNamedWorkflow({
+    workflow_id: "parent-child-checkpoint-once", task: "approve one child", run_id: "child-checkpoint-once-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(paused.stop_reason, "paused");
+  const resumed = await resumeNamedWorkflow({
+    run_id: "child-checkpoint-once-run", task: "approve one child", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding,
+  });
+  assert.equal(resumed.stop_reason, "paused");
+  const privateState = JSON.parse(readFileSync(
+    join(stateRoot, "private", "runs", "child-checkpoint-once-run", "kernel-checkpoint.json"), "utf8",
+  ));
+  assert.equal(privateState.scheduler.current, "child");
+  assert.equal(privateState.scheduler.active.child.scheduler.current, "approval");
+  assert.equal(privateState.scheduler.active.child.scheduler.active.visit, 1);
+});
+
 test("a child checkpoint resumes through its namespaced parent state", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-child-checkpoint-"));
   const cwd = repo();
@@ -725,12 +997,18 @@ test("checkpoint node pauses durably and attended resume is its explicit continu
     stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
   });
   assert.equal(watched.ok, true, JSON.stringify(watched));
+  assert.match(watched.text, /\(paused; resume required\)/);
   assert.match(watched.text, /Node: approval \(checkpoint, running\)/);
-  const resumed = await resumeNamedWorkflow({
+  const resumeOptions = {
     run_id: "checkpoint-run", task: "pause and continue", cwd,
     state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
     expected_binding_ref: binding,
-  });
+  };
+  const attempts = await Promise.all([resumeNamedWorkflow(resumeOptions), resumeNamedWorkflow(resumeOptions)]);
+  const resumed = attempts.find((entry) => entry.ok);
+  const concurrent = attempts.find((entry) => entry.code === "resume-in-progress");
+  assert.ok(resumed, JSON.stringify(attempts));
+  assert.ok(concurrent, JSON.stringify(attempts));
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   assert.equal(resumed.converged, true);
 });

@@ -36,6 +36,7 @@ export const DOCS_WORKFLOW_LIMIT_ROWS = Object.freeze([
   `| Workflow version | 1 | ${count(WORKFLOW_LIMITS.max_version)} |`,
   `| Workflow nodes | — | ${count(WORKFLOW_LIMITS.max_nodes)} |`,
   `| Serialized workflow definition | — | ${WORKFLOW_LIMITS.max_workflow_bytes / 1024} KiB |`,
+  `| Workflow JSON read envelope | — | ${WORKFLOW_LIMITS.max_workflow_read_bytes / 1024} KiB |`,
   `| Canonical public-helper serialization | — | ${WORKFLOW_LIMITS.max_canonical_bytes / 1024 / 1024} MiB, depth ${count(WORKFLOW_LIMITS.max_canonical_depth)} |`,
   `| Input schema depth / object fields | — | ${count(WORKFLOW_LIMITS.max_input_depth)} / ${count(WORKFLOW_LIMITS.max_input_fields)} |`,
   `| Serialized runtime input | — | ${WORKFLOW_LIMITS.max_input_bytes / 1024 / 1024} MiB |`,

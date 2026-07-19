@@ -68,6 +68,26 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > 685/685 plus worktree 12/12 and objective loop 8/8. Exact-head remote CI after
 > the single normal push remains the delivery authority.
 
+> **Composed-boundary audit closure (2026-07-19):** the next independent Fable
+> 5 and Codex reviews agreed that final-gate authority was sound and exposed a
+> disjoint persistence/composition set. The canonical closure verifies journal
+> result hashes and exact parent/child suffix identities; makes private
+> checkpoint publication authoritative while retaining cleanup/projection as
+> durable maintenance debt; binds checkpoint consent to one exact visit; bounds
+> agent results and derived effect inputs with closed failures; compiles child
+> prompts from the child definition; and rejects incompatible parent/child
+> input schemas before import, consent, or run creation. Full reachability now
+> classifies decision cycles in the loops-disabled graph, accepted integer
+> schemas always contain a safe witness, gate-only and child-only workflows are
+> deployable, and exact runtime selection rejects `uncertified-disabled` paths.
+> Canonical persistence round-trips the exact 256 KiB definition limit through
+> save, list, watch, and resume; named-run leases serialize concurrent resumes.
+> Focused closure suites pass 140/140. The complete local gate passes 698/698
+> plus worktree 12/12 and objective loop 8/8; workflow conformance passes 79/79,
+> provider contracts 27/27, the extracted 99-file package passes Pi RPC, and
+> active Docker network denial passes 5/5. Exact-head remote CI after the single
+> normal push remains the final delivery authority.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:

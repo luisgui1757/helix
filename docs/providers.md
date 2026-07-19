@@ -30,6 +30,9 @@ one remain exact-disabled. Both requested and effective account fields must be
 present, non-empty opaque values and must match. Evidence is graded per field:
 a response may verify provider/model while the configured runtime session
 verifies effort, and the weaker field is never mislabeled as response evidence.
+`uncertified-disabled` is never exact-capable, even when a workflow does not
+require live certification; exact selection accepts only `contract-verified`
+or `live-certified` paths.
 
 ## OpenRouter strict request
 

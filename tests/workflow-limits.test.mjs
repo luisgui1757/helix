@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { WORKSPACE_COPY_LIMITS } from "../dispatch/kernel/limits.mjs";
 import { PRIVATE_CHECKPOINT_LIMITS } from "../dispatch/lib/runner.mjs";
@@ -10,6 +13,7 @@ import {
   validateWorkflowInput,
 } from "../dispatch/workflow/schema.mjs";
 import { agent, checkpoint, decision, objectiveGate, parallel, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { listUserWorkflows, saveUserWorkflowV4 } from "../extensions/lib/helix-workflows.mjs";
 
 const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
 const reviewer = (prompt = "tracked-step-v1") => agent({
@@ -62,6 +66,16 @@ test("workflow node and serialized-definition ceilings accept exact and reject o
   assert.equal(remaining, 0);
   assert.equal(Buffer.byteLength(stableWorkflowStringify(built.definition)), WORKFLOW_LIMITS.max_workflow_bytes);
   assert.equal(validateWorkflowDefinition(built.definition).valid, true);
+  const root = mkdtempSync(join(tmpdir(), "helix-workflow-byte-boundary-"));
+  try {
+    assert.equal(saveUserWorkflowV4(root, built.definition).ok, true);
+    const savedPath = join(root, "workflows", `${built.definition.id}.json`);
+    assert.equal(statSync(savedPath).size, WORKFLOW_LIMITS.max_workflow_bytes + 1);
+    assert.equal(listUserWorkflows(root).ok, true);
+    assert.equal(stableWorkflowStringify(JSON.parse(readFileSync(savedPath, "utf8"))), stableWorkflowStringify(built.definition));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
   const excessBytes = structuredClone(built.definition);
   const branch = excessBytes.nodes.work.branches.find((entry) => entry.prompt.length < 16_384);
   assert.ok(branch);

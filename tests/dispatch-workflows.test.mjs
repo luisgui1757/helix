@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveChain } from "../dispatch/lib/chains.mjs";
+import { WORKFLOW_LIMITS } from "../dispatch/workflow/schema.mjs";
 
 import {
   WORKFLOW_TEMPLATES,
@@ -362,7 +363,7 @@ test("malformed and legacy-version user files fail closed instead of disappearin
 test("workflow loading bounds the on-disk file before parsing", () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflows-oversized-"));
   mkdirSync(join(stateRoot, "workflows"), { recursive: true });
-  writeFileSync(join(stateRoot, "workflows", "huge.json"), `${" ".repeat(300 * 1024)}{}`, "utf8");
+  writeFileSync(join(stateRoot, "workflows", "huge.json"), " ".repeat(WORKFLOW_LIMITS.max_workflow_read_bytes + 1), "utf8");
   assert.deepEqual(listUserWorkflows(stateRoot), {
     ok: false, code: "helix-workflow-unreadable", detail: "huge.json",
   });
@@ -371,7 +372,7 @@ test("workflow loading bounds the on-disk file before parsing", () => {
 test("workflow deletion bounds ids and on-disk files before reading them", () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflows-delete-bounds-"));
   mkdirSync(join(stateRoot, "workflows"), { recursive: true });
-  writeFileSync(join(stateRoot, "workflows", "huge.json"), `${" ".repeat(300 * 1024)}{}`, "utf8");
+  writeFileSync(join(stateRoot, "workflows", "huge.json"), " ".repeat(WORKFLOW_LIMITS.max_workflow_read_bytes + 1), "utf8");
 
   assert.deepEqual(deleteUserWorkflow(stateRoot, "huge"), {
     ok: false, code: "helix-workflow-unreadable", detail: "huge",

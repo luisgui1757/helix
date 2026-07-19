@@ -2,10 +2,23 @@
 // resume must present the original task and re-prove its hash.
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
-const RECOVERABLE_FAILURE = /^kernel-(?:workspace|journal|checkpoint)(?:-|$)/;
+export const KERNEL_CHECKPOINT_LIMITS = Object.freeze({ max_document_bytes: 16 * 1024 * 1024 });
+const RECOVERABLE_FAILURES = new Set([
+  "kernel-checkpoint-snapshot-failed",
+  "kernel-checkpoint-workspace-invalid",
+  "kernel-checkpoint-write-failed",
+  "kernel-journal-write-failed",
+  "kernel-workspace-begin-failed",
+  "kernel-workspace-commit-failed",
+  "kernel-workspace-finalize-failed",
+  "kernel-workspace-fingerprint-failed",
+  "kernel-workspace-ref-invalid",
+  "kernel-workspace-snapshot-cleanup-failed",
+  "kernel-workspace-snapshot-failed",
+]);
 
 export function isRecoverableKernelFailure(code) {
-  return typeof code === "string" && RECOVERABLE_FAILURE.test(code);
+  return RECOVERABLE_FAILURES.has(code);
 }
 
 export function kernelResultIsComplete({ status, code } = {}, { has_checkpoint = false } = {}) {
@@ -74,7 +87,7 @@ export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, r
     }
   }
   try {
-    if (Buffer.byteLength(JSON.stringify(checkpoint), "utf8") > 16 * 1024 * 1024) {
+    if (Buffer.byteLength(JSON.stringify(checkpoint), "utf8") > KERNEL_CHECKPOINT_LIMITS.max_document_bytes) {
       return { valid: false, code: "kernel-checkpoint-too-large" };
     }
   } catch {

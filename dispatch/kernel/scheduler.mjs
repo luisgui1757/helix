@@ -2,8 +2,9 @@
 // delegates model/provider and workspace effects, and emits structural events.
 
 import { createBudgetLedger } from "./budgets.mjs";
-import { createEffectJournal, effectIdentity, journalRef } from "./journal.mjs";
+import { createEffectJournal, effectIdentity, journalRef, tryJournalRef } from "./journal.mjs";
 import {
+  childInputSchemaAcceptsParent,
   evaluateCondition,
   normalizeWorkflowInput,
   resolveJsonPointer,
@@ -51,6 +52,17 @@ function outputValue(result) {
   return result?.status === "ok" ? result.value : null;
 }
 
+function pendingJournalIdentities(active, identities = new Set()) {
+  if (!active || typeof active !== "object") return identities;
+  for (const intent of Object.values(active.inflight ?? {})) {
+    if (typeof intent?.identity === "string") identities.add(intent.identity);
+  }
+  for (const result of Object.values(active.completed ?? {})) {
+    if (typeof result?._journal_pending?.identity === "string") identities.add(result._journal_pending.identity);
+  }
+  return pendingJournalIdentities(active.child?.scheduler?.active, identities);
+}
+
 export async function runWorkflowKernel(definition, input, deps = {}) {
   const validation = validateWorkflowDefinition(definition);
   if (!validation.valid) return { ok: false, status: "refused", code: "kernel-definition-invalid", errors: validation.errors };
@@ -88,11 +100,13 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     verify_workspace: deps.workspace?.verifyRef,
     expected_records: resume?.journal_entries ?? null,
   });
-  const canReconcileJournalSuffix = resume?.schema_version === 2 && resume.active
-    && (Object.keys(resume.active.inflight ?? {}).length > 0
-      || Object.values(resume.active.completed ?? {}).some((entry) => entry?._journal_pending));
-  if (resume && journal.records().length > resume.journal_entries && !canReconcileJournalSuffix) {
-    return { ok: false, status: "refused", code: "kernel-journal-checkpoint-drift" };
+  if (resume) {
+    const suffix = journal.suffix(resume.journal_entries);
+    if (!suffix.ok) return { ok: false, status: "refused", code: suffix.code };
+    const pending = resume.schema_version === 2 ? pendingJournalIdentities(resume.active) : new Set();
+    if (suffix.records.some((record) => !pending.has(record.identity))) {
+      return { ok: false, status: "refused", code: "kernel-journal-checkpoint-drift" };
+    }
   }
   const budget = deps.budget ?? createBudgetLedger({
     max_effects: definition.limits.max_total_effects,
@@ -227,8 +241,17 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       return resumed.result;
     }
     const mutating = MUTATING.has(agent.mutation);
-    const beforeRef = deps.workspace?.currentRef?.() ?? journalRef({ workspace: "untracked", run_id: runId });
-    const inputRef = journalRef({ input, outputs, local, node_id: nodeId, instance_id: instanceId });
+    let beforeRef;
+    try { beforeRef = deps.workspace?.currentRef?.() ?? journalRef({ workspace: "untracked", run_id: runId }); }
+    catch {
+      if (preReservation) budget.release(preReservation.id);
+      return settled("failed", { code: "kernel-workspace-ref-invalid" });
+    }
+    const inputRef = tryJournalRef({ input, outputs, local, node_id: nodeId, instance_id: instanceId });
+    if (inputRef == null) {
+      if (preReservation) budget.release(preReservation.id);
+      return settled("failed", { code: "kernel-effect-input-invalid" });
+    }
     const baseIdentity = effectIdentity({ definition_ref: definitionRef, node_id: nodeId, instance_id: instanceId, agent, input_ref: inputRef, runtime_ref: runtimeRef, before_ref: beforeRef });
     const cached = journal.lookupBase(baseIdentity, { mutating });
     if (cached) {
@@ -306,9 +329,21 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       clearTimeout(timer);
       deps.signal?.removeEventListener?.("abort", cancel);
       runController.signal.removeEventListener("abort", cancel);
-      let result = raw?.ok === true
-        ? settled("ok", { value: structuredClone(raw.value), usage: structuredClone(raw.usage ?? { tokens: 0, cost_micros: 0 }), attestation_ref: raw.attestation_ref ?? null })
-        : settled(raw?.code === "kernel-effect-cancelled" || raw?.code === "kernel-run-cancelled" ? "cancelled" : "failed", {
+      let result;
+      if (raw?.ok === true) {
+        try {
+          result = settled("ok", {
+            value: structuredClone(raw.value),
+            usage: structuredClone(raw.usage ?? { tokens: 0, cost_micros: 0 }),
+            attestation_ref: raw.attestation_ref ?? null,
+          });
+        } catch {
+          result = settled("failed", { code: "kernel-agent-result-invalid" });
+        }
+        if (result.status === "ok" && tryJournalRef(result) == null) {
+          result = settled("failed", { code: "kernel-agent-result-invalid" });
+        }
+      } else result = settled(raw?.code === "kernel-effect-cancelled" || raw?.code === "kernel-run-cancelled" ? "cancelled" : "failed", {
           code: safeCode(raw?.code, "kernel-agent-effect-failed"),
           failure_class: raw?.failure_class === "agent" ? "agent" : "kernel",
         });
@@ -493,7 +528,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     if (failed) return failed;
     if (results.length === 1) return results[0];
     const values = results.map((entry) => entry.value);
-    return settled("ok", {
+    const combined = settled("ok", {
       value: {
         values,
         recommendation: strictRecommendation(results),
@@ -506,8 +541,11 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         tokens: results.reduce((sum, entry) => sum + (entry.usage?.tokens ?? 0), 0),
         cost_micros: results.reduce((sum, entry) => sum + (entry.usage?.cost_micros ?? 0), 0),
       },
-      attestation_ref: journalRef(results.map((entry) => entry.attestation_ref ?? null)),
+      attestation_ref: tryJournalRef(results.map((entry) => entry.attestation_ref ?? null)),
     });
+    return combined.attestation_ref != null && tryJournalRef(combined) != null
+      ? combined
+      : settled("failed", { code: "kernel-agent-result-invalid" });
   };
   const executeAgentWithRetry = async (agent, nodeId, instanceId, local = {}) => {
     const prepared = await prepareAgentExecution(agent, nodeId, instanceId, local);
@@ -644,7 +682,8 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         next = !pass && deps.loops === false && node.loops_off ? node.loops_off : (pass ? node.on_pass : node.on_fail);
       } else if (node.kind === "checkpoint") {
         const result = await runBoundary(() => deps.checkpoint?.({
-          run_id: runId, node_id: current, reason: node.reason, outputs: structuredClone(outputs), signal: runController.signal,
+          run_id: runId, node_id: current, visit: visits[current], reason: node.reason,
+          outputs: structuredClone(outputs), signal: runController.signal,
         }));
         if (cancelled) return { ok: false, status: "cancelled", code: "kernel-run-cancelled", events, outputs, budget: budget.snapshot() };
         if (result?.continue !== true) {
@@ -657,6 +696,9 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         if (typeof deps.resolveSubworkflow !== "function" || deps.depth >= 1) return { ok: false, status: "refused", code: "kernel-subworkflow-unavailable", events, outputs };
         const child = await runBoundary(() => deps.resolveSubworkflow(node.workflow_id, node.version));
         if (cancelled) return { ok: false, status: "cancelled", code: "kernel-run-cancelled", events, outputs, budget: budget.snapshot() };
+        if (child && !childInputSchemaAcceptsParent(definition.inputs, child.inputs)) {
+          return { ok: false, status: "refused", code: "kernel-subworkflow-binding-invalid", events, outputs };
+        }
         const childRunId = `${runId}.${current}`;
         const childResume = active?.child?.workflow_id === node.workflow_id
           && active.child.version === node.version && active.child.run_id === childRunId

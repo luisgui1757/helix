@@ -38,8 +38,9 @@ targets, unreachable nodes, recursive/nested-depth-two subworkflows, and
 unbounded cycles refuse.
 
 The input schema is a bounded closed subset for object, array, string, number,
-integer, and boolean values. The root requires a non-empty `task`; declared
-fields may add descriptions, defaults, and bounds. The attended runner prompts
+integer, and boolean values. The root is always a closed object and requires a
+non-empty `task`; every accepted integer interval contains at least one safe
+integer. Declared fields may add descriptions, defaults, and bounds. The attended runner prompts
 for every non-task field: blank accepts a declared default, omits an optional
 field, or refuses a required field without a default. String values preserve
 spaces; enter `""` to supply an explicit empty string. It validates the
@@ -76,6 +77,7 @@ boundaries.
 | Workflow version | 1 | 1,000,000 |
 | Workflow nodes | — | 256 |
 | Serialized workflow definition | — | 256 KiB |
+| Workflow JSON read envelope | — | 512 KiB |
 | Canonical public-helper serialization | — | 2 MiB, depth 64 |
 | Input schema depth / object fields | — | 4 / 32 |
 | Serialized runtime input | — | 1 MiB |
@@ -102,10 +104,11 @@ boundaries.
 Retries and panel members are effects: every actual model invocation consumes
 the shared effect/token/cost budget and appears in observed events. A panel's
 first wave is reserved atomically so a one-effect limit cannot launch two calls.
-Loop-disabled mode follows an explicit `loops_off` target. Every decision back
-edge, including a cyclic default, must be marked `loop: true`; a loop marker on
-an acyclic edge or without a valid escape refuses. The kernel never guesses how
-to escape a cycle.
+Loop-disabled mode follows an explicit `loops_off` target. Every decision edge
+whose target can reach that decision—including a forward-entry edge and a
+cyclic default—must be marked `loop: true`. The loops-disabled graph must prove
+that `loops_off` cannot return to the decision; an acyclic marker or invalid
+escape refuses. The kernel never guesses how to escape a cycle.
 
 Read-only agents may use only read/search tools. `shared-serialized` writers run
 under one writer mutex with private before-state checkpoints.
@@ -216,14 +219,24 @@ refuse before child dispatch.
 ### Checkpoint and subworkflow
 
 A checkpoint pauses after its durable scheduler/workspace commit and is shown
-as paused with the exact resume command. The attended resume supplies the
-continue action. A child checkpoint is namespaced beneath its parent and
-continues exactly once. A subworkflow pins both id and version, shares the
+as paused with the exact resume command. The attended resume supplies a
+one-shot continue action bound to that exact node visit; a later visit pauses
+again. A child checkpoint is namespaced beneath its parent and consumes the
+same one-shot consent exactly once. A subworkflow pins both id and version, shares the
 parent's budget/journal/workspace, emits nested structural events, and may not
 invoke another subworkflow. Runtime smoke resolves the same pinned direct child
 bundle as product execution and includes child nodes, effects, and transitions
 in its observed counts. Deployment preflight, provider inventory, and consent
-likewise include every direct child's effective cast.
+likewise include every direct child's effective cast. The child must accept
+every normalized parent input; incompatible closed schemas refuse before
+import, consent, or run creation. Gate-only parents and parents whose model
+work exists only in a child are valid deployments.
+
+The 256 KiB definition ceiling applies to canonical JSON. Helix saves v4 files
+in that canonical form plus one trailing newline. Readers allow a separate
+bounded 512 KiB transport envelope so historical or imported pretty-printed
+JSON can be parsed and then checked against the canonical limit. Run copies,
+watch, and resume accept the exact canonical limit plus that newline.
 
 ## Objective gates
 

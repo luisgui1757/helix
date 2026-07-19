@@ -11,7 +11,7 @@ import {
   validateWorkflowDefinition,
   workflowDefinitionHash,
 } from "../dispatch/workflow/schema.mjs";
-import { agent, decision, objectiveGate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { agent, checkpoint, decision, objectiveGate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { observedWorkflowGraph, plannedWorkflowGraph } from "../dispatch/workflow/visualize.mjs";
 
 function currentWorkflow() {
@@ -186,10 +186,10 @@ test("pure builder creates the same closed definition contract", () => {
     nodes: {
       build: pipeline([build, review], "route", { max_visits: 3, artifact: { path: "proposal.txt", kind: "notes" } }),
       route: decision([
-        { when: { op: "eq", path: "/outputs/build/by_role/reviewer/recommendation", value: "approve" }, target: "objective" },
+        { when: { op: "eq", path: "/outputs/build/by_role/reviewer/recommendation", value: "approve" }, target: "objective", loop: true },
         { when: { op: "eq", path: "/outputs/build/by_role/reviewer/recommendation", value: "revise" }, target: "build", loop: true },
       ], "failed", { label: "Review decision", loops_off: "objective" }),
-      objective: objectiveGate("success", "build"),
+      objective: { ...objectiveGate("success", "build"), loops_off: "failed" },
       success: terminal("succeeded"),
       failed: terminal("failed", "review-verdict-invalid"),
     },
@@ -210,9 +210,30 @@ test("every cyclic decision edge is explicitly marked and has a loops-off escape
   delete noEscape.nodes[routeId].loops_off;
   assert.equal(validateWorkflowDefinition(noEscape).errors.some((entry) => entry.message.includes("loops_off")), true);
   const acyclicMarked = structuredClone(base);
-  const acyclic = acyclicMarked.nodes[routeId].transitions.find((entry) => entry.loop !== true);
-  acyclic.loop = true;
+  acyclicMarked.nodes[routeId].default.loop = true;
   assert.equal(validateWorkflowDefinition(acyclicMarked).errors.some((entry) => entry.message.includes("only on a cyclic")), true);
+
+  const forward = workflow({
+    id: "forward-cycle", name: "Forward cycle", description: "A forward edge closes a cycle.", start: "route",
+    nodes: {
+      route: decision([{ when: { op: "always" }, target: "probe" }], "failed", { loops_off: "objective" }),
+      probe: checkpoint("probe", "route"), objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"), failed: terminal("failed", "failed"),
+    },
+    objective_gate: { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 },
+  });
+  assert.equal(forward.ok, false);
+  assert.equal(forward.errors.some((entry) => entry.message.includes("cyclic decision edge")), true);
+});
+
+test("accepted input schemas always have an object root and a safe integer witness", () => {
+  const base = normalizeWorkflowDefinition(currentWorkflow()).definition;
+  const noInteger = structuredClone(base);
+  noInteger.inputs.properties.count = { type: "integer", minimum: 0.1, maximum: 0.9 };
+  assert.equal(validateWorkflowDefinition(noInteger).errors.some((entry) => entry.message.includes("bounded numeric schema")), true);
+  const scalarRoot = structuredClone(base);
+  scalarRoot.inputs = { type: "string", minLength: 1 };
+  assert.equal(validateWorkflowDefinition(scalarRoot).errors.some((entry) => entry.message.includes("root input schema")), true);
 });
 
 test("conditions use safe JSON pointers and missing values are false", () => {

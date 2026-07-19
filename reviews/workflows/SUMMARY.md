@@ -302,3 +302,62 @@ Final local evidence:
 - Live provider calls are outside this deterministic remediation and are not
   claimed. Exact-head Node 22.19/26, package RPC, and active no-egress results
   must come from the pushed commit's CI run.
+
+## 2026-07-19 — Composed-boundary review closure
+
+Status: the union of the Fable 5 and Codex exact-head findings against
+`8a1adad6c21e8075e2a2dab783bf70f7461ca87f` is closed in one canonical change.
+The central final-gate and lifetime-effect invariants remained sound; the
+accepted findings were persistence, composition, schema, and product-boundary
+defects.
+
+Accepted findings and resolution:
+
+- Journal loading now recomputes every `result_ref`, requires result/record
+  status agreement, and rejects malformed values. Resume accepts a newer
+  suffix only when every record identity maps to durable pending/in-flight
+  state across the full parent/child checkpoint tree. Foreign suffixes are
+  terminal drift; child journal-ahead results reconcile without replay.
+- Private checkpoint publication is the scheduler commit point. Checkpoint
+  document schema 2 durably carries old-snapshot cleanup and public-projection
+  debt; failure after canonical publication no longer makes the scheduler roll
+  back or report an undurable checkpoint. Schema 1 remains readable.
+- Checkpoint continue consent is one-shot and bound to the recorded node visit,
+  including child checkpoints. Concurrent named resumes are serialized by the
+  existing repository-private run lease.
+- Oversized, deeply nested, or aggregate-unhashable effect data returns stable
+  non-maskable kernel failures. Workspace-fingerprint exceptions likewise
+  close at the scheduler boundary instead of escaping as rejections.
+- Child agents compile their own definition id, objective, and child run id.
+  Parent/child input schemas are checked semantically before import, consent,
+  run creation, and again at scheduler entry; no input projection or silent
+  field dropping is permitted. Gate-only and child-only v4 workflows now pass
+  product deployment.
+- Complete reachability replaces distance-based cycle classification. Every
+  cyclic decision edge is explicit, and escape validity is proved in the graph
+  that actually runs when loops are disabled. Migration derives the required
+  metadata without changing legacy loop semantics.
+- The input-schema root must be the closed task object, and every accepted
+  integer interval contains a safe integer. `uncertified-disabled` is
+  unconditionally ineligible for exact runtime selection.
+- v4 persistence writes canonical JSON. A separate bounded 512 KiB read
+  envelope admits historical/pretty JSON before enforcing the 256 KiB
+  canonical definition limit; exact-limit save/list/watch/resume round trips.
+- Cancellation and pause render truthfully, blank non-string prompt values use
+  default/omit semantics, and pre-run refusals no longer point at nonexistent
+  watch records.
+
+Focused evidence before the full gate: 140/140 across kernel, schema/limits,
+runtime contract, product execution, and command UX suites. The final complete
+local counts and exact-head remote CI result are appended only after those
+checks execute on the committed head.
+
+Complete local evidence before commit: `npm test` passed 698/698 with 0
+skipped, plus worktree self-test 12/12 and objective-loop self-test 8/8.
+Workflow conformance passed 79/79 and provider contracts 27/27. Documentation
+truth, resources, static no-live-egress, public-safety diff, both deterministic
+smokes, and `git diff --check` passed. The extracted package contains 99 files
+and passed real Pi 0.80.9 RPC. Active Docker `--network none` passed 5/5 with
+both external destinations denied, offline Pi 0.80.7 package loading, and the
+localhost-only mock path. No live provider call was made or claimed. Exact-head
+Node 22.19/26 and Pi 0.80.7/0.80.9 evidence belongs to the pushed commit's CI.

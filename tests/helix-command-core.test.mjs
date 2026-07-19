@@ -256,6 +256,12 @@ test("native run completion renders only stable structural fields", () => {
   assert.equal(failed.code, "helix-runner-failed");
   assert.equal(failed.text.includes("Users"), false);
   assert.equal(failed.details.stop_reason, "unknown");
+  const refusedBeforeRun = renderHelixRunCompletion({
+    runId: "native-mock-run", configId: "mock-core-loop", exitCode: 1,
+    failureCode: "provider-exact-adapter-required", hasRunRecord: false,
+  });
+  assert.match(refusedBeforeRun.text, /no run record was created/);
+  assert.equal(refusedBeforeRun.text.includes("helix-run-watch"), false);
 
   const incomplete = renderHelixRunCompletion({
     runId: "native-mock-run",
@@ -276,6 +282,14 @@ test("native run completion renders only stable structural fields", () => {
   assert.equal(paused.status, "paused");
   assert.match(paused.text, /Continue: \/helix-run-resume native-mock-run/);
   assert.equal(paused.text.includes("failed"), false);
+
+  const cancelled = renderHelixRunCompletion({
+    runId: "native-mock-run", configId: "mock-core-loop", exitCode: 1,
+    converged: false, stopReason: "cancelled", failureCode: "kernel-run-cancelled",
+  });
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(cancelled.title, "Helix run cancelled");
+  assert.equal(cancelled.text.includes("failed"), false);
 
   const interrupted = renderHelixRunCompletion({
     runId: "native-mock-run",

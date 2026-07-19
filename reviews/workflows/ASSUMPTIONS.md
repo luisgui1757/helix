@@ -156,3 +156,50 @@ Rejected findings / bounded false alarms:
 - “Child assignments can wait for execution-time preflight”: rejected. Import
   and attended consent promise a complete runnable deployment and therefore must
   resolve the same direct-child closure before writing or confirmation.
+
+## 2026-07-19 — Persistence and composition boundary invariants
+
+New durable invariants:
+
+- A journal result is evidence only when its bounded canonical content hashes
+  to `result_ref` and its status equals the record status. Hash syntax alone is
+  never integrity evidence.
+- Journal-ahead reconciliation is an exact-set operation over the complete
+  parent/child checkpoint tree. Every suffix identity must match durable
+  pending or in-flight state; extra evidence is terminal drift, not resumable
+  storage failure.
+- Atomic installation of the private checkpoint commits scheduler authority.
+  Old-snapshot cleanup and public projection are separately durable,
+  idempotent maintenance debt and can never make a committed scheduler state
+  appear undurable.
+- Attended checkpoint consent authorizes one exact node visit. It is consumed
+  once across the parent/child namespace; revisiting a node or starting a new
+  deterministic child run requires fresh consent.
+- A child executes under its own id, objective, and run namespace. Because the
+  kernel deliberately passes the complete normalized parent input, deployment
+  is valid only when the child's closed schema accepts every parent-valid
+  value. Compatibility refuses early; data is never silently projected.
+- Workflow deployability does not require a local agent. Deterministic
+  gate-only graphs and parents whose agents exist only in pinned children are
+  first-class v4 workflows.
+- Cycle metadata follows graph reachability, not traversal distance. Escape is
+  evaluated under actual loops-disabled semantics, including gate `loops_off`
+  behavior.
+- The 256 KiB workflow limit is canonical-document size. Saved files add one
+  newline; bounded readers may accept a 512 KiB transport representation only
+  to parse and re-enforce the canonical limit.
+- `uncertified-disabled` means exact-disabled in every policy mode. Disabling a
+  live-certification requirement does not elevate an uncertified path.
+
+Rejected findings / bounded false alarms:
+
+- “Any journal-prefixed code should remain resumable”: rejected. Only named
+  transient write/storage failures are recoverable. Corruption, identity
+  collision, invalid records, and suffix drift are terminal fail-closed states.
+- “Passing only the child-declared subset of parent input is an adequate fix”:
+  rejected. Projection silently changes the composed contract and can hide
+  authoring errors; schema compatibility is the canonical preflight boundary.
+- “Checkpoint cleanup must finish before publication”: rejected. Removing the
+  old snapshot first creates a crash window in which the still-canonical
+  checkpoint has no recovery material. Publish new authority first and retain
+  cleanup as durable debt.

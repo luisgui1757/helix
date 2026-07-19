@@ -33,11 +33,12 @@ nodes/effects/transitions and never claims every branch or the user's task
 succeeded.
 
 `/helix-workflows import <repository-relative-v4.json>` is the expert deploy
-surface. It requires attended confirmation, a regular contained file no larger
-than 256 KiB, schema version 4, `source: "user"`, a runnable objective gate, a
+surface. It requires attended confirmation, a regular contained JSON transport
+file no larger than 512 KiB, schema version 4, `source: "user"`, a runnable objective gate, a
 closed single-gated graph, deployment-valid assignments, a non-conflicting id,
 and an atomic destination. All structural, deployment, gate, and workspace
-checks pass before the user definition is written.
+checks pass before the user definition is written. Its canonical representation
+must fit 256 KiB; Helix persists that canonical form plus one newline.
 Pi's current model inventory is supplied to import/create preflight, including
 every pinned direct child's cast; invalid or undeployable input refuses before
 the mutation confirmation dialog.
@@ -90,8 +91,10 @@ checkpoint, and continuation receives only the remaining duration.
   engine.
 
 A normal checkpoint is rendered as **paused**, not failed, and includes the
-exact `/helix-run-resume <run-id>` continue command. Checkpoints inside a pinned
-child workflow carry namespaced child state and continue once on parent resume.
+exact `/helix-run-resume <run-id>` continue command. That attended consent is
+consumed by the exact recorded node visit; revisiting the checkpoint pauses
+again. Checkpoints inside a pinned child workflow carry namespaced child state
+and consume the same one-shot parent-resume consent.
 Workspace, journal, or scheduler-checkpoint recovery failures with a durable
 private checkpoint remain incomplete and render as **interrupted** with the
 same explicit resume action. A failure before the first checkpoint is terminal

@@ -9,7 +9,11 @@ import {
   validateWorkflow,
   workflowFromExecution,
 } from "../../dispatch/lib/workflows.mjs";
-import { validateWorkflowDefinition } from "../../dispatch/workflow/schema.mjs";
+import {
+  stableWorkflowStringify,
+  validateWorkflowDefinition,
+  WORKFLOW_LIMITS,
+} from "../../dispatch/workflow/schema.mjs";
 
 export const WORKFLOW_CODES = Object.freeze({
   INVALID: "invalid-workflow",
@@ -22,7 +26,7 @@ export const WORKFLOW_CODES = Object.freeze({
 });
 
 const WORKFLOW_ID = /^[a-z0-9][a-z0-9._-]*$/;
-const MAX_WORKFLOW_FILE_BYTES = 256 * 1024;
+const MAX_WORKFLOW_FILE_BYTES = WORKFLOW_LIMITS.max_workflow_read_bytes;
 
 function isWorkflowId(id) {
   return typeof id === "string" && id.length <= 64 && WORKFLOW_ID.test(id);
@@ -85,10 +89,14 @@ export function saveUserWorkflowV4(root, definition, { replace = false, builtInI
     return { ok: false, code: WORKFLOW_CODES.INVALID, detail: valid.errors?.map((entry) => entry.path).join(",") ?? "source" };
   }
   if (builtInIds.includes(definition.id)) return { ok: false, code: WORKFLOW_CODES.SHADOWS_BUILTIN, detail: definition.id };
+  const serialized = stableWorkflowStringify(definition);
+  if (typeof serialized !== "string" || Buffer.byteLength(serialized, "utf8") > WORKFLOW_LIMITS.max_workflow_bytes) {
+    return { ok: false, code: WORKFLOW_CODES.INVALID, detail: "serialized-definition" };
+  }
   const path = join(workflowsDir(root), `${definition.id}.json`);
   try {
     if (existsSync(path) && !replace) return { ok: false, code: WORKFLOW_CODES.EXISTS, detail: definition.id };
-    writeTextAtomic(root, join("workflows", `${definition.id}.json`), `${JSON.stringify(definition, null, 2)}\n`, { replace });
+    writeTextAtomic(root, join("workflows", `${definition.id}.json`), `${serialized}\n`, { replace });
   } catch {
     return { ok: false, code: WORKFLOW_CODES.WRITE_FAILED, detail: definition.id };
   }
