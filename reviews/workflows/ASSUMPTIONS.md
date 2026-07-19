@@ -203,3 +203,30 @@ Rejected findings / bounded false alarms:
   old snapshot first creates a crash window in which the still-canonical
   checkpoint has no recovery material. Publish new authority first and retain
   cleanup as durable debt.
+
+## 2026-07-19 — Recovery-capacity and operational-boundary invariants
+
+- Shared-writer identity and snapshot selection are one serialized operation.
+  A process-local generation name is not proof that an existing snapshot is
+  the current before-state; its tree reference must equal the locked canonical
+  fingerprint, or the stale generation is removed and retaken.
+- Result bounds apply to aggregate retained state, not only to each individual
+  value. Checkpoint and journal admission reserve space for a compact failure,
+  and the journal write ceiling is identical to its read ceiling.
+- Usage is absent/zero or an exact closed pair of nonnegative safe integers.
+  Malformed telemetry is never normalized to zero, and every aggregate addition
+  is checked before mutation.
+- Abort means “do not start more work.” Already-started parallel/map effects may
+  settle, but queued indices and queued shared writers observe the stop token
+  before provider dispatch, and unused reservations are released.
+- General reachability uses operational edges. A decision `loops_off` edge is
+  operational only when the decision contains an actual cyclic `loop: true`
+  edge; inert escape metadata cannot make dead nodes deployment-valid.
+- Schema-1 kernel checkpoints remain historical read shapes, not resumable
+  lifetime evidence. Because they omit elapsed duration, continuation refuses
+  them rather than silently resetting the cumulative deadline.
+- “Raising the private checkpoint or journal limits fixes aggregate result
+  overflow”: rejected. It only moves the same unbounded-aggregation defect and
+  can still create a file that the matching reader refuses.
+- “A hard run deadline is an operator cancellation”: rejected. Deadlines are
+  failed timeouts; only an externally requested abort is operator cancellation.

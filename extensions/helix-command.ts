@@ -791,7 +791,8 @@ function parseWorkflowInputValue(raw: string, schema: any) {
     throw new Error("boolean");
   }
   if (schema.type === "number" || schema.type === "integer") {
-    const value = Number(raw);
+    if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(raw)) throw new Error("number");
+    const value = JSON.parse(raw);
     if (!Number.isFinite(value) || (schema.type === "integer" && !Number.isSafeInteger(value))) throw new Error("number");
     return value;
   }
@@ -984,6 +985,7 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
       },
     });
     if (!execution.ok && runAbortCode) execution.code = runAbortCode;
+    else if (!execution.ok && execution.code === "kernel-run-deadline-exceeded") execution.code = "workflow-run-timeout";
     else if (!execution.ok && !execution.code && adapter?.lastFailureCode?.()) execution.code = adapter.lastFailureCode();
   } catch {
     execution = { ok: false, code: "helix-runner-failed", converged: false, stop_reason: null };
@@ -1104,6 +1106,9 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
         if (event.kind === "node-start") ctx.ui.setWorkingMessage?.(`Helix · ${event.node_id} · visit ${event.visit}`);
       },
     });
+    if (!execution.ok && execution.code === "kernel-run-deadline-exceeded") {
+      execution.code = "workflow-run-timeout";
+    }
   } catch {
     execution = { ok: false, code: "helix-resume-failed", converged: false, stop_reason: null };
   } finally {

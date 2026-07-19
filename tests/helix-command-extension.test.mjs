@@ -547,7 +547,71 @@ test("helix-run collects required and optional typed inputs and renders only bou
   }
 });
 
-test("helix-settings is a keyboard-native checkbox list with immediate persistence", async () => {
+test("helix-run refuses non-JSON numeric tokens before confirmation and binds JSON decimals and exponents", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-run-number-input-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-run-number-input-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Number Input Test"], { cwd });
+  writeFileSync(join(cwd, "tracked.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "tracked.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const built = workflow({
+    id: "number-input-ui", name: "Number input UI", description: "Collect strict JSON numbers.", start: "review",
+    inputs: {
+      type: "object", additionalProperties: false, required: ["task", "count", "ratio"],
+      properties: {
+        task: { type: "string", minLength: 1, maxLength: 65_536 },
+        count: { type: "integer", minimum: 16, maximum: 16 },
+        ratio: { type: "number", minimum: -0.025, maximum: -0.025 },
+      },
+    },
+    nodes: {
+      review: pipeline([agent({ role: "reviewer", stage_id: "review", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000 })], "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "objective-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const { commands } = loadHelixCommands();
+  const notices = [];
+  let mode = "hex";
+  let confirmations = 0;
+  try {
+    const ui = {
+      input: async (prompt) => prompt.includes("'count'")
+        ? (mode === "hex" ? "0x10" : "16.0e0")
+        : prompt.includes("'ratio'") ? "-2.5E-2" : null,
+      confirm: async (_title, body) => {
+        confirmations += 1;
+        assert.match(body, /Bound inputs: count, ratio, task/);
+        return false;
+      },
+      notify: (message, level) => notices.push({ message, level }),
+    };
+    await commandByName(commands, "helix-run").handler("number-input-ui -- Check numeric inputs", { mode: "tui", cwd, ui });
+    assert.equal(confirmations, 0, "0x10 must be refused before attended confirmation");
+    assert.equal(notices.at(-1).message.includes("workflow-input-invalid:count"), true);
+
+    mode = "json";
+    await commandByName(commands, "helix-run").handler("number-input-ui -- Check numeric inputs", { mode: "tui", cwd, ui });
+    assert.equal(confirmations, 1, "valid JSON decimal/exponent forms must bind and reach confirmation");
+    assert.equal(existsSync(join(stateRoot, "runs")), false);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("helix-settings is a keyboard-native checkbox list with attended persistence", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-command-ui-"));
   const previous = process.env.HELIX_STATE_DIR;
   process.env.HELIX_STATE_DIR = stateRoot;

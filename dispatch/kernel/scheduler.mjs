@@ -2,7 +2,7 @@
 // delegates model/provider and workspace effects, and emits structural events.
 
 import { createBudgetLedger } from "./budgets.mjs";
-import { createEffectJournal, effectIdentity, journalRef, tryJournalRef } from "./journal.mjs";
+import { createEffectJournal, effectIdentity, journalRef, KERNEL_JOURNAL_LIMITS, tryJournalRef } from "./journal.mjs";
 import {
   childInputSchemaAcceptsParent,
   evaluateCondition,
@@ -12,7 +12,7 @@ import {
   WORKFLOW_LIMITS,
   workflowDefinitionHash,
 } from "../workflow/schema.mjs";
-import { isRecoverableKernelFailure, validateKernelCheckpoint } from "./state.mjs";
+import { isRecoverableKernelFailure, KERNEL_CHECKPOINT_LIMITS, validateKernelCheckpoint } from "./state.mjs";
 
 const MUTATING = new Set(["shared-serialized", "isolated-proposal"]);
 const FAILURE_CLASSES = new Set(["agent", "kernel"]);
@@ -27,17 +27,52 @@ function settled(status, extra = {}) {
   return result;
 }
 
-async function mapConcurrent(values, limit, task) {
+async function mapConcurrent(values, limit, task, shouldStop = null) {
   const output = new Array(values.length);
   let cursor = 0;
+  let stopped = false;
+  const started = new Set();
+  const controller = new AbortController();
+  const stop = (result, index) => {
+    if (!stopped && shouldStop?.(result, index) === true) {
+      stopped = true;
+      controller.abort("kernel-branch-aborted");
+    }
+  };
   const workers = Array.from({ length: Math.min(limit, Math.max(1, values.length)) }, async () => {
-    while (cursor < values.length) {
+    while (!stopped && cursor < values.length) {
       const index = cursor++;
-      output[index] = await task(values[index], index);
+      started.add(index);
+      output[index] = await task(values[index], index, { signal: controller.signal, stop: (result) => stop(result, index) });
+      stop(output[index], index);
     }
   });
   await Promise.all(workers);
-  return output;
+  return { output, started };
+}
+
+function normalizedUsage(value) {
+  if (value == null) return { tokens: 0, cost_micros: 0 };
+  if (typeof value !== "object" || Array.isArray(value)
+    || Object.keys(value).some((key) => !["tokens", "cost_micros"].includes(key))) return null;
+  const tokens = value.tokens ?? 0;
+  const costMicros = value.cost_micros ?? 0;
+  return Number.isSafeInteger(tokens) && tokens >= 0 && Number.isSafeInteger(costMicros) && costMicros >= 0
+    ? { tokens, cost_micros: costMicros }
+    : null;
+}
+
+function checkedUsageTotal(results) {
+  let tokens = 0;
+  let costMicros = 0;
+  for (const result of results) {
+    const usage = normalizedUsage(result?.usage);
+    if (usage == null) return null;
+    tokens += usage.tokens;
+    costMicros += usage.cost_micros;
+    if (!Number.isSafeInteger(tokens) || !Number.isSafeInteger(costMicros)) return null;
+  }
+  return { tokens, cost_micros: costMicros };
 }
 
 function strictRecommendation(values) {
@@ -86,13 +121,26 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       node_ids: new Set(Object.keys(definition.nodes)),
     });
     if (!checked.valid) return { ok: false, status: "refused", code: checked.code };
+    if (resume.schema_version === 1) {
+      return { ok: false, status: "refused", code: "kernel-checkpoint-elapsed-unknown" };
+    }
   }
   const events = [];
   let seq = resume?.event_seq ?? 0;
+  let eventFailure = null;
+  let stopRun = () => {};
   const emit = (kind, fields = {}) => {
+    if (eventFailure != null) return false;
     const event = { schema_version: 1, seq: ++seq, run_id: runId, kind, ...fields };
     events.push(event);
-    deps.onEvent?.(structuredClone(event));
+    try { deps.onEvent?.(structuredClone(event)); }
+    catch {
+      events.pop();
+      seq -= 1;
+      eventFailure = "kernel-event-write-failed";
+      stopRun(eventFailure);
+    }
+    return eventFailure == null;
   };
   const journal = deps.journal ?? createEffectJournal({
     root: deps.journal_root ?? null,
@@ -118,25 +166,58 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
   });
   const outputs = resume ? structuredClone(resume.outputs) : {};
   const visits = resume ? structuredClone(resume.visits) : Object.fromEntries(Object.keys(definition.nodes).map((id) => [id, 0]));
-  const startedAt = deps.now?.() ?? Date.now();
+  let startedAt;
+  try { startedAt = deps.now?.() ?? Date.now(); }
+  catch { return { ok: false, status: "failed", code: "kernel-clock-failed" }; }
+  if (!Number.isSafeInteger(startedAt) || startedAt < 0) {
+    return { ok: false, status: "failed", code: "kernel-clock-failed" };
+  }
+  let lastNow = startedAt;
+  let clockFailure = null;
+  const now = () => {
+    let value;
+    try { value = deps.now?.() ?? Date.now(); }
+    catch { value = null; }
+    if (!Number.isSafeInteger(value) || value < lastNow) {
+      clockFailure ??= "kernel-clock-failed";
+      return lastNow;
+    }
+    lastNow = value;
+    return value;
+  };
   const priorElapsed = resume?.schema_version === 2 ? resume.elapsed_ms : 0;
-  const totalElapsed = () => priorElapsed + Math.max(0, (deps.now?.() ?? Date.now()) - startedAt);
+  const totalElapsed = () => {
+    const elapsed = priorElapsed + (now() - startedAt);
+    if (!Number.isSafeInteger(elapsed) || elapsed < 0) {
+      clockFailure ??= "kernel-clock-failed";
+      return priorElapsed;
+    }
+    return elapsed;
+  };
   let current = resume?.current ?? definition.start;
   let active = resume?.active ? structuredClone(resume.active) : null;
   if (active && !Object.hasOwn(active, "inflight")) active.inflight = {};
   let checkpointTail = Promise.resolve({ ok: true });
   let writerTail = Promise.resolve();
   let cancelled = false;
+  let interruptionCode = null;
   const runController = new AbortController();
-  const abort = () => {
+  stopRun = (code) => {
     cancelled = true;
-    if (!runController.signal.aborted) runController.abort(deps.signal?.reason ?? "kernel-run-cancelled");
+    interruptionCode ??= safeCode(code, "kernel-run-cancelled");
+    if (!runController.signal.aborted) runController.abort(interruptionCode);
   };
+  const abort = () => stopRun("kernel-run-cancelled");
+  const deadline = () => stopRun("kernel-run-deadline-exceeded");
+  const interruption = () => ({
+    status: interruptionCode === "kernel-run-deadline-exceeded" || eventFailure != null ? "failed" : "cancelled",
+    code: eventFailure ?? interruptionCode ?? "kernel-run-cancelled",
+  });
   if (deps.signal?.aborted) abort();
   else deps.signal?.addEventListener?.("abort", abort, { once: true });
   const remainingRunMs = definition.limits.max_run_ms - priorElapsed;
-  const runTimer = remainingRunMs > 0 ? setTimeout(abort, remainingRunMs) : null;
-  if (remainingRunMs <= 0) abort();
+  const runTimer = remainingRunMs > 0 ? setTimeout(deadline, remainingRunMs) : null;
+  if (remainingRunMs <= 0) deadline();
   const runBoundary = async (operation, abortedValue = null) => {
     if (runController.signal.aborted) return abortedValue;
     let onAbort;
@@ -148,28 +229,57 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     finally { runController.signal.removeEventListener("abort", onAbort); }
   };
   const context = () => ({ inputs: input, outputs, visits, budget: budget.snapshot() });
+  const checkpointSnapshot = (workspaceRef, { outputState = outputs, activeState = active } = {}) => ({
+    schema_version: 2,
+    run_id: runId,
+    definition_ref: definitionRef,
+    runtime_ref: runtimeRef,
+    task_ref: deps.task_ref,
+    current,
+    outputs: structuredClone(outputState),
+    visits: structuredClone(visits),
+    active: activeState == null ? null : structuredClone(activeState),
+    event_seq: seq,
+    journal_entries: journal.records().length,
+    budget: budget.snapshot(),
+    workspace_ref: workspaceRef,
+    elapsed_ms: totalElapsed(),
+  });
+  const checkpointFits = (options = {}) => {
+    try {
+      const bytes = Buffer.byteLength(JSON.stringify(checkpointSnapshot(journalRef("kernel-capacity-workspace"), options)), "utf8");
+      return bytes + (options.reserve_bytes ?? 0) <= KERNEL_CHECKPOINT_LIMITS.max_scheduler_bytes;
+    } catch {
+      return false;
+    }
+  };
+  const storeOutput = (nodeId, value) => {
+    let cloned;
+    try { cloned = structuredClone(value); } catch { return false; }
+    const candidate = { ...outputs, [nodeId]: cloned };
+    if (!checkpointFits({ outputState: candidate, activeState: null, reserve_bytes: KERNEL_CHECKPOINT_LIMITS.min_failure_headroom_bytes })) {
+      return false;
+    }
+    outputs[nodeId] = cloned;
+    return true;
+  };
   const checkpoint = async () => {
+    totalElapsed();
+    if (clockFailure) return { ok: false, code: clockFailure };
     if (typeof deps.onCheckpoint !== "function") return { ok: true };
     const task = async () => {
       let workspaceRef;
       try { workspaceRef = deps.workspace?.currentRef?.(); } catch { workspaceRef = null; }
       if (!/^sha256:[0-9a-f]{64}$/.test(workspaceRef ?? "")) return { ok: false, code: "kernel-checkpoint-workspace-invalid" };
-      const snapshot = {
-        schema_version: 2,
-        run_id: runId,
-        definition_ref: definitionRef,
-        runtime_ref: runtimeRef,
-        task_ref: deps.task_ref,
-        current,
-        outputs: structuredClone(outputs),
-        visits: structuredClone(visits),
-        active: active == null ? null : structuredClone(active),
-        event_seq: seq,
-        journal_entries: journal.records().length,
-        budget: budget.snapshot(),
-        workspace_ref: workspaceRef,
-        elapsed_ms: totalElapsed(),
-      };
+      const snapshot = checkpointSnapshot(workspaceRef);
+      if (clockFailure) return { ok: false, code: clockFailure };
+      try {
+        if (Buffer.byteLength(JSON.stringify(snapshot), "utf8") > KERNEL_CHECKPOINT_LIMITS.max_scheduler_bytes) {
+          return { ok: false, code: "kernel-checkpoint-capacity-exceeded" };
+        }
+      } catch {
+        return { ok: false, code: "kernel-checkpoint-capacity-exceeded" };
+      }
       try {
         const saved = await deps.onCheckpoint(snapshot);
         return saved?.ok === true ? { ok: true } : { ok: false, code: safeCode(saved?.code, "kernel-checkpoint-write-failed") };
@@ -234,13 +344,17 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     return { found: false, result: null };
   };
 
-  const executeOne = async (agent, nodeId, instanceId, local = {}, preReservation = null) => {
+  const executeOne = async (agent, nodeId, instanceId, local = {}, preReservation = null, coordination = null) => {
+    const mutating = MUTATING.has(agent.mutation);
     const resumed = await resumeCompleted(nodeId, instanceId);
     if (resumed.found) {
       if (preReservation) budget.release(preReservation.id);
       return resumed.result;
     }
-    const mutating = MUTATING.has(agent.mutation);
+    if (coordination?.signal?.aborted) {
+      if (preReservation) budget.release(preReservation.id);
+      return settled("cancelled", { code: "kernel-branch-aborted" });
+    }
     let beforeRef;
     try { beforeRef = deps.workspace?.currentRef?.() ?? journalRef({ workspace: "untracked", run_id: runId }); }
     catch {
@@ -263,14 +377,15 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     if (!Number.isSafeInteger(invocation) || invocation < 1) return settled("failed", { code: "kernel-journal-state-invalid" });
     const identity = effectIdentity({ base_identity: baseIdentity, invocation });
     const reservation = preReservation ?? budget.reserve({
-      tokens: Number.isSafeInteger(agent.reserve_tokens) ? agent.reserve_tokens : 0,
-      cost_micros: Number.isSafeInteger(agent.reserve_cost_micros) ? agent.reserve_cost_micros : 0,
+      tokens: agent.reserve_tokens ?? 0,
+      cost_micros: agent.reserve_cost_micros ?? 0,
     });
     if (!reservation.ok) return settled("refused", { code: reservation.code });
     const perform = async () => {
       if (cancelled) {
         budget.release(reservation.id);
-        return settled("cancelled", { code: "kernel-run-cancelled" });
+        const stopped = interruption();
+        return settled(stopped.status, { code: stopped.code });
       }
       let tx = null;
       if (mutating) {
@@ -315,7 +430,9 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       }
       const timer = setTimeout(() => controller.abort("kernel-effect-timeout"), Math.min(agent.timeout_ms, definition.limits.max_call_ms));
       let raw;
-      try {
+      if (controller.signal.aborted) {
+        raw = { ok: false, code: controller.signal.reason };
+      } else try {
         raw = await Promise.race([
           Promise.resolve(deps.executeAgent(agent, {
             run_id: runId, node_id: nodeId, instance_id: instanceId, task: input.task,
@@ -343,13 +460,24 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         if (result.status === "ok" && tryJournalRef(result) == null) {
           result = settled("failed", { code: "kernel-agent-result-invalid" });
         }
-      } else result = settled(raw?.code === "kernel-effect-cancelled" || raw?.code === "kernel-run-cancelled" ? "cancelled" : "failed", {
-          code: safeCode(raw?.code, "kernel-agent-effect-failed"),
+        if (result.status === "ok") {
+          const usage = normalizedUsage(result.usage);
+          result = usage == null
+            ? settled("failed", { code: "kernel-agent-usage-invalid" })
+            : { ...result, usage };
+        }
+      } else {
+        const stopped = cancelled ? interruption() : null;
+        result = settled(stopped?.status
+          ?? (raw?.code === "kernel-effect-cancelled" || raw?.code === "kernel-run-cancelled" ? "cancelled" : "failed"), {
+          code: stopped?.code ?? safeCode(raw?.code, "kernel-agent-effect-failed"),
           failure_class: raw?.failure_class === "agent" ? "agent" : "kernel",
         });
+      }
       let workspaceRef = null;
       let workspaceApplied = false;
       let workspaceRecoveryFailed = false;
+      let workspaceRecoveryCode = null;
       const rollback = async () => {
         if (!mutating || !tx) return { ok: true };
         let restored;
@@ -359,7 +487,8 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         workspaceRef = null;
         if (restored?.ok) return { ok: true };
         workspaceRecoveryFailed = true;
-        return { ok: false, code: safeCode(restored?.code, "kernel-workspace-restore-failed") };
+        workspaceRecoveryCode = safeCode(restored?.code, "kernel-workspace-restore-failed");
+        return { ok: false, code: workspaceRecoveryCode };
       };
       if (mutating) {
         if (result.status === "ok") {
@@ -379,32 +508,61 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           if (!restored.ok) result = settled("failed", { code: restored.code });
         }
       }
-      const usage = result.usage ?? { tokens: 0, cost_micros: 0 };
-      const accounted = budget.account({
-        tokens: Number.isSafeInteger(usage.tokens) ? usage.tokens : 0,
-        cost_micros: Number.isSafeInteger(usage.cost_micros) ? usage.cost_micros : 0,
-      });
+      const usage = normalizedUsage(result.usage);
+      const accounted = budget.account(usage ?? { tokens: 0, cost_micros: 0 });
       if (!accounted.ok && result.status === "ok") {
         result = settled("failed", { code: accounted.code });
         const restored = await rollback();
         if (!restored.ok) result = settled("failed", { code: restored.code });
       }
       if (workspaceRecoveryFailed) {
-        emit("effect-end", { node_id: nodeId, instance_id: instanceId, effect_ref: identity, status: "failed", code: "kernel-workspace-restore-failed" });
-        return settled("failed", { code: "kernel-workspace-restore-failed" });
+        emit("effect-end", { node_id: nodeId, instance_id: instanceId, effect_ref: identity, status: "failed", code: workspaceRecoveryCode });
+        return settled("failed", { code: workspaceRecoveryCode });
       }
-      const journalRecord = {
+      let journalRecord = {
         identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
         before_ref: beforeRef, workspace_ref: workspaceRef, mutating, status: result.status, result,
       };
+      if (result.status === "ok" && journal.canCommit?.(journalRecord, {
+        reserve_bytes: KERNEL_JOURNAL_LIMITS.min_failure_headroom_bytes,
+      })?.code === "kernel-journal-capacity-exceeded") {
+        const restored = await rollback();
+        result = settled("failed", { code: restored.ok ? "kernel-result-capacity-exceeded" : restored.code });
+        workspaceRef = null;
+        workspaceApplied = false;
+        journalRecord = {
+          identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
+          before_ref: beforeRef, workspace_ref: null, mutating, status: result.status, result,
+        };
+      }
       if (active?.node_id === nodeId) {
-        const pending = workspaceApplied ? deps.workspace?.serialize?.(tx) ?? null : null;
-        active.completed[instanceId] = structuredClone({
-          ...result,
-          _journal_pending: journalRecord,
-          ...(pending ? { _workspace_pending: pending } : {}),
-        });
-        delete active.inflight[instanceId];
+        let pending = workspaceApplied ? deps.workspace?.serialize?.(tx) ?? null : null;
+        const installCompleted = () => {
+          active.completed[instanceId] = structuredClone({
+            ...result,
+            _journal_pending: journalRecord,
+            ...(pending ? { _workspace_pending: pending } : {}),
+          });
+          delete active.inflight[instanceId];
+        };
+        installCompleted();
+        if (!checkpointFits({ reserve_bytes: KERNEL_CHECKPOINT_LIMITS.min_failure_headroom_bytes })) {
+          const restored = await rollback();
+          result = settled("failed", { code: restored.ok ? "kernel-result-capacity-exceeded" : restored.code });
+          workspaceRef = null;
+          workspaceApplied = false;
+          pending = null;
+          journalRecord = {
+            identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
+            before_ref: beforeRef, workspace_ref: null, mutating, status: result.status, result,
+          };
+          installCompleted();
+          if (!checkpointFits()) {
+            delete active.completed[instanceId];
+            active.inflight[instanceId] = { identity, base_identity: baseIdentity, mutating };
+            return settled("failed", { code: "kernel-checkpoint-capacity-exceeded" });
+          }
+        }
         const saved = await checkpoint();
         if (!saved.ok) {
           const restored = await rollback();
@@ -446,32 +604,52 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       }
       return result;
     };
-    if (!mutating) return perform();
-    const prior = writerTail;
-    let release;
-    writerTail = new Promise((resolve) => { release = resolve; });
-    await prior;
-    try { return await perform(); } finally { release(); }
+    return perform();
   };
 
-  const executeWithRetry = async (agent, nodeId, instanceId, local = {}, firstReservation = null, firstCompleted = null) => {
+  const executeWithRetry = async (agent, nodeId, instanceId, local = {}, firstReservation = null, firstCompleted = null, coordination = null, writerLocked = false) => {
+    if (MUTATING.has(agent.mutation) && !writerLocked) {
+      const prior = writerTail;
+      let release;
+      writerTail = new Promise((resolve) => { release = resolve; });
+      await prior;
+      try {
+        return await executeWithRetry(agent, nodeId, instanceId, local, firstReservation, firstCompleted, coordination, true);
+      } finally { release(); }
+    }
     for (let attempt = 1; attempt <= agent.retry.max_attempts; attempt += 1) {
       const result = attempt === 1 && firstCompleted?.found
         ? firstCompleted.result
-        : await executeOne(agent, nodeId, `${instanceId}:attempt-${attempt}`, { ...local, attempt }, attempt === 1 ? firstReservation : null);
+        : await executeOne(agent, nodeId, `${instanceId}:attempt-${attempt}`, { ...local, attempt }, attempt === 1 ? firstReservation : null, coordination);
       if (result.status === "ok" || result.status === "cancelled" || result.status === "refused"
         || result.failure_class !== "agent"
-        || attempt === agent.retry.max_attempts) return result;
+        || attempt === agent.retry.max_attempts) {
+        coordination?.stop?.(result);
+        return result;
+      }
       emit("effect-retry", { node_id: nodeId, instance_id: instanceId, attempt, next_attempt: attempt + 1 });
       if (agent.retry.backoff_ms > 0) {
         await new Promise((resolve) => {
-          const timer = setTimeout(resolve, agent.retry.backoff_ms);
-          runController.signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+          let timer;
+          const finish = () => {
+            if (timer) clearTimeout(timer);
+            runController.signal.removeEventListener("abort", finish);
+            resolve();
+          };
+          timer = setTimeout(finish, agent.retry.backoff_ms);
+          runController.signal.addEventListener("abort", finish, { once: true });
         });
       }
-      if (cancelled) return settled("cancelled", { code: "kernel-run-cancelled" });
+      if (cancelled) {
+        const stopped = interruption();
+        const result = settled(stopped.status, { code: stopped.code });
+        coordination?.stop?.(result);
+        return result;
+      }
     }
-    return settled("failed", { code: "kernel-retry-state-invalid" });
+    const result = settled("failed", { code: "kernel-retry-state-invalid" });
+    coordination?.stop?.(result);
+    return result;
   };
 
   const prepareAgentExecution = async (agent, nodeId, instanceId, local = {}) => {
@@ -511,23 +689,31 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     const pending = prepared.flatMap((item) => item.ok ? item.members.filter((member) => !member.completed.found) : []);
     if (pending.length === 0) return { ok: true };
     const reserved = budget.reserveBatch(pending.map(({ entry }) => ({
-      tokens: Number.isSafeInteger(entry.reserve_tokens) ? entry.reserve_tokens : 0,
-      cost_micros: Number.isSafeInteger(entry.reserve_cost_micros) ? entry.reserve_cost_micros : 0,
+      tokens: entry.reserve_tokens ?? 0,
+      cost_micros: entry.reserve_cost_micros ?? 0,
     })));
     if (!reserved.ok) return reserved;
     pending.forEach((member, index) => { member.reservation = reserved.reservations[index]; });
     return { ok: true };
   };
-  const executePrepared = async (prepared) => {
+  const releasePrepared = (prepared) => {
+    for (const member of prepared?.members ?? []) {
+      if (member.reservation) budget.release(member.reservation.id);
+    }
+  };
+  const executePrepared = async (prepared, _index = 0, coordination = null) => {
     if (!prepared.ok) return prepared.result;
-    const results = await mapConcurrent(prepared.members, Math.min(prepared.members.length, definition.limits.max_concurrency),
+    const concurrent = await mapConcurrent(prepared.members, Math.min(prepared.members.length, definition.limits.max_concurrency),
       (member) => executeWithRetry(member.entry, prepared.nodeId, member.instanceId,
         { ...prepared.local, ...(prepared.isExpanded ? { member_index: member.index } : {}) },
-        member.reservation, member.completed));
+        member.reservation, member.completed, coordination));
+    const results = concurrent.output;
     const failed = results.find((entry) => entry.status !== "ok");
     if (failed) return failed;
     if (results.length === 1) return results[0];
     const values = results.map((entry) => entry.value);
+    const usage = checkedUsageTotal(results);
+    if (usage == null) return settled("failed", { code: "kernel-agent-usage-overflow" });
     const combined = settled("ok", {
       value: {
         values,
@@ -537,10 +723,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         proposed_actions: values.flatMap((entry) => entry?.proposed_actions ?? []),
         open_questions: values.flatMap((entry) => entry?.open_questions ?? []),
       },
-      usage: {
-        tokens: results.reduce((sum, entry) => sum + (entry.usage?.tokens ?? 0), 0),
-        cost_micros: results.reduce((sum, entry) => sum + (entry.usage?.cost_micros ?? 0), 0),
-      },
+      usage,
       attestation_ref: tryJournalRef(results.map((entry) => entry.attestation_ref ?? null)),
     });
     return combined.attestation_ref != null && tryJournalRef(combined) != null
@@ -562,16 +745,27 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     }
     const reserved = reservePrepared(prepared);
     if (!reserved.ok) return { ok: false, status: "refused", code: reserved.code, values: [] };
-    const values = await mapConcurrent(prepared, concurrency, executePrepared);
-    const hardFailure = values.find((entry) => entry.status !== "ok"
+    const hard = (entry) => entry.status !== "ok"
+      && (failure === "abort" || !allowedFailure(entry, allow_failure_codes));
+    const concurrent = await mapConcurrent(prepared, concurrency, executePrepared,
+      failure === "abort" ? hard : null);
+    for (let index = 0; index < prepared.length; index += 1) {
+      if (!concurrent.started.has(index)) releasePrepared(prepared[index]);
+    }
+    const values = concurrent.output;
+    const hardFailure = values.find((entry) => entry && entry.status !== "ok"
       && (failure === "abort" || !allowedFailure(entry, allow_failure_codes)));
     return hardFailure
       ? { ok: false, status: hardFailure.status, code: hardFailure.code ?? "kernel-child-failed", values }
       : { ok: true, values };
   };
 
-  emit(resume ? "run-resume" : "run-start", { node_id: current, definition_ref: definitionRef });
   try {
+    emit(resume ? "run-resume" : "run-start", { node_id: current, definition_ref: definitionRef });
+    if (cancelled) {
+      const stopped = interruption();
+      return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+    }
     const initialCheckpoint = await checkpoint();
     if (!initialCheckpoint.ok) return { ok: false, status: "failed", code: initialCheckpoint.code, events, outputs };
     while (!cancelled) {
@@ -596,7 +790,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       let nodeStatus = "ok";
       if (node.kind === "agent") {
         const result = await executeAgentWithRetry(node, current, `${current}:${visits[current]}`);
-        outputs[current] = result;
+        if (!storeOutput(current, result)) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
         if (result.status !== "ok") return { ok: false, status: result.status, code: result.code ?? "kernel-agent-failed", events, outputs, budget: budget.snapshot() };
         next = node.next;
       } else if (node.kind === "pipeline") {
@@ -614,15 +808,27 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         const byRole = Object.fromEntries(Object.entries(grouped).map(([role, entries]) => [role, entries.length === 1
           ? entries[0].value
           : { values: entries.map(outputValue), recommendation: strictRecommendation(entries) }]));
-        outputs[current] = { values: values.map(outputValue), by_role: byRole };
+        if (!storeOutput(current, { values: values.map(outputValue), by_role: byRole })) {
+          return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+        }
         if (node.artifact && typeof deps.verifyArtifact === "function") {
-          const artifact = await runBoundary(() => deps.verifyArtifact(node.artifact, {
-            run_id: runId, node_id: current, definition_id: definition.id, cwd: deps.workspace?.cwd ?? deps.cwd,
-            signal: runController.signal,
-          }));
-          if (cancelled) return { ok: false, status: "cancelled", code: "kernel-run-cancelled", events, outputs, budget: budget.snapshot() };
+          let artifact;
+          try {
+            artifact = await runBoundary(() => deps.verifyArtifact(node.artifact, {
+              run_id: runId, node_id: current, definition_id: definition.id, cwd: deps.workspace?.cwd ?? deps.cwd,
+              signal: runController.signal,
+            }));
+          } catch {
+            return { ok: false, status: "failed", code: "kernel-artifact-verification-failed", events, outputs, budget: budget.snapshot() };
+          }
+          if (cancelled) {
+            const stopped = interruption();
+            return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+          }
           if (!artifact?.ok) return { ok: false, status: "failed", code: safeCode(artifact?.code, "kernel-artifact-invalid"), events, outputs, budget: budget.snapshot() };
-          outputs[current].artifact_ref = artifact.ref ?? null;
+          if (!storeOutput(current, { ...outputs[current], artifact_ref: artifact.ref ?? null })) {
+            return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+          }
         }
         next = node.next;
       } else if (node.kind === "parallel") {
@@ -631,7 +837,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           failure: node.failure,
           allow_failure_codes: node.allow_failure_codes ?? [],
         });
-        outputs[current] = result.values;
+        if (!storeOutput(current, result.values)) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
         if (!result.ok) return { ok: false, status: result.status ?? "failed", code: result.code, events, outputs, budget: budget.snapshot() };
         next = node.next;
       } else if (node.kind === "map") {
@@ -644,10 +850,19 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         }
         const reserved = reservePrepared(prepared);
         if (!reserved.ok) return { ok: false, status: "refused", code: reserved.code, events, outputs, budget: budget.snapshot() };
-        const values = await mapConcurrent(prepared, definition.limits.max_concurrency, executePrepared);
-        const hardFailure = values.find((entry) => entry.status !== "ok"
+        const hard = (entry) => entry.status !== "ok"
+          && (node.failure === "abort" || !allowedFailure(entry, node.allow_failure_codes ?? []));
+        const concurrent = await mapConcurrent(prepared, definition.limits.max_concurrency, executePrepared,
+          node.failure === "abort" ? hard : null);
+        for (let index = 0; index < prepared.length; index += 1) {
+          if (!concurrent.started.has(index)) releasePrepared(prepared[index]);
+        }
+        const values = concurrent.output;
+        const hardFailure = values.find((entry) => entry && entry.status !== "ok"
           && (node.failure === "abort" || !allowedFailure(entry, node.allow_failure_codes ?? [])));
-        outputs[current] = values.map((entry, index) => ({ item: resolved.value[index], result: entry }));
+        if (!storeOutput(current, values.map((entry, index) => ({ item: resolved.value[index], result: entry ?? null })))) {
+          return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+        }
         if (hardFailure) {
           return { ok: false, status: hardFailure.status, code: hardFailure.code ?? "kernel-child-failed", events, outputs, budget: budget.snapshot() };
         }
@@ -655,24 +870,30 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       } else if (node.kind === "reduce") {
         const resolved = resolveJsonPointer(context(), node.items_path);
         if (!resolved.found || !Array.isArray(resolved.value)) return { ok: false, status: "refused", code: "kernel-reduce-input-invalid", events, outputs };
-        if (node.strategy === "collect") outputs[current] = structuredClone(resolved.value);
-        else if (node.strategy === "count") outputs[current] = resolved.value.length;
-        else outputs[current] = resolved.value.map((value) => typeof value === "string" ? value : JSON.stringify(value)).join(node.separator);
+        const reduced = node.strategy === "collect" ? structuredClone(resolved.value)
+          : node.strategy === "count" ? resolved.value.length
+            : resolved.value.map((value) => typeof value === "string" ? value : JSON.stringify(value)).join(node.separator);
+        if (!storeOutput(current, reduced)) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
         next = node.next;
       } else if (node.kind === "decision") {
         const selected = node.transitions.find((entry) => evaluateCondition(entry.when, context()));
         const edge = selected ?? node.default;
         if (edge.loop === true && deps.loops === false) next = node.loops_off;
         else next = edge.target;
-        outputs[current] = { selected: next };
+        if (!storeOutput(current, { selected: next })) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
       } else if (node.kind === "gate") {
         let result;
         const objective = node.final === true ? definition.objective_gate : node.gate;
         try { result = await runBoundary(() => deps.runGate(objective, { run_id: runId, node_id: current, definition_id: definition.id, final: node.final === true, cwd: deps.workspace?.cwd ?? deps.cwd, signal: runController.signal })); }
         catch { result = null; }
-        if (cancelled) return { ok: false, status: "cancelled", code: "kernel-run-cancelled", events, outputs, budget: budget.snapshot() };
+        if (cancelled) {
+          const stopped = interruption();
+          return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+        }
         const pass = result?.result === "pass";
-        outputs[current] = { result: pass ? "pass" : "fail", evidence_ref: result?.evidence_ref ?? null, final: node.final === true };
+        if (!storeOutput(current, { result: pass ? "pass" : "fail", evidence_ref: result?.evidence_ref ?? null, final: node.final === true })) {
+          return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+        }
         emit("gate", {
           node_id: current,
           result: pass ? "pass" : "fail",
@@ -681,11 +902,19 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         });
         next = !pass && deps.loops === false && node.loops_off ? node.loops_off : (pass ? node.on_pass : node.on_fail);
       } else if (node.kind === "checkpoint") {
-        const result = await runBoundary(() => deps.checkpoint?.({
-          run_id: runId, node_id: current, visit: visits[current], reason: node.reason,
-          outputs: structuredClone(outputs), signal: runController.signal,
-        }));
-        if (cancelled) return { ok: false, status: "cancelled", code: "kernel-run-cancelled", events, outputs, budget: budget.snapshot() };
+        let result;
+        try {
+          result = await runBoundary(() => deps.checkpoint?.({
+            run_id: runId, node_id: current, visit: visits[current], reason: node.reason,
+            outputs: structuredClone(outputs), signal: runController.signal,
+          }));
+        } catch {
+          return { ok: false, status: "failed", code: "kernel-checkpoint-effect-failed", events, outputs, budget: budget.snapshot() };
+        }
+        if (cancelled) {
+          const stopped = interruption();
+          return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+        }
         if (result?.continue !== true) {
           const pausedCheckpoint = await checkpoint();
           if (!pausedCheckpoint.ok) return { ok: false, status: "failed", code: pausedCheckpoint.code, events, outputs, budget: budget.snapshot() };
@@ -694,8 +923,13 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         next = node.next;
       } else if (node.kind === "subworkflow") {
         if (typeof deps.resolveSubworkflow !== "function" || deps.depth >= 1) return { ok: false, status: "refused", code: "kernel-subworkflow-unavailable", events, outputs };
-        const child = await runBoundary(() => deps.resolveSubworkflow(node.workflow_id, node.version));
-        if (cancelled) return { ok: false, status: "cancelled", code: "kernel-run-cancelled", events, outputs, budget: budget.snapshot() };
+        let child;
+        try { child = await runBoundary(() => deps.resolveSubworkflow(node.workflow_id, node.version)); }
+        catch { return { ok: false, status: "failed", code: "kernel-subworkflow-resolution-failed", events, outputs, budget: budget.snapshot() }; }
+        if (cancelled) {
+          const stopped = interruption();
+          return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+        }
         if (child && !childInputSchemaAcceptsParent(definition.inputs, child.inputs)) {
           return { ok: false, status: "refused", code: "kernel-subworkflow-binding-invalid", events, outputs };
         }
@@ -728,7 +962,9 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         }) : null;
         if (!result?.ok) return { ok: false, status: result?.status ?? "refused", code: result?.code ?? "kernel-subworkflow-failed", events, outputs };
         delete active.child;
-        outputs[current] = { status: result.status, terminal: result.terminal };
+        if (!storeOutput(current, { status: result.status, terminal: result.terminal })) {
+          return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+        }
         next = node.next;
       } else {
         if (node.status === "succeeded"
@@ -738,6 +974,10 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           active = null;
           const terminalCheckpoint = await checkpoint();
           if (!terminalCheckpoint.ok) return { ok: false, status: "failed", code: terminalCheckpoint.code, events, outputs };
+          if (cancelled) {
+            const stopped = interruption();
+            return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+          }
           return {
             ok: false,
             status: "refused",
@@ -757,6 +997,10 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         active = null;
         const terminalCheckpoint = await checkpoint();
         if (!terminalCheckpoint.ok) return { ok: false, status: "failed", code: terminalCheckpoint.code, events, outputs };
+        if (cancelled) {
+          const stopped = interruption();
+          return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+        }
         return {
           ok: node.status === "succeeded",
           status: node.status,
@@ -777,7 +1021,8 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       const transitionCheckpoint = await checkpoint();
       if (!transitionCheckpoint.ok) return { ok: false, status: "failed", code: transitionCheckpoint.code, events, outputs };
     }
-    return { ok: false, status: "cancelled", code: deps.signal?.reason ?? "kernel-run-cancelled", events, outputs, budget: budget.snapshot() };
+    const stopped = interruption();
+    return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
   } finally {
     if (runTimer) clearTimeout(runTimer);
     deps.signal?.removeEventListener?.("abort", abort);

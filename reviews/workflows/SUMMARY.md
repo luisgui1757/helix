@@ -361,3 +361,54 @@ and passed real Pi 0.80.9 RPC. Active Docker `--network none` passed 5/5 with
 both external destinations denied, offline Pi 0.80.7 package loading, and the
 localhost-only mock path. No live provider call was made or claimed. Exact-head
 Node 22.19/26 and Pi 0.80.7/0.80.9 evidence belongs to the pushed commit's CI.
+
+## 2026-07-19 — Independent recovery and execution-boundary closure
+
+Status before this change: HOLD at exact head
+`77421126a63efa3f97be92bdbd4208ce4919a2da`. The union of the independent
+Fable 5 and Codex findings was accepted. A separate read-only GPT-5.6 Sol
+review reproduced every blocking mechanism and found the coupled
+serialized-writer identity race. The canonical closure is:
+
+- Shared writers now acquire the writer mutex before resume/cache/identity and
+  before-state work. `workspace.begin` compares that locked fingerprint with
+  the private snapshot; a stale process-restart generation is removed and
+  retaken. A real checkpoint-effect crash-residue regression proves rollback
+  preserves intervening committed work, and concurrent writers prove every
+  journal `before_ref` equals its transaction before-state.
+- Scheduler output and active-result admission use a 15 MiB payload ceiling
+  inside the 16 MiB checkpoint document and retain 16 KiB compact-failure
+  headroom. The effect journal enforces the same 8 MiB ceiling on append and
+  reopen. Aggregate overflow is rolled back and durably recorded as the compact
+  `kernel-result-capacity-exceeded`; an on-disk regression reopens the journal
+  and resumes with zero additional calls.
+- Usage is a closed nonnegative safe-integer pair. Malformed telemetry fails
+  without false zero accounting, provider and panel sums use checked addition,
+  and budget reserve/account/commit overflow refuses without mutating totals.
+- Abort-policy parallel/map dispatch is stop-aware. It drains only work already
+  started, prevents queued shared writers from calling after the decisive
+  failure, and releases every unused first-wave reservation.
+- General reachability now follows operational decision edges. An inert
+  acyclic `loops_off` is rejected and removed during migration; valid cyclic
+  loop-disabled escapes remain supported.
+- Event, clock, artifact, checkpoint, and child-resolution host failures close
+  into stable kernel results. Timer and abort-listener ownership is bounded.
+  Internal run deadlines are failed timeouts, external aborts are cancellations,
+  and schema-1 continuation refuses rather than resetting elapsed lifetime.
+- Attended workflow numbers use complete JSON number tokens; workflow iteration
+  and cast-member counts use canonical unsigned decimal tokens. Hexadecimal,
+  leading-zero, signed-plus, exponent-count, and unsafe count spellings refuse
+  before mutation confirmation.
+
+Focused regression evidence before the complete release gate: 172/172 across
+kernel, schema/limits, runtime contract, product execution, command core,
+extension, and control-surface suites. Complete local evidence before commit:
+`npm test` passed 708/708 with 0 skipped, worktree self-test 12/12, and
+objective-loop self-test 8/8. Workflow conformance passed 86/86 and provider
+contracts 27/27. Documentation truth, resources, static no-live-egress,
+public-safety diff, both deterministic smokes, and `git diff --check` passed.
+The extracted package contains exactly 99 files and passed real Pi 0.80.10 RPC.
+The existing pinned Docker image passed the active `--network none` smoke 5/5,
+including offline Pi 0.80.7 package loading and the localhost-only mock path.
+No live provider call was made or claimed. Exact-head CI and the independent
+post-ship review are appended below after they exist.

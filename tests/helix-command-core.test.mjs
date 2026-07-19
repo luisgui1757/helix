@@ -236,6 +236,19 @@ test("workflow creation refuses unsafe durable-output and gate paths", () => {
   assert.equal(existsSync(join(stateRoot, "workflows")), false);
 });
 
+test("workflow creation accepts only canonical unsigned iteration tokens", () => {
+  for (const token of ["+1", "01", "0x10", "1e1", "9007199254740992"]) {
+    const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-count-token-"));
+    const out = executeHelixCommand(
+      `workflows create count-token implement-review result.md PASS ${token}`,
+      { mode: "tui", confirm: true },
+      { stateRoot },
+    );
+    assert.equal(out.code, "helix-usage", token);
+    assert.equal(existsSync(join(stateRoot, "workflows")), false, token);
+  }
+});
+
 test("native run completion renders only stable structural fields", () => {
   const complete = renderHelixRunCompletion({
     runId: "native-mock-run",
@@ -290,6 +303,17 @@ test("native run completion renders only stable structural fields", () => {
   assert.equal(cancelled.status, "cancelled");
   assert.equal(cancelled.title, "Helix run cancelled");
   assert.equal(cancelled.text.includes("failed"), false);
+  assert.match(cancelled.text, /cancelled by the operator/);
+
+  const deadline = renderHelixRunCompletion({
+    runId: "native-mock-run", configId: "mock-core-loop", exitCode: 1,
+    converged: false, stopReason: "cancelled", failureCode: "workflow-run-timeout",
+  });
+  assert.equal(deadline.ok, false);
+  assert.equal(deadline.status, "timeout");
+  assert.equal(deadline.title, "Helix run deadline reached");
+  assert.match(deadline.text, /timed out at the whole-run deadline/);
+  assert.doesNotMatch(deadline.text, /cancelled by the operator/);
 
   const interrupted = renderHelixRunCompletion({
     runId: "native-mock-run",
@@ -396,6 +420,8 @@ test("helix help is view-only and does not require config loading", () => {
   assert.equal(out.details.launches_loop, false);
   assert.equal(out.details.live_calls, false);
   assert.equal(out.text.includes("docs/manual.md"), true);
+  assert.match(out.text, /settings\/profile\/setup\/prune changes require confirmation before mutation/);
+  assert.doesNotMatch(out.text, /settings toggles save immediately/);
 });
 
 test("helix prune is not called when config loading fails", () => {

@@ -336,8 +336,19 @@ The single source for test rules.
   durable private checkpoint actually exists.
 - Read-only effects may overlap. Shared mutations serialize. Isolated proposals
   promote only from an unchanged canonical fingerprint; conflicts refuse.
+- A shared writer computes its effect identity and takes its before-state
+  snapshot while holding the writer mutex. A reused private snapshot must
+  match that locked fingerprint; stale crash residue is removed and retaken,
+  never accepted as the rollback target.
 - Every actual model invocation, including panel members and retries, is one
-  independently budgeted and journaled effect. Panel reservations are atomic.
+  independently budgeted and journaled effect. Panel reservations are atomic,
+  token/cost arithmetic uses checked safe-integer addition, and malformed
+  usage fails closed. Abort-policy fan-out stops dequeuing after the first
+  decisive failure and releases reservations for work that never started.
+- Result, output, journal, and checkpoint admission preserve enough headroom
+  for a compact durable failure. Aggregate growth may stop a workflow with a
+  stable capacity result, but may never create an oversized checkpoint or a
+  journal that its own reader rejects.
 - Authored allowlists may settle only explicitly typed agent failures. Kernel
   integrity, identity, budget, cancellation, workspace, and gate failures are
   structurally non-maskable.

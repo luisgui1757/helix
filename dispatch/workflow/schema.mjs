@@ -607,13 +607,13 @@ function runtimeEdges(node) {
   return nodeEdges(node).filter((edge) => edge.field !== "loops_off");
 }
 
-function reverseReachable(nodes, target) {
+function reverseReachable(nodes, target, edgesFor = (_id, node) => nodeEdges(node)) {
   const seen = new Set([target]);
   let changed = true;
   while (changed) {
     changed = false;
     for (const [id, node] of Object.entries(nodes)) {
-      if (!seen.has(id) && nodeEdges(node).some((edge) => seen.has(edge.target))) {
+      if (!seen.has(id) && edgesFor(id, node).some((edge) => seen.has(edge.target))) {
         seen.add(id);
         changed = true;
       }
@@ -658,17 +658,6 @@ export function validateWorkflowDefinition(definition) {
       }
     }
   }
-  const reachable = new Set();
-  const queue = Object.hasOwn(nodes, definition.start) ? [definition.start] : [];
-  while (queue.length) {
-    const id = queue.shift();
-    if (reachable.has(id)) continue;
-    reachable.add(id);
-    for (const { target } of nodeEdges(nodes[id])) {
-      if (Object.hasOwn(nodes, target) && !reachable.has(target)) queue.push(target);
-    }
-  }
-  for (const id of nodeIds) if (!reachable.has(id)) errors.push(issue(`$.nodes.${id}`, "is unreachable from start"));
   const reaches = (start, target) => {
     const seen = new Set();
     const pending = [start];
@@ -681,6 +670,27 @@ export function validateWorkflowDefinition(definition) {
     }
     return false;
   };
+  const decisionsWithCyclicLoop = new Set();
+  for (const [id, node] of Object.entries(nodes)) {
+    if (node?.kind !== "decision" || !Array.isArray(node.transitions) || !plain(node.default)) continue;
+    const authored = [...node.transitions, node.default];
+    if (authored.some((edge) => edge?.loop === true && safeId(edge.target, NODE_ID) && reaches(edge.target, id))) {
+      decisionsWithCyclicLoop.add(id);
+    }
+  }
+  const operationalEdges = (id, node) => nodeEdges(node).filter((edge) =>
+    edge.field !== "loops_off" || node?.kind !== "decision" || decisionsWithCyclicLoop.has(id));
+  const reachable = new Set();
+  const queue = Object.hasOwn(nodes, definition.start) ? [definition.start] : [];
+  while (queue.length) {
+    const id = queue.shift();
+    if (reachable.has(id)) continue;
+    reachable.add(id);
+    for (const { target } of operationalEdges(id, nodes[id])) {
+      if (Object.hasOwn(nodes, target) && !reachable.has(target)) queue.push(target);
+    }
+  }
+  for (const id of nodeIds) if (!reachable.has(id)) errors.push(issue(`$.nodes.${id}`, "is unreachable from start"));
   const reachesWithLoopsDisabled = (start, target) => {
     const seen = new Set();
     const pending = [start];
@@ -702,6 +712,9 @@ export function validateWorkflowDefinition(definition) {
   };
   for (const [id, node] of Object.entries(nodes)) {
     if (node.kind !== "decision" || !Array.isArray(node.transitions) || !plain(node.default)) continue;
+    if (node.loops_off != null && !decisionsWithCyclicLoop.has(id)) {
+      errors.push(issue(`$.nodes.${id}.loops_off`, "requires at least one cyclic decision edge marked loop:true"));
+    }
     const edges = [
       ...node.transitions.map((edge, index) => ({ edge, path: `$.nodes.${id}.transitions[${index}]` })),
       { edge: node.default, path: `$.nodes.${id}.default` },
@@ -735,7 +748,7 @@ export function validateWorkflowDefinition(definition) {
         }
       }
     }
-    const canReachSuccess = reverseReachable(nodes, successId);
+    const canReachSuccess = reverseReachable(nodes, successId, operationalEdges);
     for (const id of nodeIds) {
       const node = nodes[id];
       if (node.kind !== "terminal" && !canReachSuccess.has(id) && reachable.has(id)) {
@@ -894,6 +907,7 @@ function migrateWorkflowV1Checked(workflow) {
     const cyclic = edges.filter((edge) => reachesDecision(edge.target, id));
     for (const edge of cyclic) edge.loop = true;
     if (cyclic.length > 0 && node.loops_off == null) node.loops_off = finalGate;
+    else if (cyclic.length === 0) delete node.loops_off;
   }
   const definition = {
     schema_version: WORKFLOW_SCHEMA_VERSION,

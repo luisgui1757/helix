@@ -73,7 +73,11 @@ The final node has no second objective: it executes the top-level
 Every candidate, panel member, and retry is one independently budgeted and
 journaled model effect; a panel cannot start unless its whole first wave fits.
 The whole-run deadline is cumulative: elapsed time is stored in the private
-checkpoint, and continuation receives only the remaining duration.
+checkpoint, and continuation receives only the remaining duration. Historical
+schema-1 checkpoints can still be inspected, but named kernel continuation
+refuses them because they contain no trustworthy elapsed lifetime. A deadline
+is rendered as a timeout; only an external/operator abort is rendered as
+operator cancellation.
 
 - `/helix-runs` lists structural records.
 - `/helix-run-status <run-id>` shows one structural record.
@@ -109,6 +113,12 @@ the suffix only against a durable in-flight/result identity and the exact
 workspace fingerprint where mutation occurred. A missing or ambiguous outcome,
 truncation, corruption, task drift, workflow drift, runtime drift, account
 drift, missing snapshot, wrong repository, or ownership mismatch refuses.
+The scheduler also admits aggregate results before they enter durable state.
+Its payload is capped below the private checkpoint envelope, and journal writes
+enforce the same 8 MiB limit as journal reads. If a valid individual result
+would exhaust the reserved compact-failure headroom, the attempt becomes the
+stable `kernel-result-capacity-exceeded` result; mutation is rolled back, the
+compact record remains reopenable, and continuation does not repeat the call.
 
 ## Models and settings
 

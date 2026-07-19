@@ -19,6 +19,18 @@ export function createBudgetLedger({
   let cost = initial_cost_micros;
   let nextId = 0;
   const reservations = new Map();
+  const add = (left, right) => {
+    const sum = left + right;
+    return Number.isSafeInteger(sum) && sum >= 0 ? sum : null;
+  };
+  const sum = (values) => {
+    let total = 0;
+    for (const value of values) {
+      total = add(total, value);
+      if (total == null) return null;
+    }
+    return total;
+  };
   const validateRequest = (request = {}) => {
     if (request === null || typeof request !== "object" || Array.isArray(request)) return false;
     const { tokens: requestedTokens = 0, cost_micros: requestedCost = 0 } = request;
@@ -26,13 +38,21 @@ export function createBudgetLedger({
       && Number.isSafeInteger(requestedCost) && requestedCost >= 0;
   };
   const canReserve = (requests) => {
-    const reservedTokens = [...reservations.values()].reduce((sum, entry) => sum + entry.tokens, 0);
-    const reservedCost = [...reservations.values()].reduce((sum, entry) => sum + entry.cost_micros, 0);
-    const requestedTokens = requests.reduce((sum, entry) => sum + (entry.tokens ?? 0), 0);
-    const requestedCost = requests.reduce((sum, entry) => sum + (entry.cost_micros ?? 0), 0);
-    return effects + reservations.size + requests.length <= max_effects
-      && (max_tokens == null || tokens + reservedTokens + requestedTokens <= max_tokens)
-      && (max_cost_micros == null || cost + reservedCost + requestedCost <= max_cost_micros);
+    const projectedEffects = sum([effects, reservations.size, requests.length]);
+    const reservedTokens = sum([...reservations.values()].map((entry) => entry.tokens));
+    const reservedCost = sum([...reservations.values()].map((entry) => entry.cost_micros));
+    const requestedTokens = sum(requests.map((entry) => entry.tokens ?? 0));
+    const requestedCost = sum(requests.map((entry) => entry.cost_micros ?? 0));
+    const projectedTokens = [reservedTokens, requestedTokens].includes(null) ? null : sum([tokens, reservedTokens, requestedTokens]);
+    const projectedCost = [reservedCost, requestedCost].includes(null) ? null : sum([cost, reservedCost, requestedCost]);
+    if ([projectedEffects, projectedTokens, projectedCost].includes(null)) {
+      return { ok: false, code: "kernel-budget-arithmetic-overflow" };
+    }
+    return projectedEffects <= max_effects
+      && (max_tokens == null || projectedTokens <= max_tokens)
+      && (max_cost_micros == null || projectedCost <= max_cost_micros)
+      ? { ok: true }
+      : { ok: false, code: "kernel-budget-exhausted" };
   };
   const install = (request) => {
     const id = `reservation-${++nextId}`;
@@ -44,13 +64,15 @@ export function createBudgetLedger({
     reserve({ tokens: requestedTokens = 0, cost_micros: requestedCost = 0 } = {}) {
       const request = { tokens: requestedTokens, cost_micros: requestedCost };
       if (!validateRequest(request)) return { ok: false, code: "kernel-budget-reservation-invalid" };
-      return canReserve([request]) ? install(request) : { ok: false, code: "kernel-budget-exhausted" };
+      const allowed = canReserve([request]);
+      return allowed.ok ? install(request) : allowed;
     },
     reserveBatch(requests) {
       if (!Array.isArray(requests) || requests.length < 1 || requests.some((request) => !validateRequest(request))) {
         return { ok: false, code: "kernel-budget-reservation-invalid" };
       }
-      if (!canReserve(requests)) return { ok: false, code: "kernel-budget-exhausted" };
+      const allowed = canReserve(requests);
+      if (!allowed.ok) return allowed;
       return { ok: true, reservations: requests.map(install) };
     },
     consume(id) {
@@ -69,19 +91,28 @@ export function createBudgetLedger({
         || !Number.isSafeInteger(actualCost) || actualCost < 0) {
         return { ok: false, code: "kernel-budget-commit-invalid" };
       }
-      tokens += actualTokens;
-      cost += actualCost;
-      const overshoot = (max_tokens != null && tokens > max_tokens) || (max_cost_micros != null && cost > max_cost_micros);
+      const nextTokens = add(tokens, actualTokens);
+      const nextCost = add(cost, actualCost);
+      if (nextTokens == null || nextCost == null) return { ok: false, code: "kernel-budget-arithmetic-overflow" };
+      tokens = nextTokens;
+      cost = nextCost;
+      const overshoot = (max_tokens != null && nextTokens > max_tokens) || (max_cost_micros != null && nextCost > max_cost_micros);
       return overshoot ? { ok: false, code: "kernel-budget-provider-overshoot" } : { ok: true };
     },
     commit(id, { tokens: actualTokens = 0, cost_micros: actualCost = 0 } = {}) {
       if (!reservations.has(id) || !Number.isSafeInteger(actualTokens) || actualTokens < 0
         || !Number.isSafeInteger(actualCost) || actualCost < 0) return { ok: false, code: "kernel-budget-commit-invalid" };
+      const nextEffects = add(effects, 1);
+      const nextTokens = add(tokens, actualTokens);
+      const nextCost = add(cost, actualCost);
+      if (nextEffects == null || nextTokens == null || nextCost == null) {
+        return { ok: false, code: "kernel-budget-arithmetic-overflow" };
+      }
       reservations.delete(id);
-      effects += 1;
-      tokens += actualTokens;
-      cost += actualCost;
-      const overshoot = (max_tokens != null && tokens > max_tokens) || (max_cost_micros != null && cost > max_cost_micros);
+      effects = nextEffects;
+      tokens = nextTokens;
+      cost = nextCost;
+      const overshoot = (max_tokens != null && nextTokens > max_tokens) || (max_cost_micros != null && nextCost > max_cost_micros);
       return overshoot ? { ok: false, code: "kernel-budget-provider-overshoot" } : { ok: true };
     },
     release(id) { return reservations.delete(id); },

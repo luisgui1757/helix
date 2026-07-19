@@ -291,11 +291,13 @@ async function executeKernelDefinition({
         return { ok: false, code: "provider-identity-unverified" };
       }
     }
+    const tokens = envelope.usage.input_tokens + envelope.usage.output_tokens;
+    if (!Number.isSafeInteger(tokens)) return { ok: false, code: "kernel-agent-usage-invalid" };
     return {
       ok: true,
       value: envelope,
       usage: {
-        tokens: envelope.usage.input_tokens + envelope.usage.output_tokens,
+        tokens,
         cost_micros: 0,
       },
       attestation_ref: envelope.attestation_ref ?? null,
@@ -384,7 +386,7 @@ async function executeKernelDefinition({
     ? structuredClone(resumeDocument.maintenance)
     : { cleanup_generations: [], public_projection_pending: false };
   const onCheckpoint = async (schedulerState) => {
-    const snapshotGeneration = `kernel-${schedulerState.event_seq}-${schedulerState.journal_entries}`;
+    const snapshotGeneration = `kernel-${schedulerState.event_seq}-${schedulerState.journal_entries}-${schedulerState.workspace_ref.slice(7, 23)}`;
     const snapshot = checkpoint.snapshot(runId, snapshotGeneration, created.path);
     if (!snapshot.ok || snapshot.tree_ref !== schedulerState.workspace_ref) {
       return { ok: false, code: "kernel-checkpoint-snapshot-failed" };

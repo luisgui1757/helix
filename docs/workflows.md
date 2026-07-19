@@ -100,6 +100,8 @@ boundaries.
 | Gate timeout | — | 10 minutes |
 | Reduce separator / checkpoint reason | — | 32 / 128 characters |
 | Structured repair | 2 declared | 2 |
+| Scheduler payload / private checkpoint document | — | 15 MiB / 16 MiB |
+| Effect journal | — | 8 MiB, identical write/read ceiling |
 
 Retries and panel members are effects: every actual model invocation consumes
 the shared effect/token/cost budget and appears in observed events. A panel's
@@ -107,8 +109,10 @@ first wave is reserved atomically so a one-effect limit cannot launch two calls.
 Loop-disabled mode follows an explicit `loops_off` target. Every decision edge
 whose target can reach that decision—including a forward-entry edge and a
 cyclic default—must be marked `loop: true`. The loops-disabled graph must prove
-that `loops_off` cannot return to the decision; an acyclic marker or invalid
-escape refuses. The kernel never guesses how to escape a cycle.
+that `loops_off` cannot return to the decision; a decision may declare
+`loops_off` only when it has an actual cyclic `loop: true` edge. An acyclic
+marker or invalid escape refuses and cannot make an otherwise unreachable node
+appear reachable. The kernel never guesses how to escape a cycle.
 
 Read-only agents may use only read/search tools. `shared-serialized` writers run
 under one writer mutex with private before-state checkpoints.
@@ -208,7 +212,9 @@ is the safe default; `settle` also requires explicit `allow_failure_codes` and
 preserves only failures explicitly classified by the scheduler as agent
 failures. Scheduler/runtime integrity, identity, policy, workspace, budget,
 cancellation, and final-gate failures are structurally non-maskable regardless
-of an authored code allowlist.
+of an authored code allowlist. After the first decisive abort result, workers
+claim no new branches/items. Only already-started work settles, and reserved
+capacity for every unstarted effect is released deterministically.
 
 ### Map/reduce
 

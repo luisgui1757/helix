@@ -2,11 +2,16 @@
 // resume must present the original task and re-prove its hash.
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
-export const KERNEL_CHECKPOINT_LIMITS = Object.freeze({ max_document_bytes: 16 * 1024 * 1024 });
+export const KERNEL_CHECKPOINT_LIMITS = Object.freeze({
+  max_document_bytes: 16 * 1024 * 1024,
+  max_scheduler_bytes: 15 * 1024 * 1024,
+  min_failure_headroom_bytes: 16 * 1024,
+});
 const RECOVERABLE_FAILURES = new Set([
   "kernel-checkpoint-snapshot-failed",
   "kernel-checkpoint-workspace-invalid",
   "kernel-checkpoint-write-failed",
+  "kernel-event-write-failed",
   "kernel-journal-write-failed",
   "kernel-workspace-begin-failed",
   "kernel-workspace-commit-failed",

@@ -164,6 +164,10 @@ test("an exact-limit persisted definition can be watched and resumed", async () 
     expected_binding_ref: binding,
   });
   assert.equal(paused.stop_reason, "paused");
+  const privateCheckpoint = JSON.parse(readFileSync(join(
+    stateRoot, "private", "runs", "definition-limit-run", "kernel-checkpoint.json",
+  ), "utf8"));
+  assert.equal(privateCheckpoint.snapshot_generation.endsWith(privateCheckpoint.snapshot_ref.slice(7, 23)), true);
   const watched = executeHelixCommand("runs watch definition-limit-run", { mode: "print" }, {
     stateRoot, runsRoot: join(stateRoot, "runs"), chainRegistry: chains, runRegistry: runs,
   });
@@ -582,7 +586,7 @@ test("interrupted product workflow resumes from its private effect checkpoint wi
   const cwd = repo();
   installWorkflow(stateRoot, "resume-loop");
   const binding = executionBinding(stateRoot, "resume-loop");
-  await assert.rejects(executeNamedWorkflow({
+  const interrupted = await executeNamedWorkflow({
     workflow_id: "resume-loop",
     task: "resume this exact task",
     run_id: "kernel-resume-run",
@@ -595,7 +599,10 @@ test("interrupted product workflow resumes from its private effect checkpoint wi
     onEvent(event) {
       if (event.kind === "effect-end") throw new Error("synthetic-process-boundary-stop");
     },
-  }), /synthetic-process-boundary-stop/);
+  });
+  assert.equal(interrupted.ok, false);
+  assert.equal(interrupted.code, "kernel-event-write-failed");
+  assert.equal(interrupted.resumable, true);
   const statePath = join(stateRoot, "runs", "kernel-resume-run", "kernel-resume-run.state.json");
   assert.equal(JSON.parse(readFileSync(statePath, "utf8")).completed, false);
   const ready = executeHelixCommand("runs resume kernel-resume-run", { mode: "print" }, {

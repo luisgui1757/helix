@@ -226,6 +226,40 @@ test("every cyclic decision edge is explicitly marked and has a loops-off escape
   assert.equal(forward.errors.some((entry) => entry.message.includes("cyclic decision edge")), true);
 });
 
+test("an inert acyclic decision loops_off cannot make its target structurally reachable", () => {
+  const candidate = workflow({
+    id: "inert-acyclic-escape", name: "Inert acyclic escape",
+    description: "An acyclic decision cannot activate a loops-off-only branch.", start: "route",
+    nodes: {
+      route: decision([{ when: { op: "always" }, target: "objective" }], "failed", { loops_off: "escape" }),
+      escape: checkpoint("inert-escape", "objective"),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"), failed: terminal("failed", "condition-unmatched"),
+    },
+    objective_gate: { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 },
+  });
+  assert.equal(candidate.ok, false);
+  assert.equal(candidate.errors.some((entry) => entry.path === "$.nodes.route.loops_off"
+    && entry.message.includes("cyclic decision edge marked loop:true")), true);
+  assert.equal(candidate.errors.some((entry) => entry.path === "$.nodes.escape"
+    && entry.message === "is unreachable from start"), true);
+});
+
+test("a valid cyclic decision loops_off escape supplies reachability and liveness", () => {
+  const candidate = workflow({
+    id: "cyclic-live-escape", name: "Cyclic live escape",
+    description: "A marked decision loop escapes to the final objective when loops are disabled.", start: "route",
+    nodes: {
+      route: decision([{ when: { op: "always" }, target: "work", loop: true }], "failed", { loops_off: "objective" }),
+      work: checkpoint("bounded-loop", "route"),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"), failed: terminal("failed", "condition-unmatched"),
+    },
+    objective_gate: { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 },
+  });
+  assert.equal(candidate.ok, true, JSON.stringify(candidate.errors));
+});
+
 test("accepted input schemas always have an object root and a safe integer witness", () => {
   const base = normalizeWorkflowDefinition(currentWorkflow()).definition;
   const noInteger = structuredClone(base);

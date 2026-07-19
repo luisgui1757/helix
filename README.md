@@ -69,7 +69,11 @@ actual model invocation—including each panel member and retry—consumes one
 journaled effect. A durable pre-call intent records that consumption; recovery
 reconciles completed journal evidence without repeating provider work. Recovery
 snapshots remain retained until the workspace, journal, scheduler checkpoint,
-and post-commit cleanup are durably complete.
+and post-commit cleanup are durably complete. Shared writers bind their journal
+identity and private before-state under the same writer lock, and stale crash
+snapshots are retaken before they can become rollback material. Aggregate
+result admission preserves a compact-failure reserve in both the checkpoint
+and journal envelopes, so a valid fan-out cannot brick continuation storage.
 
 Run records contain structural events and hashes. Raw tasks remain in memory;
 private scheduler checkpoints and bounded workspace snapshots live below

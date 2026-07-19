@@ -7,8 +7,9 @@ import { execFileSync } from "node:child_process";
 
 import { agent, checkpoint, decision, map, objectiveGate, parallel, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { createEffectJournal, journalRef } from "../dispatch/kernel/journal.mjs";
+import { createBudgetLedger } from "../dispatch/kernel/budgets.mjs";
 import { runWorkflowKernel } from "../dispatch/kernel/scheduler.mjs";
-import { kernelResultIsComplete } from "../dispatch/kernel/state.mjs";
+import { KERNEL_CHECKPOINT_LIMITS, kernelResultIsComplete } from "../dispatch/kernel/state.mjs";
 import { createCanonicalWorkspace } from "../dispatch/kernel/workspace.mjs";
 import { makePrivateCheckpointEffect } from "../dispatch/lib/runner.mjs";
 
@@ -173,6 +174,106 @@ test("parallel preserves order and bounds in-flight effects", async () => {
   assert.equal(result.ok, true);
   assert.equal(peak, 2);
   assert.deepEqual(result.outputs.work.map((entry) => entry.value), Array.from({ length: 6 }, (_, i) => `work:${i}:attempt-1`));
+});
+
+test("parallel and map abort release unstarted reservations after the first decisive failure", async () => {
+  const cases = [
+    {
+      graph: definition({
+        work: parallel([reviewer(), reviewer(), reviewer()], "objective", { max_concurrency: 1, failure: "abort" }),
+        objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+      }),
+      input: { task: "abort parallel" },
+    },
+    {
+      graph: definition({
+        work: map("/inputs/items", reviewer(), "objective", { max_items: 3, failure: "abort" }),
+        objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+      }, "work", { max_concurrency: 1 }, {
+        type: "object", additionalProperties: false, required: ["task", "items"],
+        properties: {
+          task: { type: "string", minLength: 1, maxLength: 65_536 },
+          items: { type: "array", maxItems: 3, items: { type: "string", minLength: 1, maxLength: 8 } },
+        },
+      }),
+      input: { task: "abort map", items: ["a", "b", "c"] },
+    },
+    {
+      graph: definition({
+        work: parallel([builder(), builder(), builder()], "objective", { max_concurrency: 2, failure: "abort" }),
+        objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+      }),
+      input: { task: "abort queued writers" },
+      workspace: (() => {
+        let generation = 0;
+        return {
+          cwd: "/tmp/mock", currentRef: () => journalRef({ generation }), verifyRef: () => true,
+          async begin() { return { ok: true, cwd: "/tmp/mock", before_ref: journalRef({ generation }) }; },
+          async commit() { generation += 1; return { ok: true, workspace_ref: journalRef({ generation }) }; },
+          async rollback() { return { ok: true }; },
+        };
+      })(),
+    },
+  ];
+  for (const { graph, input, workspace } of cases) {
+    let calls = 0;
+    const result = await runWorkflowKernel(graph, input, readOnlyDeps({
+      ...(workspace ? { workspace } : {}),
+      async executeAgent() {
+        calls += 1;
+        return { ok: false, code: "decisive-agent-failure", failure_class: "agent" };
+      },
+    }));
+    assert.equal(result.code, "decisive-agent-failure");
+    assert.equal(calls, 1);
+    assert.equal(result.budget.effects, 1);
+    assert.equal(result.budget.reserved, 0);
+  }
+});
+
+test("malformed usage fails closed and budget arithmetic never creates unsafe totals", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  });
+  const result = await runWorkflowKernel(graph, { task: "usage" }, readOnlyDeps({
+    async executeAgent() {
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: "100", cost_micros: 0 } };
+    },
+  }));
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "kernel-agent-usage-invalid");
+  assert.equal(result.budget.tokens, 0);
+
+  let rollbacks = 0;
+  const workspaceRef = journalRef("usage-rollback-workspace");
+  const mutatingGraph = definition({
+    work: { ...builder(), next: "objective", max_visits: 1 },
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  });
+  const mutatingResult = await runWorkflowKernel(mutatingGraph, { task: "usage rollback" }, readOnlyDeps({
+    workspace: {
+      cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true,
+      async begin() { return { ok: true, cwd: "/tmp/mock", before_ref: workspaceRef }; },
+      async commit() { return { ok: true, workspace_ref: workspaceRef }; },
+      async rollback() { rollbacks += 1; return { ok: true }; },
+    },
+    async executeAgent() {
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: -1, cost_micros: 0 } };
+    },
+  }));
+  assert.equal(mutatingResult.code, "kernel-agent-usage-invalid");
+  assert.equal(rollbacks, 1);
+
+  const budget = createBudgetLedger({ max_effects: 2 });
+  assert.equal(budget.account({ tokens: Number.MAX_SAFE_INTEGER, cost_micros: 0 }).ok, true);
+  assert.deepEqual(budget.account({ tokens: 1, cost_micros: 0 }), { ok: false, code: "kernel-budget-arithmetic-overflow" });
+  assert.equal(budget.snapshot().tokens, Number.MAX_SAFE_INTEGER);
+  const overflowBatch = createBudgetLedger({ max_effects: 2 }).reserveBatch([
+    { tokens: Number.MAX_SAFE_INTEGER, cost_micros: 0 },
+    { tokens: 1, cost_micros: 0 },
+  ]);
+  assert.deepEqual(overflowBatch, { ok: false, code: "kernel-budget-arithmetic-overflow" });
 });
 
 test("settled failures require an explicit code and can never mask identity failures", async () => {
@@ -364,6 +465,7 @@ test("mutating effects serialize and journal only after workspace commit", async
   let peak = 0;
   let generation = 0;
   const refs = new Set();
+  const beforeRefs = [];
   const graph = definition({
     work: parallel([builder(), builder()], "objective", { max_concurrency: 2 }),
     objective: objectiveGate("success", "failed"),
@@ -373,7 +475,11 @@ test("mutating effects serialize and journal only after workspace commit", async
   const workspace = {
     cwd: "/tmp/mock",
     currentRef: () => journalRef({ generation }),
-    async begin() { return { ok: true, before_ref: journalRef({ generation }), cwd: "/tmp/mock" }; },
+    async begin() {
+      const beforeRef = journalRef({ generation });
+      beforeRefs.push(beforeRef);
+      return { ok: true, before_ref: beforeRef, cwd: "/tmp/mock" };
+    },
     async commit() { generation += 1; const ref = journalRef({ generation }); refs.add(ref); return { ok: true, workspace_ref: ref }; },
     async rollback() {},
     verifyRef: (ref) => refs.has(ref),
@@ -393,6 +499,8 @@ test("mutating effects serialize and journal only after workspace commit", async
   const mutating = result.journal.filter((entry) => entry.mutating);
   assert.equal(mutating.length, 2);
   assert.equal(mutating.every((entry) => refs.has(entry.workspace_ref)), true);
+  assert.deepEqual(mutating.map((entry) => entry.before_ref), beforeRefs);
+  assert.notEqual(mutating[0].before_ref, mutating[1].before_ref);
 });
 
 test("failed workspace restoration preserves its recovery snapshot and is non-maskable", async () => {
@@ -411,6 +519,34 @@ test("failed workspace restoration preserves its recovery snapshot and is non-ma
   const restored = await workspace.rollback(tx);
   assert.equal(restored.code, "kernel-workspace-restore-failed");
   assert.equal(removals, 0, "recovery material remains available after a failed restore");
+});
+
+test("a resumed workspace retakes stale orphaned effect snapshots before rollback", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "helix-kernel-stale-effect-repo-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd });
+    execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+    execFileSync("git", ["config", "user.name", "Helix Workspace Recovery Test"], { cwd });
+    writeFileSync(join(cwd, "value.txt"), "base\n");
+    execFileSync("git", ["add", "value.txt"], { cwd });
+    execFileSync("git", ["commit", "-q", "-m", "base"], { cwd });
+    const checkpointEffect = makePrivateCheckpointEffect(cwd);
+
+    const crashedProcess = createCanonicalWorkspace({ cwd, run_id: "stale-effect-run", checkpoint_effect: checkpointEffect });
+    const orphan = await crashedProcess.begin({ mode: "shared-serialized" });
+    assert.equal(orphan.ok, true);
+    writeFileSync(join(cwd, "value.txt"), "committed-intervening-work\n");
+
+    const resumedProcess = createCanonicalWorkspace({ cwd, run_id: "stale-effect-run", checkpoint_effect: checkpointEffect });
+    const resumed = await resumedProcess.begin({ mode: "shared-serialized" });
+    assert.equal(resumed.ok, true);
+    assert.notEqual(resumed.tree_ref, orphan.tree_ref, "the stale generation must be retaken at the live tree");
+    writeFileSync(join(cwd, "value.txt"), "failed-new-effect\n");
+    assert.equal((await resumedProcess.rollback(resumed)).ok, true);
+    assert.equal(readFileSync(join(cwd, "value.txt"), "utf8"), "committed-intervening-work\n");
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("journal failure after a workspace apply restores before returning", async () => {
@@ -548,6 +684,46 @@ test("oversized and deeply nested agent values return closed kernel failures", a
     assert.equal(resumed.code, "kernel-agent-result-invalid");
     assert.equal(calls, 1);
   }
+});
+
+test("aggregate accepted effect results become a durable bounded failure before checkpoint overflow", async (t) => {
+  const graph = definition({
+    work: parallel(Array.from({ length: 16 }, () => reviewer()), "objective", { max_concurrency: 1, failure: "abort" }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 16, max_concurrency: 1 });
+  const workspaceRef = journalRef("aggregate-result-workspace");
+  const journalRoot = mkdtempSync(join(tmpdir(), "helix-aggregate-journal-"));
+  t.after(() => rmSync(journalRoot, { recursive: true, force: true }));
+  const journal = createEffectJournal({ root: journalRoot, run_id: "run-1", verify_workspace: () => true });
+  const payload = "x".repeat(1_250_000);
+  let calls = 0;
+  let checkpoint = null;
+  const deps = readOnlyDeps({
+    task_ref: journalRef("aggregate-result-task"),
+    runtime_ref: journalRef("aggregate-result-runtime"),
+    journal,
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    async executeAgent() {
+      calls += 1;
+      return { ok: true, value: { payload }, usage: { tokens: 0, cost_micros: 0 } };
+    },
+    async onCheckpoint(state) { checkpoint = state; return { ok: true }; },
+  });
+  const first = await runWorkflowKernel(graph, { task: "aggregate capacity" }, deps);
+  assert.equal(first.code, "kernel-result-capacity-exceeded");
+  assert.ok(calls > 1 && calls < 16, `capacity must stop later dispatch, observed ${calls} calls`);
+  assert.ok(Buffer.byteLength(JSON.stringify(checkpoint), "utf8") <= KERNEL_CHECKPOINT_LIMITS.max_scheduler_bytes);
+  const reopened = createEffectJournal({
+    root: journalRoot,
+    run_id: "run-1",
+    expected_records: journal.records().length,
+    verify_workspace: () => true,
+  });
+  assert.equal(reopened.records().at(-1).result.code, "kernel-result-capacity-exceeded");
+  const callsBeforeResume = calls;
+  const resumed = await runWorkflowKernel(graph, { task: "aggregate capacity" }, { ...deps, journal: reopened, resume: checkpoint });
+  assert.equal(resumed.code, "kernel-result-capacity-exceeded");
+  assert.equal(calls, callsBeforeResume, "continuation reuses the bounded failure without another provider call");
 });
 
 test("effect-boundary checkpoint resumes without repeating a completed effect", async () => {
@@ -832,8 +1008,8 @@ test("the scheduler hard deadline bounds a non-cooperative objective gate", asyn
   const result = await runWorkflowKernel(graph, { task: "deadline" }, readOnlyDeps({
     async runGate() { return new Promise(() => {}); },
   }));
-  assert.equal(result.status, "cancelled");
-  assert.equal(result.code, "kernel-run-cancelled");
+  assert.equal(result.status, "failed");
+  assert.equal(result.code, "kernel-run-deadline-exceeded");
   assert.ok(Date.now() - started < 2_500);
 });
 
@@ -867,8 +1043,17 @@ test("max_run_ms is cumulative across a paused continuation", async () => {
     checkpoint: () => ({ continue: true }),
     async runGate() { return new Promise(() => {}); },
   });
-  assert.equal(resumed.status, "cancelled");
+  assert.equal(resumed.status, "failed");
+  assert.equal(resumed.code, "kernel-run-deadline-exceeded");
   assert.ok(Date.now() - started < 500);
+
+  const legacy = structuredClone(snapshot);
+  legacy.schema_version = 1;
+  delete legacy.elapsed_ms;
+  delete legacy.active.inflight;
+  const legacyResume = await runWorkflowKernel(graph, { task: "deadline resume" }, { ...base, resume: legacy });
+  assert.equal(legacyResume.status, "refused");
+  assert.equal(legacyResume.code, "kernel-checkpoint-elapsed-unknown");
 });
 
 test("isolated proposals promote atomically, roll back, and refuse stale-base conflicts", async () => {
@@ -1065,4 +1250,70 @@ test("workspace fingerprint exceptions return a stable kernel failure", async ()
     workspace: { currentRef() { throw new Error("filesystem failure"); } },
   }));
   assert.equal(result.code, "kernel-workspace-ref-invalid");
+});
+
+test("host callback exceptions return structured kernel failures and preserve workspace rollback", async () => {
+  const mutating = definition({
+    work: { ...builder(), next: "objective", max_visits: 1 },
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  });
+  const workspaceRef = journalRef("host-callback-workspace");
+  let rollbacks = 0;
+  const eventFailure = await runWorkflowKernel(mutating, { task: "event failure" }, readOnlyDeps({
+    workspace: {
+      cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true,
+      async begin() { return { ok: true, mode: "shared-serialized", cwd: "/tmp/mock", generation: "effect-1", tree_ref: workspaceRef, before_ref: workspaceRef }; },
+      async commit() { return { ok: true, workspace_ref: workspaceRef }; },
+      async rollback() { rollbacks += 1; return { ok: true }; },
+    },
+    onEvent(event) { if (event.kind === "effect-start") throw new Error("event sink failed"); },
+  }));
+  assert.equal(eventFailure.status, "failed");
+  assert.equal(eventFailure.code, "kernel-event-write-failed");
+  assert.equal(rollbacks, 1);
+
+  const artifactGraph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1, artifact: { path: "proposal.txt", kind: "notes" } }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  });
+  const artifactFailure = await runWorkflowKernel(artifactGraph, { task: "artifact callback" }, readOnlyDeps({
+    async verifyArtifact() { throw new Error("artifact host failed"); },
+  }));
+  assert.equal(artifactFailure.code, "kernel-artifact-verification-failed");
+
+  const checkpointGraph = definition({
+    approval: checkpoint("operator-approval", "objective"),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  }, "approval");
+  const checkpointFailure = await runWorkflowKernel(checkpointGraph, { task: "checkpoint callback" }, readOnlyDeps({
+    checkpoint() { throw new Error("checkpoint host failed"); },
+  }));
+  assert.equal(checkpointFailure.code, "kernel-checkpoint-effect-failed");
+
+  const childGraph = definition({
+    child: subworkflow("child-flow", 1, "objective"),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  }, "child");
+  const childFailure = await runWorkflowKernel(childGraph, { task: "child callback" }, readOnlyDeps({
+    depth: 0,
+    resolveSubworkflow() { throw new Error("resolver failed"); },
+  }));
+  assert.equal(childFailure.code, "kernel-subworkflow-resolution-failed");
+
+  const started = Date.now();
+  const runStartFailure = await runWorkflowKernel(checkpointGraph, { task: "run start callback" }, readOnlyDeps({
+    onEvent(event) { if (event.kind === "run-start") throw new Error("start event failed"); },
+  }));
+  assert.equal(runStartFailure.code, "kernel-event-write-failed");
+  assert.ok(Date.now() - started < 500, "run-start failure must clear the whole-run timer");
+
+  const initialClockFailure = await runWorkflowKernel(checkpointGraph, { task: "initial clock callback" }, readOnlyDeps({
+    now() { throw new Error("clock failed"); },
+  }));
+  assert.equal(initialClockFailure.code, "kernel-clock-failed");
+  let clockReads = 0;
+  const laterClockFailure = await runWorkflowKernel(checkpointGraph, { task: "later clock callback" }, readOnlyDeps({
+    now() { clockReads += 1; if (clockReads > 1) throw new Error("clock failed later"); return 1; },
+  }));
+  assert.equal(laterClockFailure.code, "kernel-clock-failed");
 });

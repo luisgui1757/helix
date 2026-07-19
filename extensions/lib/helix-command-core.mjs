@@ -90,6 +90,12 @@ import {
 
 const DEFAULT_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
+function parseCanonicalUnsignedInteger(value) {
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 export const HELIX_USAGE = `Usage:
   /helix
   /helix-help
@@ -422,7 +428,7 @@ function renderHelp() {
       "Views: /helix-models, /helix-chains, /helix-profiles.",
       "Casts: /helix-setup saves stage assignments and composite member lineups from Pi's available-model inventory.",
       "Research: /helix-research validates the mandatory metric and stop condition, then prints the packaged research invocation.",
-      "Attendance: run launch and profile/setup/prune changes are confirmed; settings toggles save immediately because they are reversible.",
+      "Attendance: run launches and settings/profile/setup/prune changes require confirmation before mutation.",
       "Providers: configure/login in Pi first. Helix consumes the exact available provider/model ids and never owns credentials.",
       "Refusals: every refusal shows a stable code, reason, and next safe action.",
       "Manual: docs/manual.md.",
@@ -947,6 +953,16 @@ export function renderHelixRunCompletion({
       details: { run_id: runId, config_id: configId, exit_code: 0, converged: false, stop_reason: "interrupted" },
     });
   }
+  if (safeStopReason === "workflow-run-timeout" || ["workflow-run-timeout", "kernel-run-deadline-exceeded"].includes(failureCode)) {
+    return result({
+      ok: false,
+      status: "timeout",
+      code: "workflow-run-timeout",
+      title: "Helix run deadline reached",
+      lines: [`Run: ${runId}`, `Config: ${configId}`, "Result: timed out at the whole-run deadline"],
+      details: { run_id: runId, config_id: configId, exit_code: exitCode, converged: false, stop_reason: "workflow-run-timeout" },
+    });
+  }
   if (safeStopReason === "cancelled" || ["workflow-run-cancelled", "kernel-run-cancelled", "kernel-effect-cancelled"].includes(failureCode)) {
     return result({
       status: "cancelled",
@@ -1361,8 +1377,8 @@ function renderWorkflows(deps, tokens, ctx = {}) {
     const template = tokens[3] ?? "implement-review";
     const gatePath = tokens[4] ?? "proposal.txt";
     const gateContains = tokens[5] ?? "HELIX_WORKFLOW_PASS";
-    const maxIterations = tokens[6] == null ? 6 : Number(tokens[6]);
-    if (!id || tokens.length > 7 || !Number.isSafeInteger(maxIterations)) return usage(tokens.join(" "));
+    const maxIterations = tokens[6] == null ? 6 : parseCanonicalUnsignedInteger(tokens[6]);
+    if (!id || tokens.length > 7 || maxIterations == null) return usage(tokens.join(" "));
     const created = createWorkflowFromTemplate({
       id, template, gate_path: gatePath, gate_contains: gateContains, max_iterations: maxIterations,
     });
@@ -1605,8 +1621,8 @@ function parseMemberToken(token) {
   const star = source.lastIndexOf("*");
   if (star > 0) {
     const count = source.slice(star + 1);
-    if (!/^\d+$/.test(count)) return null;
-    instances = Number(count);
+    instances = parseCanonicalUnsignedInteger(count);
+    if (instances == null) return null;
     source = source.slice(0, star);
   }
   const assignment = parseAssignmentToken(`model:${source}`, new Map());

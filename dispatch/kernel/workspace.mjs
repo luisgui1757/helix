@@ -113,9 +113,10 @@ export function createCanonicalWorkspace({ cwd, run_id, checkpoint_effect, exclu
       ? { ok: true }
       : { ok: false, code: removed?.code ?? "kernel-workspace-snapshot-cleanup-failed" };
   };
-  const createProposal = async ({ generation: proposalGeneration }) => {
+  const createProposal = async ({ generation: proposalGeneration, before_ref: expectedBefore = null }) => {
     const id = `proposal-${proposalGeneration}`;
     const before = fingerprint();
+    if (expectedBefore != null && before !== expectedBefore) return { ok: false, code: "kernel-workspace-conflict" };
     const snapshot = checkpoint_effect.snapshot(run_id, id, cwd, excluded_paths);
     if (!snapshot?.ok || snapshot.tree_ref !== before) return { ok: false, code: "kernel-proposal-snapshot-failed" };
     const tempRoot = mkdtempSync(join(tmpdir(), "helix-proposal-"));
@@ -197,16 +198,26 @@ export function createCanonicalWorkspace({ cwd, run_id, checkpoint_effect, exclu
     verifyRef(ref) {
       try { return committedRefs.has(ref) && fingerprint() === ref; } catch { return false; }
     },
-    async begin({ mode = "shared-serialized" } = {}) {
+    async begin({ mode = "shared-serialized", before_ref: expectedBefore = null } = {}) {
       if (mode === "isolated-proposal") {
         const factory = proposal_factory ?? createProposal;
-        const proposal = await factory({ cwd, run_id, generation: ++generation });
+        const proposal = await factory({ cwd, run_id, generation: ++generation, before_ref: expectedBefore });
         return proposal?.ok ? proposal : { ok: false, code: proposal?.code ?? "kernel-isolated-proposal-failed" };
       }
       const id = `effect-${++generation}`;
-      const snapshot = checkpoint_effect.snapshot(run_id, id, cwd, excluded_paths);
+      const before = fingerprint();
+      if (expectedBefore != null && before !== expectedBefore) return { ok: false, code: "kernel-workspace-conflict" };
+      let snapshot = checkpoint_effect.snapshot(run_id, id, cwd, excluded_paths);
       if (!snapshot?.ok) return { ok: false, code: snapshot?.code ?? "kernel-workspace-snapshot-failed" };
-      return { ok: true, mode, cwd, generation: id, tree_ref: snapshot.tree_ref, before_ref: snapshot.tree_ref, applied: false, workspace_ref: null };
+      if (snapshot.tree_ref !== before) {
+        const removed = removeSnapshot({ generation: id, tree_ref: snapshot.tree_ref });
+        if (!removed.ok) return removed;
+        snapshot = checkpoint_effect.snapshot(run_id, id, cwd, excluded_paths);
+      }
+      if (!snapshot?.ok || snapshot.tree_ref !== before) {
+        return { ok: false, code: snapshot?.code ?? "kernel-workspace-snapshot-failed" };
+      }
+      return { ok: true, mode, cwd, generation: id, tree_ref: snapshot.tree_ref, before_ref: before, applied: false, workspace_ref: null };
     },
     async commit(tx) {
       if (tx?.mode === "isolated-proposal") {

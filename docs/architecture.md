@@ -45,12 +45,21 @@ dispatch, then journal each member and retry independently. Resume reuses
 completed member attempts before reserving only the unfinished first wave.
 Agent failures carry an explicit scheduler-recognized class; authored allowlists
 can settle only that class, never kernel-owned integrity or recovery failures.
+With abort policy, the first decisive failure stops workers from claiming more
+indices; already-started effects settle, and every unused reservation is
+released. Provider usage is a closed pair of nonnegative safe integers, and
+every reservation, provider sum, and lifetime-total addition is checked before
+state changes.
 One run abort signal propagates through nodes, provider calls, objective commands, and
 workspaces. Scheduler-owned races bound even a non-cooperative injected gate,
 artifact, checkpoint, or child-resolution promise; child workflows receive the
 parent abort signal. The elapsed run deadline is checkpointed and cumulative
 across pause/interruption continuations. Read-only work may overlap; mutating
-work enters one writer queue.
+work enters one writer queue. A mutating attempt computes its workspace-bound
+identity only after entering that queue, and `begin` compares the captured
+fingerprint with the snapshot it creates or reuses. A process-restart
+generation collision therefore retakes stale crash residue instead of treating
+it as the current rollback state.
 
 Every model effect identity binds the workflow hash, node/attempt/invocation,
 canonical inputs/upstream outputs, runtime/cast ref, tool and mutation policy,
@@ -92,15 +101,22 @@ in-flight attempt state, cumulative elapsed time, journal length, budget usage,
 event sequence, and the exact workspace snapshot ref—but not the raw task.
 Files and totals are bounded and streamed. Agent results and derived effect
 inputs must also fit bounded canonical journal serialization; values outside
-that boundary return stable kernel failures rather than throwing.
+that boundary return stable kernel failures rather than throwing. Scheduler
+state is admitted against a 15 MiB payload ceiling inside the 16 MiB private
+checkpoint document envelope. The append-only effect journal is bounded to
+8 MiB on both write and read. Both paths reserve 16 KiB for a compact terminal
+failure, so aggregate accepted values become
+`kernel-result-capacity-exceeded` before either durable format is unreadable.
 
 The private checkpoint's atomic install is the scheduler commit point.
 Old-snapshot cleanup and public-state projection run afterward as explicit
 maintenance fields in checkpoint document schema 2. Failure in either phase
 leaves conservative durable debt for the next checkpoint; it never rewrites an
 already-published scheduler checkpoint as an undurable failure. Schema-1
-documents remain readable and acquire the maintenance fields on their next
-successful write.
+documents remain structurally readable for historical inspection, but kernel
+continuation refuses them with `kernel-checkpoint-elapsed-unknown`: they do not
+contain the cumulative elapsed duration needed to enforce the lifetime
+deadline truthfully.
 
 At resume, Helix requires the original task and fresh consent/runtime evidence.
 It verifies task hash, pinned definition/version, subworkflow closure, policy,

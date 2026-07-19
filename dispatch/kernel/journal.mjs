@@ -9,6 +9,10 @@ import { stableWorkflowStringify } from "../workflow/schema.mjs";
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const FAILURE_CODE = /^[a-z0-9][a-z0-9-]{0,159}$/;
+export const KERNEL_JOURNAL_LIMITS = Object.freeze({
+  max_document_bytes: 8 * 1024 * 1024,
+  min_failure_headroom_bytes: 16 * 1024,
+});
 
 function hash(value) {
   const serialized = stableWorkflowStringify(value);
@@ -53,6 +57,7 @@ function validRecord(record, seq) {
 export function createEffectJournal({ root = null, run_id = null, verify_workspace = null, expected_records = null } = {}) {
   const records = [];
   const byIdentity = new Map();
+  let bytes = 0;
   const relativePath = run_id ? `${run_id}.kernel.journal.jsonl` : null;
   if (root != null && relativePath != null) {
     try {
@@ -61,7 +66,7 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
       if (resolved.exists) {
         const path = resolved.path;
         const stat = lstatSync(path);
-        const text = stat.isFile() && !stat.isSymbolicLink() && stat.size <= 8 * 1024 * 1024
+        const text = stat.isFile() && !stat.isSymbolicLink() && stat.size <= KERNEL_JOURNAL_LIMITS.max_document_bytes
           ? readFileSync(path, "utf8") : null;
         if (text == null || (text !== "" && !text.endsWith("\n"))) throw new Error("invalid");
         for (const [index, line] of text.split("\n").filter(Boolean).entries()) {
@@ -70,6 +75,7 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
           records.push(record);
           byIdentity.set(record.identity, record);
         }
+        bytes = stat.size;
         if (expected_records != null) {
           if (!Number.isSafeInteger(expected_records) || expected_records < 0 || records.length < expected_records) {
             throw new Error("invalid");
@@ -80,6 +86,34 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
       throw new Error("kernel-journal-corrupt");
     }
   }
+  const prepareRecord = ({ identity, base_identity = identity, node_id, instance_id, input_ref, runtime_ref, before_ref, workspace_ref = null, mutating, status, result }) => {
+    let clonedResult;
+    try { clonedResult = structuredClone(result); }
+    catch { return { ok: false, code: "kernel-journal-value-invalid" }; }
+    const resultRef = hash(clonedResult);
+    if (resultRef == null) return { ok: false, code: "kernel-journal-value-invalid" };
+    const record = {
+      schema_version: 2,
+      seq: records.length + 1,
+      identity,
+      base_identity,
+      node_id,
+      instance_id,
+      input_ref,
+      runtime_ref,
+      before_ref,
+      result_ref: resultRef,
+      workspace_ref,
+      mutating,
+      status,
+      result: clonedResult,
+    };
+    if (!validRecord(record, record.seq) || (mutating && status === "ok" && workspace_ref == null)) {
+      return { ok: false, code: "kernel-journal-record-invalid" };
+    }
+    const line = `${JSON.stringify(record)}\n`;
+    return { ok: true, record, line, line_bytes: Buffer.byteLength(line, "utf8") };
+  };
   return Object.freeze({
     records() { return structuredClone(records); },
     suffix(expected = 0) {
@@ -112,44 +146,43 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
         || verify_workspace(record.workspace_ref) !== true)) return null;
       return structuredClone(record);
     },
-    commit({ identity, base_identity = identity, node_id, instance_id, input_ref, runtime_ref, before_ref, workspace_ref = null, mutating, status, result }) {
-      let clonedResult;
-      try { clonedResult = structuredClone(result); }
-      catch { return { ok: false, code: "kernel-journal-value-invalid" }; }
-      const resultRef = hash(clonedResult);
-      if (resultRef == null) return { ok: false, code: "kernel-journal-value-invalid" };
-      const record = {
-        schema_version: 2,
-        seq: records.length + 1,
-        identity,
-        base_identity,
-        node_id,
-        instance_id,
-        input_ref,
-        runtime_ref,
-        before_ref,
-        result_ref: resultRef,
-        workspace_ref,
-        mutating,
-        status,
-        result: clonedResult,
-      };
-      if (!validRecord(record, record.seq) || (mutating && status === "ok" && workspace_ref == null)) {
-        return { ok: false, code: "kernel-journal-record-invalid" };
+    canCommit(candidate, { reserve_bytes: reserveBytes = 0 } = {}) {
+      if (!Number.isSafeInteger(reserveBytes) || reserveBytes < 0) {
+        return { ok: false, code: "kernel-journal-capacity-invalid" };
       }
-      const existing = byIdentity.get(identity);
+      const prepared = prepareRecord(candidate);
+      if (!prepared.ok) return prepared;
+      const existing = byIdentity.get(prepared.record.identity);
+      if (existing) {
+        return hash({ ...existing, seq: prepared.record.seq }) === hash(prepared.record)
+          ? { ok: true, existing: true }
+          : { ok: false, code: "kernel-journal-identity-collision" };
+      }
+      return bytes + prepared.line_bytes + reserveBytes <= KERNEL_JOURNAL_LIMITS.max_document_bytes
+        ? { ok: true }
+        : { ok: false, code: "kernel-journal-capacity-exceeded" };
+    },
+    commit(candidate) {
+      const prepared = prepareRecord(candidate);
+      if (!prepared.ok) return prepared;
+      const { record, line, line_bytes: lineBytes } = prepared;
+      const existing = byIdentity.get(record.identity);
       if (existing) {
         return hash({ ...existing, seq: record.seq }) === hash(record)
           ? { ok: true, record: structuredClone(existing), existing: true }
           : { ok: false, code: "kernel-journal-identity-collision" };
       }
+      if (bytes + lineBytes > KERNEL_JOURNAL_LIMITS.max_document_bytes) {
+        return { ok: false, code: "kernel-journal-capacity-exceeded" };
+      }
       try {
-        if (root != null && relativePath != null) appendText(root, relativePath, `${JSON.stringify(record)}\n`);
+        if (root != null && relativePath != null) appendText(root, relativePath, line);
       } catch {
         return { ok: false, code: "kernel-journal-write-failed" };
       }
+      bytes += lineBytes;
       records.push(record);
-      byIdentity.set(identity, record);
+      byIdentity.set(record.identity, record);
       return { ok: true, record: structuredClone(record) };
     },
   });
