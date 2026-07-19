@@ -1,7 +1,7 @@
 // Helix Workflow Kernel scheduler. It interprets only validated v4 nodes,
 // delegates model/provider and workspace effects, and emits structural events.
 
-import { createBudgetLedger } from "./budgets.mjs";
+import { createBudgetLedger, createScopedBudgetLedger } from "./budgets.mjs";
 import { createEffectJournal, effectIdentity, journalRef, KERNEL_JOURNAL_LIMITS, tryJournalRef } from "./journal.mjs";
 import {
   childInputSchemaAcceptsParent,
@@ -251,6 +251,9 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     try { injectedBudget = deps.budget.snapshot(); } catch { injectedBudget = null; }
     if (!validBudgetSnapshot(injectedBudget)) {
       return { ok: false, status: "refused", code: "kernel-budget-binding-invalid" };
+    }
+    if (injectedBudget.max_effects > definition.limits.max_total_effects) {
+      return { ok: false, status: "refused", code: resume ? "kernel-budget-binding-drift" : "kernel-budget-binding-invalid" };
     }
   }
   const budgetLimits = injectedBudget ?? {
@@ -1122,9 +1125,22 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           && active.child.version === node.version && active.child.run_id === childRunId
           ? active.child.scheduler
           : null;
+        let childBudget = null;
+        if (child) {
+          try {
+            childBudget = createScopedBudgetLedger(budget, {
+              max_effects: child.limits.max_total_effects,
+              initial_effects: childResume?.budget.effects ?? 0,
+              initial_tokens: childResume?.budget.tokens ?? 0,
+              initial_cost_micros: childResume?.budget.cost_micros ?? 0,
+            });
+          } catch {
+            return { ok: false, status: "refused", code: "kernel-budget-binding-invalid", events, outputs };
+          }
+        }
         const result = child ? await runWorkflowKernel(child, input, {
           ...deps,
-          budget,
+          budget: childBudget,
           signal: runController.signal,
           depth: (deps.depth ?? 0) + 1,
           run_id: childRunId,

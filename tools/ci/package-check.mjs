@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { resolvePiBinary, runPiE2ELoad } from "../smoke/pi-e2e-load.mjs";
+import { runOpenRouterDefaultFactoryCheck } from "./openrouter-default-factory-check.mjs";
 
 const root = process.cwd();
 const temp = mkdtempSync(join(tmpdir(), "helix-package-check-"));
@@ -16,6 +17,19 @@ function run(command, args, cwd = root) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
   if (result.status !== 0) throw new Error(`${command}-failed:${String(result.stderr).trim().split("\n").at(-1) ?? result.status}`);
   return result.stdout;
+}
+
+function piPackageRoot(binary) {
+  let current = dirname(realpathSync(binary));
+  for (let depth = 0; depth < 6; depth += 1) {
+    const manifest = join(current, "package.json");
+    if (existsSync(manifest)) {
+      const pkg = JSON.parse(readFileSync(manifest, "utf8"));
+      if (pkg.name === "@earendil-works/pi-coding-agent") return current;
+    }
+    current = dirname(current);
+  }
+  throw new Error("package-check-pi-root-unavailable");
 }
 
 try {
@@ -50,14 +64,30 @@ try {
     throw new Error("package-pi-range-invalid");
   }
   let piRpc = "not-requested";
+  let piDefaultFactory = "not-requested";
   if (piBin) {
-    const proof = runPiE2ELoad({ root: packageRoot, runtimeRpc: true, piBin: resolvePiBinary(root, piBin) });
+    const resolvedPi = resolvePiBinary(root, piBin);
+    const proof = runPiE2ELoad({ root: packageRoot, runtimeRpc: true, piBin: resolvedPi });
     if (!proof.ok || proof.gates.find((gate) => gate.id === "pi-discoverability")?.status !== "pass") {
       throw new Error("package-extracted-pi-rpc-failed");
     }
     piRpc = "pass";
+    const scope = join(packageRoot, "node_modules", "@earendil-works");
+    mkdirSync(scope, { recursive: true });
+    symlinkSync(piPackageRoot(resolvedPi), join(scope, "pi-coding-agent"), "dir");
+    const defaultFactory = await runOpenRouterDefaultFactoryCheck({ packageRoot });
+    if (!defaultFactory.ok || defaultFactory.provider_turns !== 1 || defaultFactory.retry_failure_attempts !== 1) {
+      throw new Error("package-extracted-default-factory-failed");
+    }
+    piDefaultFactory = "pass";
   }
-  console.log(JSON.stringify({ ok: true, files: files.length, package: packed[0].filename, pi_rpc: piRpc }));
+  console.log(JSON.stringify({
+    ok: true,
+    files: files.length,
+    package: packed[0].filename,
+    pi_rpc: piRpc,
+    pi_default_factory: piDefaultFactory,
+  }));
 } catch (error) {
   console.error(`package-check: ${error.message}`);
   process.exitCode = 1;

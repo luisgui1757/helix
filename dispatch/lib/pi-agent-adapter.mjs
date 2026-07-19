@@ -71,6 +71,19 @@ function usageOf(message) {
     : null;
 }
 
+function usageOfMessages(messages) {
+  let input_tokens = 0;
+  let output_tokens = 0;
+  for (const message of messages) {
+    const usage = usageOf(message);
+    if (usage == null) return null;
+    input_tokens += usage.input_tokens;
+    output_tokens += usage.output_tokens;
+    if (!Number.isSafeInteger(input_tokens) || !Number.isSafeInteger(output_tokens)) return null;
+  }
+  return { input_tokens, output_tokens };
+}
+
 function failureWithUsage(code, usage) {
   const error = new Error(code);
   if (usage != null) error.usage = { ...usage };
@@ -137,52 +150,52 @@ function exactOpenRouterModel(model, route, quantization) {
 
 async function defaultSessionFactory({ cwd, model, modelRegistry, tools, thinkingLevel, apiKey = null }) {
   const { sdk } = await loadPiSdk();
+  if (typeof apiKey !== "string" || apiKey.length < 1) throw new Error("pi-agent-exact-key-unavailable");
   const agentDir = sdk.getAgentDir();
+  const settingsManager = sdk.SettingsManager.inMemory({
+    retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 0 } },
+  });
   const loader = new sdk.DefaultResourceLoader({
     cwd,
     agentDir,
+    settingsManager,
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
   });
   await loader.reload();
-  let activeRegistry = modelRegistry;
-  let activeModel = model;
-  let activeAuth = modelRegistry.authStorage;
-  if (typeof apiKey === "string" && apiKey.length > 0) {
-    activeAuth = sdk.AuthStorage.inMemory({ [model.provider]: { type: "api_key", key: apiKey } });
-    activeRegistry = sdk.ModelRegistry.inMemory(activeAuth);
-    activeRegistry.registerProvider(model.provider, {
-      name: model.provider,
-      baseUrl: model.baseUrl,
+  const activeRuntime = await sdk.ModelRuntime.create({ modelsPath: null, allowModelNetwork: false });
+  await activeRuntime.setRuntimeApiKey(model.provider, apiKey);
+  activeRuntime.registerProvider(model.provider, {
+    name: model.provider,
+    baseUrl: model.baseUrl,
+    api: model.api,
+    apiKey,
+    models: [{
+      id: model.id,
+      name: model.name,
       api: model.api,
-      apiKey,
-      models: [{
-        id: model.id,
-        name: model.name,
-        api: model.api,
-        baseUrl: model.baseUrl,
-        reasoning: model.reasoning,
-        ...(model.thinkingLevelMap ? { thinkingLevelMap: structuredClone(model.thinkingLevelMap) } : {}),
-        input: structuredClone(model.input),
-        cost: structuredClone(model.cost),
-        contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens,
-        ...(model.headers ? { headers: structuredClone(model.headers) } : {}),
-        ...(model.compat ? { compat: structuredClone(model.compat) } : {}),
-      }],
-    });
-    activeModel = activeRegistry.find(model.provider, model.id);
-    if (!activeModel) throw new Error("pi-agent-exact-model-unavailable");
-  }
+      baseUrl: model.baseUrl,
+      reasoning: model.reasoning,
+      ...(model.thinkingLevelMap ? { thinkingLevelMap: structuredClone(model.thinkingLevelMap) } : {}),
+      input: structuredClone(model.input),
+      cost: structuredClone(model.cost),
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+      ...(model.headers ? { headers: structuredClone(model.headers) } : {}),
+      ...(model.compat ? { compat: structuredClone(model.compat) } : {}),
+    }],
+  });
+  const activeModel = activeRuntime.getModel(model.provider, model.id);
+  if (!activeModel) throw new Error("pi-agent-exact-model-unavailable");
   const created = await sdk.createAgentSession({
     cwd,
     model: activeModel,
-    authStorage: activeAuth,
-    modelRegistry: activeRegistry,
+    modelRuntime: activeRuntime,
     resourceLoader: loader,
     tools,
+    settingsManager,
     sessionManager: sdk.SessionManager.inMemory(cwd),
     ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
   });
@@ -217,6 +230,9 @@ export function createPiAgentAdapter({
       if (!spec || spec.provider === "mock") continue;
       if (![spec.provider, spec.model, spec.effort].every((value) => typeof value === "string" && value.length > 0)) {
         return { ok: false, code: "provider-exact-preflight-invalid" };
+      }
+      if (!Array.isArray(spec.tools) || spec.tools.length !== 0 || spec.mutation !== "read-only") {
+        return { ok: false, code: "provider-exact-multi-turn-disabled" };
       }
       if (spec.provider !== "openrouter") return { ok: false, code: "provider-exact-path-disabled" };
       unique.set(assignmentKey(spec), spec);
@@ -254,7 +270,6 @@ export function createPiAgentAdapter({
           && boundedOpaque(endpoint.tag) && boundedOpaque(endpoint.quantization)
           && Array.isArray(endpoint.supported_parameters)
           && endpoint.supported_parameters.includes("max_tokens")
-          && endpoint.supported_parameters.includes("tools")
           && (!model.reasoning || spec.effort === "default" || spec.effort === "provider-managed"
             || endpoint.supported_parameters.includes("reasoning")
             || endpoint.supported_parameters.includes("reasoning_effort")));
@@ -380,6 +395,10 @@ export function createPiAgentAdapter({
       failureCode ??= "pi-agent-tools-invalid";
       throw new Error(failureCode);
     }
+    if (tools.length !== 0 || mutation !== "read-only") {
+      failureCode ??= "provider-exact-multi-turn-disabled";
+      throw new Error(failureCode);
+    }
     const activeSignals = [...new Set([signal, ctx.signal].filter(Boolean))];
     let session = null;
     let auditProxy = null;
@@ -412,6 +431,8 @@ export function createPiAgentAdapter({
           auditProxy = await bounded(createOpenRouterAuditProxy({
             model: certificate.model.id,
             route: certificate.route,
+            providerName: certificate.provider_name,
+            quantization: certificate.quantization,
             apiKey: certificate.apiKey,
             signal: ctx.signal ?? signal,
             fetchImpl,
@@ -449,7 +470,13 @@ export function createPiAgentAdapter({
         }
         throw new Error(failureCode ?? "pi-agent-provider-failed");
       }
-      assistant = [...session.messages].reverse().find((message) => message?.role === "assistant");
+      const assistantMessages = session.messages.filter((message) => message?.role === "assistant");
+      if (assistantMessages.length !== 1) {
+        failureCode ??= "pi-agent-provider-turn-count-invalid";
+        assistant = assistantMessages.at(-1);
+        throw failureWithUsage(failureCode, usageOfMessages(assistantMessages));
+      }
+      [assistant] = assistantMessages;
     } finally {
       finished = true;
       if (session) {
@@ -575,21 +602,21 @@ export function createPiAgentAdapter({
       return run({
         role: "judge", provider: ctx.judge.provider, model: ctx.judge.model, effort: ctx.judge.effort, stage: "judge",
         prompt: metaPrompt(ctx.task_instruction, `Rank these structural candidate projections:\n${JSON.stringify(input)}`),
-        ctx: { ...ctx, tools: ctx.tools ?? ["read", "grep", "find", "ls"], mutation: ctx.mutation ?? "read-only" },
+        ctx: { ...ctx, tools: ctx.tools ?? [], mutation: ctx.mutation ?? "read-only" },
       });
     },
     runSynthesis(input, ctx) {
       return run({
         role: "synthesizer", provider: ctx.synthesis.provider, model: ctx.synthesis.model, effort: ctx.synthesis.effort, stage: "synthesis",
         prompt: metaPrompt(ctx.task_instruction, `Synthesize these candidate projections without dropping contradictions:\n${JSON.stringify(input)}`),
-        ctx: { ...ctx, tools: ctx.tools ?? ["read", "grep", "find", "ls"], mutation: ctx.mutation ?? "read-only" },
+        ctx: { ...ctx, tools: ctx.tools ?? [], mutation: ctx.mutation ?? "read-only" },
       });
     },
     runVerifier(input, ctx) {
       return run({
         role: "verifier", provider: ctx.verification.provider, model: ctx.verification.model, effort: ctx.verification.effort, stage: "verification",
         prompt: metaPrompt(ctx.task_instruction, `Verify this structural workflow evidence:\n${JSON.stringify(input)}`),
-        ctx: { ...ctx, tools: ctx.tools ?? ["read", "grep", "find", "ls"], mutation: ctx.mutation ?? "read-only" },
+        ctx: { ...ctx, tools: ctx.tools ?? [], mutation: ctx.mutation ?? "read-only" },
       });
     },
   };

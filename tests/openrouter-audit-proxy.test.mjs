@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createOpenRouterAuditProxy } from "../dispatch/runtime/openrouter-audit-proxy.mjs";
 
 const routing = {
-  only: ["ExactRoute"], order: ["ExactRoute"], allow_fallbacks: false,
+  only: ["exact-route/variant-a"], order: ["exact-route/variant-a"], quantizations: ["fp8"], allow_fallbacks: false,
   require_parameters: true, data_collection: "deny", zdr: true,
 };
 
@@ -18,7 +18,8 @@ function stream(model, provider) {
 test("OpenRouter audit proxy preserves bytes and proves the required streamed model without undocumented route metadata", async () => {
   let captured;
   const proxy = await createOpenRouterAuditProxy({
-    model: "vendor/model:free", route: "ExactRoute", apiKey: "credential",
+    model: "vendor/model:free", route: "exact-route/variant-a", providerName: "ExactProvider",
+    quantization: "fp8", apiKey: "credential",
     fetchImpl: async (_url, options) => {
       captured = { headers: options.headers, body: options.body.toString("utf8") };
       return new Response(stream("vendor/model:free", null), {
@@ -27,7 +28,9 @@ test("OpenRouter audit proxy preserves bytes and proves the required streamed mo
     },
   });
   try {
-    const body = JSON.stringify({ model: "vendor/model:free", stream: true, messages: [], provider: routing });
+    const body = JSON.stringify({
+      provider: { zdr: true, ...routing }, messages: [], stream: true, model: "vendor/model:free",
+    });
     const response = await fetch(`${proxy.base_url}/chat/completions`, {
       method: "POST", headers: { "content-type": "application/json" }, body,
     });
@@ -44,10 +47,11 @@ test("OpenRouter audit proxy preserves bytes and proves the required streamed mo
 test("OpenRouter audit proxy rejects outbound policy drift and observed route substitution", async () => {
   let upstreamCalls = 0;
   const proxy = await createOpenRouterAuditProxy({
-    model: "vendor/model:free", route: "ExactRoute", apiKey: "credential",
+    model: "vendor/model:free", route: "exact-route/variant-a", providerName: "ExactProvider",
+    quantization: "fp8", apiKey: "credential",
     fetchImpl: async () => {
       upstreamCalls += 1;
-      return new Response(stream("vendor/model:free", "SubstitutedRoute"), {
+      return new Response(stream("vendor/model:free", "SubstitutedProvider"), {
         status: 200, headers: { "content-type": "text/event-stream" },
       });
     },
@@ -76,8 +80,9 @@ test("OpenRouter audit proxy rejects outbound policy drift and observed route su
 
 test("OpenRouter audit proxy requires the streamed response model even when optional endpoint metadata matches", async () => {
   const proxy = await createOpenRouterAuditProxy({
-    model: "vendor/model:free", route: "ExactRoute", apiKey: "credential",
-    fetchImpl: async () => new Response(stream(undefined, "ExactRoute"), {
+    model: "vendor/model:free", route: "exact-route/variant-a", providerName: "ExactProvider",
+    quantization: "fp8", apiKey: "credential",
+    fetchImpl: async () => new Response(stream(undefined, "ExactProvider"), {
       status: 200, headers: { "content-type": "text/event-stream" },
     }),
   });

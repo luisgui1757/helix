@@ -3,10 +3,11 @@ import { createServer } from "node:http";
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const UPSTREAM = "https://openrouter.ai/api/v1";
 
-function expectedRouting(route) {
+function expectedRouting(route, quantization) {
   return {
     only: [route],
     order: [route],
+    quantizations: [quantization],
     allow_fallbacks: false,
     require_parameters: true,
     data_collection: "deny",
@@ -14,13 +15,20 @@ function expectedRouting(route) {
   };
 }
 
-function sameRouting(actual, route) {
-  const expected = expectedRouting(route);
-  return actual && typeof actual === "object" && !Array.isArray(actual)
-    && JSON.stringify(actual) === JSON.stringify(expected);
+function sameRouting(actual, route, quantization) {
+  if (!actual || typeof actual !== "object" || Array.isArray(actual)) return false;
+  const expected = expectedRouting(route, quantization);
+  const keys = Object.keys(actual).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  return keys.length === expectedKeys.length
+    && keys.every((key, index) => key === expectedKeys[index])
+    && expectedKeys.every((key) => Array.isArray(expected[key])
+      ? Array.isArray(actual[key]) && actual[key].length === expected[key].length
+        && actual[key].every((value, index) => value === expected[key][index])
+      : actual[key] === expected[key]);
 }
 
-function inspectSseLine(line, state, model, route) {
+function inspectSseLine(line, state, model, providerName) {
   if (!line.startsWith("data:")) return;
   const payload = line.slice(5).trim();
   if (payload === "" || payload === "[DONE]") return;
@@ -32,25 +40,26 @@ function inspectSseLine(line, state, model, route) {
   }
   if (typeof parsed.model === "string") state.model_observed = true;
   if (typeof parsed.provider === "string") {
-    state.route_observed = true;
-    if (parsed.provider !== route) {
+    state.provider_observed = true;
+    if (parsed.provider !== providerName) {
       state.invalid = true;
-      state.failure_code ??= "response-route-mismatch";
+      state.failure_code ??= "response-provider-mismatch";
     }
   }
 }
 
 export async function createOpenRouterAuditProxy({
-  model, route, apiKey, signal = null, fetchImpl = globalThis.fetch, upstream = UPSTREAM,
+  model, route, providerName, quantization, apiKey, signal = null, fetchImpl = globalThis.fetch, upstream = UPSTREAM,
 } = {}) {
-  if (![model, route, apiKey, upstream].every((value) => typeof value === "string" && value.length > 0)
+  if (![model, route, providerName, quantization, apiKey, upstream]
+    .every((value) => typeof value === "string" && value.length > 0)
     || typeof fetchImpl !== "function") throw new Error("openrouter-audit-proxy-invalid");
   const controller = new AbortController();
   const abort = () => controller.abort(signal?.reason ?? "openrouter-audit-proxy-cancelled");
   if (signal?.aborted) abort();
   else signal?.addEventListener?.("abort", abort, { once: true });
   const state = {
-    calls: 0, completed: 0, finished: 0, invalid: false, route_observed: false, model_observed: false,
+    calls: 0, completed: 0, finished: 0, invalid: false, provider_observed: false, model_observed: false,
     upstream_status: null, failure_code: null,
   };
   const idleWaiters = new Set();
@@ -78,7 +87,7 @@ export async function createOpenRouterAuditProxy({
       let parsed;
       try { parsed = JSON.parse(body.toString("utf8")); } catch { parsed = null; }
       if (!parsed || parsed.model !== model || parsed.stream !== true || Object.hasOwn(parsed, "models")
-        || !sameRouting(parsed.provider, route)) {
+        || !sameRouting(parsed.provider, route, quantization)) {
         state.invalid = true;
         state.failure_code ??= "request-policy-mismatch";
         response.writeHead(400).end();
@@ -113,10 +122,10 @@ export async function createOpenRouterAuditProxy({
         if (pending.length > MAX_REQUEST_BYTES) state.invalid = true;
         const lines = pending.split("\n");
         pending = lines.pop() ?? "";
-        for (const line of lines) inspectSseLine(line.replace(/\r$/, ""), state, model, route);
+        for (const line of lines) inspectSseLine(line.replace(/\r$/, ""), state, model, providerName);
       }
       pending += decoder.decode();
-      if (pending !== "") inspectSseLine(pending.replace(/\r$/, ""), state, model, route);
+      if (pending !== "") inspectSseLine(pending.replace(/\r$/, ""), state, model, providerName);
       state.completed += 1;
       response.end();
     } catch {

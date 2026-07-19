@@ -63,7 +63,11 @@ For the product path, attended preflight reads the configured credential only
 through Pi's AuthStorage, binds `/key`'s provider-issued `creator_user_id`, and
 queries OpenRouter's current ZDR endpoint registry. Execution is allowed only
 when exactly one active endpoint supplies the model id, endpoint tag, provider
-name, quantization, tool/token parameters, and any requested reasoning control.
+name, quantization, `max_tokens`, and any requested reasoning control. Exact
+real Pi sessions are one read-only, tool-free provider turn with transport
+retries disabled. A tool-bearing or mutating real definition refuses with
+`provider-exact-multi-turn-disabled` before credential or control-plane access;
+deterministic mock workflows retain their declared tools and mutation mode.
 The request pins the endpoint tag and quantization. Displayed consent binds the
 route, quantization, and a hash of the account id; raw ids and credentials
 remain memory-only.
@@ -71,8 +75,11 @@ remain memory-only.
 Pi's streaming message omits the OpenRouter route. Helix therefore uses a
 session-local HTTP proxy bound only to `127.0.0.1`. It rejects any outbound
 model/routing drift, forwards the original request bytes with the certified
-credential, observes model and route on every streamed response, and closes
-with the session. It is an audit/transport boundary, not an OS sandbox. It
+credential, observes the response model and any response provider metadata,
+and closes with the session. The response provider is compared with the
+certified provider name, not the endpoint tag; the later generation lookup
+independently verifies model and provider. It is an audit/transport boundary,
+not an OS sandbox. It
 stores no prompt, response, credential, or account value.
 
 ## Certification
@@ -91,8 +98,12 @@ chooses a substitute or prints the credential/account. See the command in
 [manual.md](manual.md).
 
 The standalone tool proves the provider-specific runtime. Release verification
-also exercises the production Pi AgentSession path through its localhost audit
-proxy in a disposable supported-Pi installation.
+also loads the extracted package with a supported installed Pi SDK and
+exercises the production adapter's real default AgentSession factory through
+its localhost audit proxy and an injected in-memory upstream. That deterministic
+proof validates the exact request, one provider turn, usage, response identity,
+generation identity, attestation, and exactly one attempt for a retryable
+fixture failure without contacting a provider service.
 
 `provider_policy.require_live_certification: true` is fail-closed product
 policy, not documentation metadata. Before any provider preflight or run

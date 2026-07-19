@@ -6,6 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
+import { createPiAgentAdapter } from "../dispatch/lib/pi-agent-adapter.mjs";
 import { normalizeWorkflowDefinition, stableWorkflowStringify, WORKFLOW_LIMITS } from "../dispatch/workflow/schema.mjs";
 import { agent, checkpoint, decision, map, objectiveGate, parallel, pipeline, reduce, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { executeNamedWorkflow, resumeNamedWorkflow } from "../extensions/lib/helix-execution.mjs";
@@ -1275,6 +1276,22 @@ test("real product execution requires an exact adapter before reserving a run", 
   });
   assert.equal(result.code, "provider-exact-adapter-required");
   assert.equal(existsSync(join(stateRoot, "runs", "exact-adapter-run")), false);
+
+  const singleTurnAdapter = createPiAgentAdapter({
+    modelRegistry: {
+      authStorage: { async getApiKey() { throw new Error("must not inspect credentials"); } },
+      find: () => ({ provider: "openrouter", id: "vendor/exact:free" }),
+      hasConfiguredAuth: () => true,
+    },
+    exactMode: true,
+  });
+  const toolBearing = await executeNamedWorkflow({
+    workflow_id: "real-exact-flow", task: "must refuse before provider preflight", run_id: "exact-tools-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "real-exact-flow", inventory), adapter: singleTurnAdapter,
+  });
+  assert.equal(toolBearing.code, "provider-exact-multi-turn-disabled");
+  assert.equal(existsSync(join(stateRoot, "runs", "exact-tools-run")), false);
 
   const exactAdapter = {
     kind: "helix-pi-agent", exactMode: true,

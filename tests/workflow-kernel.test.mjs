@@ -952,6 +952,12 @@ test("resume binds immutable lifetime ceilings and rejects cap drift before effe
     effects: 1, tokens: 8, cost_micros: 3, max_effects: 1, max_tokens: 10, max_cost_micros: 20, reserved: 0,
   });
 
+  const injectedRaised = await runWorkflowKernel(graph, { task: "reject raised injected budget" }, {
+    ...deps,
+    budget: createBudgetLedger({ max_effects: 2, max_tokens: 10, max_cost_micros: 20 }),
+  });
+  assert.equal(injectedRaised.code, "kernel-budget-binding-invalid");
+
   const injectedPaused = await runWorkflowKernel(graph, { task: "bind injected budget" }, {
     ...deps,
     budget: createBudgetLedger({ max_effects: 1, max_tokens: 10, max_cost_micros: 20 }),
@@ -1392,6 +1398,141 @@ test("version-pinned subworkflow shares budgets and emits nested structural prog
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.budget.effects, 1);
   assert.equal(result.events.some((event) => event.kind === "subworkflow-event" && event.child_kind === "run-end"), true);
+});
+
+test("subworkflows enforce both child-local and parent-shared effect ceilings on every visit", async () => {
+  const child = workflow({
+    id: "child-budget", name: "Child budget", description: "Child budget workflow.", start: "work",
+    nodes: {
+      work: pipeline([
+        agent({ role: "reviewer", stage_id: "child-one", tools: [], mutation: "read-only" }),
+        agent({ role: "reviewer", stage_id: "child-two", tools: [], mutation: "read-only" }),
+      ], "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "child-failed"),
+    },
+    limits: { max_total_effects: 1 },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  const parent = definition({
+    child: subworkflow("child-budget", 1, "objective"),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "parent-failed"),
+  }, "child", { max_total_effects: 2 });
+  let calls = 0;
+  const childLimited = await runWorkflowKernel(parent, { task: "child local limit" }, readOnlyDeps({
+    resolveSubworkflow: () => child.definition,
+    async executeAgent() {
+      calls += 1;
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 1, cost_micros: 0 } };
+    },
+  }));
+  assert.equal(childLimited.code, "kernel-budget-exhausted");
+  assert.equal(calls, 1);
+  assert.equal(childLimited.budget, undefined);
+
+  const largerChild = structuredClone(child.definition);
+  largerChild.limits.max_total_effects = 2;
+  const smallerParent = definition({
+    child: subworkflow("child-budget", 1, "objective"),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "parent-failed"),
+  }, "child", { max_total_effects: 1 });
+  calls = 0;
+  const parentLimited = await runWorkflowKernel(smallerParent, { task: "parent shared limit" }, readOnlyDeps({
+    resolveSubworkflow: () => largerChild,
+    async executeAgent() {
+      calls += 1;
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 1, cost_micros: 0 } };
+    },
+  }));
+  assert.equal(parentLimited.code, "kernel-budget-exhausted");
+  assert.equal(calls, 1);
+
+  const oneEffectChild = structuredClone(child.definition);
+  oneEffectChild.nodes.work.stages = [oneEffectChild.nodes.work.stages[0]];
+  const repeatedParent = definition({
+    child: subworkflow("child-budget", 1, "route"),
+    route: {
+      ...decision([{
+        when: { op: "eq", path: "/outputs/child/status", value: "succeeded" },
+        target: "child", loop: true,
+      }], "objective"),
+      loops_off: "objective",
+    },
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "parent-failed"),
+  }, "child", { max_total_effects: 2 });
+  calls = 0;
+  const repeated = await runWorkflowKernel(repeatedParent, { task: "repeated child visits" }, readOnlyDeps({
+    resolveSubworkflow: () => oneEffectChild,
+    async executeAgent() {
+      calls += 1;
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 1, cost_micros: 0 } };
+    },
+  }));
+  assert.equal(repeated.code, "kernel-budget-exhausted");
+  assert.equal(calls, 2);
+});
+
+test("a paused child preserves its local effect allowance across parent continuation", async () => {
+  const child = workflow({
+    id: "child-budget-pause", name: "Child budget pause", description: "Child budget continuation.", start: "first",
+    nodes: {
+      first: agent({ role: "reviewer", stage_id: "first", tools: [], mutation: "read-only", next: "approval" }),
+      approval: checkpoint("operator-approval", "second"),
+      second: agent({ role: "reviewer", stage_id: "second", tools: [], mutation: "read-only", next: "objective" }),
+      objective: objectiveGate("success", "failed"),
+      success: terminal("succeeded"),
+      failed: terminal("failed", "child-failed"),
+    },
+    limits: { max_total_effects: 2 },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  const parent = definition({
+    child: subworkflow("child-budget-pause", 1, "objective"),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "parent-failed"),
+  }, "child", { max_total_effects: 3 });
+  const workspaceRef = journalRef("child-budget-workspace");
+  const journal = createEffectJournal();
+  let snapshot = null;
+  let calls = 0;
+  const deps = readOnlyDeps({
+    task_ref: journalRef("child-budget-task"),
+    runtime_ref: journalRef("child-budget-runtime"),
+    journal,
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    resolveSubworkflow: () => child.definition,
+    async executeAgent() {
+      calls += 1;
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 1, cost_micros: 0 } };
+    },
+    async onCheckpoint(state) { snapshot = structuredClone(state); return { ok: true }; },
+  });
+  const paused = await runWorkflowKernel(parent, { task: "child budget pause" }, {
+    ...deps,
+    checkpoint: () => ({ continue: false }),
+  });
+  assert.equal(paused.status, "paused");
+  assert.equal(calls, 1);
+  assert.equal(snapshot.active.child.scheduler.budget.effects, 1);
+  assert.equal(snapshot.active.child.scheduler.budget.max_effects, 2);
+  const resumed = await runWorkflowKernel(parent, { task: "child budget pause" }, {
+    ...deps,
+    resume: snapshot,
+    checkpoint: () => ({ continue: true }),
+  });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(calls, 2);
+  assert.equal(resumed.budget.effects, 2);
 });
 
 test("a namespaced child checkpoint advances exactly once on parent resume", async () => {

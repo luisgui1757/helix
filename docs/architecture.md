@@ -55,6 +55,12 @@ state changes. Failed provider calls retain and durably account any valid usage;
 malformed usage becomes a stable failure. Definition ceilings are immutable,
 and caller-supplied or resumed budget state may report consumed overshoot but
 cannot raise the original maximums.
+Each child invocation receives a scoped ledger: its declared effect ceiling is
+checkpointed locally while every reservation, consumption, and usage value is
+also committed to the one shared parent lifetime ledger. A larger parent limit
+cannot raise the child, a larger child limit cannot raise the parent, and a
+fresh later child invocation gets a fresh local allowance without resetting
+the parent total.
 One run abort signal propagates through nodes, provider calls, objective commands, and
 workspaces. Scheduler-owned races bound even a non-cooperative injected gate,
 artifact, checkpoint, or child-resolution promise; child workflows receive the
@@ -152,8 +158,9 @@ Checkpoint nodes use the same mechanism: the first encounter pauses; an
 attended resume is a one-shot continue action bound to the recorded visit.
 Revisiting the same node requires fresh consent. Child checkpoint state is
 stored under its parent node and child-run namespace, so one attended resume
-continues exactly that checkpoint. Version-pinned subworkflows share parent
-budget, journal, cancellation, and canonical workspace, have depth one, and
+continues exactly that checkpoint. Version-pinned subworkflows share the parent
+lifetime budget, journal, cancellation, and canonical workspace, retain their
+own local effect ceiling, have depth one, and
 project child events into parent structural events. A child receives its own
 definition id and objective at the prompt boundary, and its input schema must
 accept the complete normalized parent input. Import, run preflight,
@@ -193,12 +200,16 @@ metadata must not drift, and generation model/provider is the route proof.
 The Pi AgentSession adapter is the installed broad-provider discovery path, but
 real product execution additionally requires an exact provider certificate.
 OpenRouter currently satisfies that contract by binding Pi's configured API-key
-account, selecting one active ZDR/tool-capable route, injecting Pi's native
-`openRouterRouting` controls, and auditing every streamed call through a
-session-local `127.0.0.1` byte-forwarding proxy. Consent binds the certificate;
-drift refuses before run-directory creation. The adapter parses only one
-complete closed JSON object and receives exactly the validated workflow tools,
-mutation mode, and output schema. Unsupported provider/account proof remains
+account, selecting one active ZDR route with the required token/reasoning
+parameters, injecting Pi's native `openRouterRouting` controls, and auditing
+the request and streamed identity through a session-local `127.0.0.1`
+byte-forwarding proxy. Exact real Pi execution is one read-only, tool-free
+provider turn with all Pi transport retries disabled. A real tool-bearing or
+mutating definition refuses before credential/control-plane access until Helix
+can own and journal every internal turn; deterministic mocks still receive the
+validated tools and mutation mode. Consent binds the certificate; drift refuses
+before run-directory creation. The adapter parses only one complete closed JSON
+object. Unsupported provider/account proof remains
 exact-disabled rather than being renamed “connected.”
 
 Deterministic mock execution preserves the same effect boundary. A synthetic

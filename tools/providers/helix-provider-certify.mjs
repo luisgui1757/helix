@@ -34,8 +34,7 @@ const matches = Array.isArray(endpoints) ? endpoints.filter((endpoint) =>
   && typeof endpoint.provider_name === "string" && endpoint.provider_name.length > 0
   && typeof endpoint.quantization === "string" && endpoint.quantization.length > 0
   && Array.isArray(endpoint.supported_parameters)
-  && endpoint.supported_parameters.includes("max_tokens")
-  && endpoint.supported_parameters.includes("tools")) : [];
+  && endpoint.supported_parameters.includes("max_tokens")) : [];
 if (matches.length !== 1) fail("openrouter-endpoint-identity-ambiguous-or-unavailable");
 const endpoint = matches[0];
 

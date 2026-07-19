@@ -47,9 +47,12 @@ cannot be proven is exact-disabled; it never degrades to a session default,
 mock, alternate provider, or fallback route.
 
 The executable exact real-provider path is currently OpenRouter: attended
-preflight must find one active ZDR, tool-capable route for the configured model,
-bind Pi's configured account, and verify every streamed response through a
-session-local audit proxy. Other provider families remain visibly
+preflight must find one active ZDR route with the required token/reasoning
+parameters for the configured model, bind Pi's configured account, and verify
+the endpoint tag, quantization, provider, and model through a session-local
+audit proxy plus generation lookup. Exact real Pi sessions are one read-only,
+tool-free provider turn with transport retries disabled; tool-bearing or
+mutating real definitions remain exact-disabled until every internal provider turn can be independently owned and journaled. Other provider families remain visibly
 exact-disabled until their official surfaces satisfy the same proof contract.
 
 The guided builder covers the common implement/review, plan/implement, and TDD
@@ -109,6 +112,9 @@ npm run check:workflow-conformance
 npm run check:provider-contracts
 npm run check:package
 ```
+
+With a supported Pi binary, `check:package -- --pi-bin <path>` loads the extracted
+artifact through Pi RPC and its real default factory with no live provider call.
 
 Active no-egress and opt-in live-provider certification are documented in the
 manual. Requires Node.js 22.19 or newer. Licensed under [MIT](LICENSE).

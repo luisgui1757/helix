@@ -84,13 +84,38 @@ function resolveCastContexts(candidates, presets, toggles) {
   return { ok: true, contexts };
 }
 
+function agentContracts(definition) {
+  const contracts = new Map();
+  const add = (agent) => {
+    if (agent?.kind === "agent" && typeof agent.stage_id === "string") {
+      contracts.set(agent.stage_id, {
+        tools: Array.isArray(agent.tools) ? structuredClone(agent.tools) : null,
+        mutation: agent.mutation,
+      });
+    }
+  };
+  for (const node of Object.values(definition.nodes)) {
+    if (node.kind === "agent") add(node);
+    else if (node.kind === "pipeline") node.stages.forEach(add);
+    else if (node.kind === "parallel") node.branches.forEach(add);
+    else if (node.kind === "map") add(node.body);
+  }
+  return contracts;
+}
+
 function nonMockSpecs(castContexts) {
-  return castContexts.flatMap((entry) => entry.cast).flatMap((stage) => [
-    ...Object.entries(stage.roles ?? {}).flatMap(([role, members]) =>
-      members.flatMap((member) => Array.from({ length: member.instances }, () => ({ ...member, role })))),
-    ...Object.entries(stage.panel_roles ?? {}).flatMap(([role, member]) =>
-      Array.from({ length: member.instances }, () => ({ ...member, role }))),
-  ]).filter((spec) => spec.provider !== "mock");
+  return castContexts.flatMap((entry) => {
+    const contracts = agentContracts(entry.definition);
+    return entry.cast.flatMap((stage) => {
+      const contract = contracts.get(stage.stage_id) ?? { tools: null, mutation: null };
+      return [
+        ...Object.entries(stage.roles ?? {}).flatMap(([role, members]) =>
+          members.flatMap((member) => Array.from({ length: member.instances }, () => ({ ...member, role, ...contract })))),
+        ...Object.entries(stage.panel_roles ?? {}).flatMap(([role, member]) =>
+          Array.from({ length: member.instances }, () => ({ ...member, role, ...contract }))),
+      ];
+    });
+  }).filter((spec) => spec.provider !== "mock");
 }
 
 function promptHandoff(ctx) {

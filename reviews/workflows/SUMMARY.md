@@ -486,3 +486,47 @@ smokes, and `git diff --check` passed. The extracted package contains exactly
 offline Pi 0.80.7 package loading, and the localhost-only mock path. No live
 provider or model service was contacted. Exact-head remote CI and the
 independent post-push review remain pending until the committed head exists.
+
+## 2026-07-19 — Scoped-budget and production Pi-path review closure
+
+Review identity: fresh-context GPT-5.6 Sol xhigh reviewed exact head
+`e167966e87baaa3664f90e23d1bf2995aee6e61c` after exact-head CI run
+`29678122220` passed. The review returned HOLD and identified four canonical
+closure requirements:
+
+- The OpenRouter audit proxy accepted no quantization control and conflated the
+  endpoint tag with the response/generation provider name. The request now
+  requires the complete exact routing object including `quantizations`, compares
+  it semantically rather than by property order, and compares provider metadata
+  with the certified provider name. Distinct tag/provider fixtures and a
+  substituted-provider regression prove both sides.
+- Injecting the shared parent budget directly into a child could raise the
+  child's `max_total_effects`. Each child invocation now owns a checkpointed
+  scoped ledger enforcing the child ceiling while forwarding every reservation,
+  consumption, usage account, reversal, and release to the one parent lifetime
+  ledger. Regressions cover parent-greater, child-greater, repeated child visits,
+  and paused-child continuation.
+- Pi may perform several assistant/provider turns while satisfying one prompt
+  through tools. Exact real Pi execution is therefore one read-only, tool-free
+  provider turn with all Pi retry layers disabled. Tool-bearing or mutating real
+  definitions refuse before credential/control-plane access, and a session
+  returning more than one assistant turn is rejected. Deterministic mocks retain
+  the complete workflow tool/mutation contract.
+- The old package/Pi evidence loaded commands and raw Pi but did not traverse
+  the shipped adapter's default session factory. `check:package -- --pi-bin`
+  now imports the extracted adapter, uses the actual supported Pi SDK and real
+  default factory, sends one exact request through the localhost audit proxy to
+  an injected in-memory upstream, and verifies the pinned route, quantization,
+  provider, model, usage, one-turn count, generation observation, and
+  attestation. A retryable fixture failure also proves the default factory makes
+  exactly one provider attempt. It performs no live provider call.
+
+Focused closure evidence: kernel/product/adapter/proxy 102/102, provider
+contracts 34/34, and workflow conformance 98/98. The complete local `npm test`
+gate passes 727/727 with zero failures or skips, worktree self-test 12/12, and
+objective-loop self-test 8/8. Documentation truth, resources, static
+no-live-egress, public-safety diff, both deterministic smokes, active Docker
+5/5, and `git diff --check` pass. Both package modes produce exactly 99 files;
+local Pi 0.80.10 passes extracted RPC plus the real default-factory proof. No
+live provider or model service was contacted. Committed exact-head CI and
+fresh-context Sol rereview remain pending.

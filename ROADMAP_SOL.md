@@ -106,6 +106,28 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > CI and independent post-push review remain the authority for live-testing
 > readiness.
 
+> **Scoped-budget and production Pi-path closure (2026-07-19):** the next
+> fresh-context GPT-5.6 Sol xhigh review at exact head
+> `e167966e87baaa3664f90e23d1bf2995aee6e61c` found three connected boundary
+> defects: the OpenRouter audit proxy omitted quantization and compared a route
+> tag with the provider name; parent budget injection could raise a child's
+> declared effect ceiling; and a Pi AgentSession could hide several provider
+> turns inside one kernel effect. It also found that prior package evidence did
+> not traverse the shipped adapter's default session factory. The canonical
+> closure gives every child invocation a checkpointed local ledger over the
+> shared parent lifetime ledger, aligns exact routing with endpoint tag,
+> quantization, and provider-name semantics, and exact-disables tool-bearing or
+> mutating real Pi definitions until every internal provider turn can be owned
+> and journaled. Real exact Pi sessions are one read-only, tool-free turn with
+> all Pi transport retries disabled. The package matrix now imports the
+> extracted adapter and executes its real default AgentSession factory through
+> the localhost audit proxy and deterministic in-memory upstream. No live
+> provider or model call is part of this closure. The complete local gate passes
+> 727/727 with zero skips, worktree 12/12, objective loop 8/8, conformance 98/98,
+> provider contracts 34/34, both package modes with exactly 99 files and Pi RPC/
+> default-factory proof, and active Docker 5/5. Exact-head CI and independent
+> rereview remain mandatory before live testing.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:

@@ -346,6 +346,8 @@ The single source for test rules.
   usage fails closed. Usage from a completed failed call is still lifetime
   usage and must be durably accounted. Workflow ceilings are immutable across
   continuation; neither injected budget state nor a checkpoint may raise them.
+  A subworkflow retains its own declared effect ceiling while consuming from
+  the shared parent lifetime ledger; neither ceiling may raise the other.
   Abort-policy fan-out stops dequeuing after the first decisive failure and
   releases reservations for work that never started.
 - Agent, pipeline, parallel, map, and child effect identities include the
@@ -378,6 +380,15 @@ The single source for test rules.
   tag and quantization, the streamed response model and any optional route
   metadata, and the generation
   model/provider observation.
+- Exact real Pi sessions are one read-only, tool-free provider turn with Pi
+  transport retries disabled. A tool-bearing or mutating real definition is
+  exact-disabled before provider preflight until Helix owns and journals every
+  internal provider-turn boundary; deterministic mock execution retains the
+  complete workflow tool/mutation contract.
+- The extracted-package Pi gate must exercise both command discovery and the
+  shipped adapter's real default session factory through its localhost audit
+  proxy. An injected session factory or raw Pi-only mock is not production-path
+  evidence.
 - Deterministic mock workflows may mutate only inside their counted candidate
   adapter effect. Host verifiers and gates observe artifacts and objective
   evidence; they never manufacture convergence or unjournaled workspace state.

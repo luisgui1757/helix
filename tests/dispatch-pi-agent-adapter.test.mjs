@@ -6,7 +6,7 @@ import { PI_EFFORT_CODES } from "../dispatch/lib/pi-effort.mjs";
 import { validateRoleEnvelope } from "../dispatch/lib/role-envelope.mjs";
 
 const candidateContext = (value = {}) => ({
-  tools: ["read", "grep", "find", "ls"], mutation: "read-only", output_schema: { id: "verdict-v1" }, ...value,
+  tools: [], mutation: "read-only", output_schema: { id: "verdict-v1" }, ...value,
 });
 
 function harness(output, usage = { input: 42, output: 7 }) {
@@ -119,7 +119,9 @@ test("exact Pi execution pins one active ZDR route and verifies the generation b
       };
     },
   });
-  const spec = { role: "reviewer", provider: "openrouter", model: model.id, effort: "high" };
+  const spec = {
+    role: "reviewer", provider: "openrouter", model: model.id, effort: "high", tools: [], mutation: "read-only",
+  };
   const preflight = await adapter.preflightExact([spec]);
   assert.equal(preflight.ok, true, JSON.stringify(preflight));
   assert.deepEqual(preflight.bindings.map(({ provider, model: id, effort, route, quantization }) => ({ provider, model: id, effort, route, quantization })), [{
@@ -137,7 +139,7 @@ test("exact Pi execution pins one active ZDR route and verifies the generation b
     only: ["exact-route/variant-a"], order: ["exact-route/variant-a"], allow_fallbacks: false,
     quantizations: ["fp8"], require_parameters: true, data_collection: "deny", zdr: true,
   });
-  assert.deepEqual(sessionOptions.tools, ["read", "grep", "find", "ls"]);
+  assert.deepEqual(sessionOptions.tools, []);
   assert.equal(sessionOptions.mutation, "read-only");
   assert.equal(sessionOptions.model.compat.supportsStore, false);
   assert.equal(sessionOptions.model.compat.maxTokensField, "max_tokens");
@@ -189,11 +191,11 @@ test("exact Pi execution refuses unsupported and ambiguous routes before a sessi
     sessionFactory: async () => { sessions += 1; throw new Error("must not run"); },
   });
   const ambiguous = await adapter.preflightExact([{
-    role: "builder", provider: "openrouter", model: model.id, effort: "default",
+    role: "builder", provider: "openrouter", model: model.id, effort: "default", tools: [], mutation: "read-only",
   }]);
   assert.equal(ambiguous.code, "openrouter-exact-route-ambiguous-or-unavailable");
   const unsupported = await adapter.preflightExact([{
-    role: "builder", provider: "openai-api", model: "gpt-test", effort: "default",
+    role: "builder", provider: "openai-api", model: "gpt-test", effort: "default", tools: [], mutation: "read-only",
   }]);
   assert.equal(unsupported.code, "provider-exact-path-disabled");
   assert.equal(sessions, 0);
@@ -334,6 +336,50 @@ test("Pi adapter refuses undeclared tools, mutation mismatch, and unknown output
     ), /pi-agent-(tools|output-schema)-invalid/);
     assert.equal(calls.some((call) => call.kind === "session"), false);
   }
+});
+
+test("real Pi effects refuse tool-bearing or mutating sessions before provider preflight", async () => {
+  const { adapter, model } = harness("{}");
+  const exact = createPiAgentAdapter({
+    modelRegistry: {
+      authStorage: { async getApiKey() { throw new Error("must not run"); } },
+      find: () => model,
+      hasConfiguredAuth: () => true,
+    },
+    exactMode: true,
+  });
+  const refused = await exact.preflightExact([{
+    role: "reviewer", provider: "openrouter", model: model.id, effort: "default",
+    tools: ["read"], mutation: "read-only",
+  }]);
+  assert.deepEqual(refused, { ok: false, code: "provider-exact-multi-turn-disabled" });
+});
+
+test("Pi adapter refuses a session containing more than one assistant provider turn", async () => {
+  const output = JSON.stringify({
+    status: "ok", uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [],
+  });
+  const model = { provider: "openrouter", id: "free" };
+  const adapter = createPiAgentAdapter({
+    modelRegistry: { find: () => model, hasConfiguredAuth: () => true },
+    sessionFactory: async () => ({
+      messages: [
+        { role: "assistant", content: [{ type: "toolCall", name: "read" }], usage: { input: 100, output: 12 } },
+        { role: "assistant", content: [{ type: "text", text: output }], usage: { input: 5, output: 7 } },
+      ],
+      async prompt() {},
+      async dispose() {},
+    }),
+  });
+  await assert.rejects(adapter.runCandidate(
+    { role: "reviewer", provider: model.provider, model: model.id },
+    candidateContext({ run_id: "multi-turn", cwd: "/tmp", prompt: "review" }),
+  ), (error) => {
+    assert.match(error.message, /pi-agent-provider-turn-count-invalid/);
+    assert.deepEqual(error.usage, { input_tokens: 105, output_tokens: 19 });
+    return true;
+  });
+  assert.equal(adapter.lastFailureCode(), "pi-agent-provider-turn-count-invalid");
 });
 
 test("a structured repair call starts with independent failure state", async () => {

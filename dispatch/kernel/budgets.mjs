@@ -126,3 +126,128 @@ export function createBudgetLedger({
     release(id) { return reservations.delete(id); },
   });
 }
+
+// A child workflow owns a local effect ceiling while sharing the parent's
+// lifetime totals. The local ledger is checkpointed by the child; the parent
+// ledger remains the single run-wide accounting authority.
+export function createScopedBudgetLedger(parent, {
+  max_effects,
+  initial_effects = 0,
+  initial_tokens = 0,
+  initial_cost_micros = 0,
+} = {}) {
+  if (!parent || ["snapshot", "reserve", "reserveBatch", "consume", "revertConsume", "account", "revertAccount", "release"]
+    .some((name) => typeof parent[name] !== "function")) throw new Error("kernel-budget-invalid");
+  const local = createBudgetLedger({
+    max_effects,
+    max_tokens: null,
+    max_cost_micros: null,
+    initial_effects,
+    initial_tokens,
+    initial_cost_micros,
+  });
+  let nextId = 0;
+  const reservations = new Map();
+  const install = (localReservation, parentReservation) => {
+    const id = `scoped-reservation-${++nextId}`;
+    reservations.set(id, { local: localReservation.id, parent: parentReservation.id });
+    return { ok: true, id };
+  };
+  const reserve = (request) => {
+    const localReservation = local.reserve(request);
+    if (!localReservation.ok) return localReservation;
+    const parentReservation = parent.reserve(request);
+    if (!parentReservation.ok) {
+      local.release(localReservation.id);
+      return parentReservation;
+    }
+    return install(localReservation, parentReservation);
+  };
+  return Object.freeze({
+    snapshot: () => local.snapshot(),
+    reserve,
+    reserveBatch(requests) {
+      if (!Array.isArray(requests) || requests.length < 1) {
+        return { ok: false, code: "kernel-budget-reservation-invalid" };
+      }
+      const localBatch = local.reserveBatch(requests);
+      if (!localBatch.ok) return localBatch;
+      const parentBatch = parent.reserveBatch(requests);
+      if (!parentBatch.ok) {
+        for (const reservation of localBatch.reservations) local.release(reservation.id);
+        return parentBatch;
+      }
+      return {
+        ok: true,
+        reservations: localBatch.reservations.map((localReservation, index) =>
+          install(localReservation, parentBatch.reservations[index])),
+      };
+    },
+    consume(id) {
+      const reservation = reservations.get(id);
+      if (!reservation) return { ok: false, code: "kernel-budget-commit-invalid" };
+      const localConsumed = local.consume(reservation.local);
+      if (!localConsumed.ok) return localConsumed;
+      const parentConsumed = parent.consume(reservation.parent);
+      if (!parentConsumed.ok) {
+        local.revertConsume();
+        return parentConsumed;
+      }
+      reservations.delete(id);
+      return { ok: true };
+    },
+    revertConsume() {
+      const localReverted = local.revertConsume();
+      if (!localReverted.ok) return localReverted;
+      const parentReverted = parent.revertConsume();
+      if (!parentReverted.ok) {
+        const replacement = local.reserve();
+        if (replacement.ok) local.consume(replacement.id);
+        return parentReverted;
+      }
+      return { ok: true };
+    },
+    account(usage) {
+      const actualTokens = usage?.tokens ?? 0;
+      const actualCost = usage?.cost_micros ?? 0;
+      if (!Number.isSafeInteger(actualTokens) || actualTokens < 0
+        || !Number.isSafeInteger(actualCost) || actualCost < 0) {
+        return { ok: false, code: "kernel-budget-commit-invalid" };
+      }
+      const localSnapshot = local.snapshot();
+      const parentSnapshot = parent.snapshot();
+      if (!Number.isSafeInteger(localSnapshot.tokens + actualTokens)
+        || !Number.isSafeInteger(localSnapshot.cost_micros + actualCost)
+        || !Number.isSafeInteger(parentSnapshot.tokens + actualTokens)
+        || !Number.isSafeInteger(parentSnapshot.cost_micros + actualCost)) {
+        return { ok: false, code: "kernel-budget-arithmetic-overflow" };
+      }
+      const parentAccounted = parent.account(usage);
+      if (!parentAccounted.ok && parentAccounted.code !== "kernel-budget-provider-overshoot") return parentAccounted;
+      const localAccounted = local.account(usage);
+      if (!localAccounted.ok) {
+        parent.revertAccount(usage);
+        return localAccounted;
+      }
+      return parentAccounted.ok ? localAccounted : parentAccounted;
+    },
+    revertAccount(usage) {
+      const localReverted = local.revertAccount(usage);
+      if (!localReverted.ok) return localReverted;
+      const parentReverted = parent.revertAccount(usage);
+      if (!parentReverted.ok) {
+        local.account(usage);
+        return parentReverted;
+      }
+      return { ok: true };
+    },
+    release(id) {
+      const reservation = reservations.get(id);
+      if (!reservation) return false;
+      reservations.delete(id);
+      const localReleased = local.release(reservation.local);
+      const parentReleased = parent.release(reservation.parent);
+      return localReleased && parentReleased;
+    },
+  });
+}

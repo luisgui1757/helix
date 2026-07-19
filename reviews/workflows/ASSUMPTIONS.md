@@ -275,3 +275,28 @@ Rejected findings / bounded false alarms:
 - “Deterministic mocks may write gate markers from the verifier or gate host
   callback”: rejected. That bypasses the journaled agent transaction and makes
   the observer manufacture its own proof.
+
+## 2026-07-19 — Scoped-budget and provider-turn invariants
+
+- Subworkflow sharing means shared lifetime accounting, not inherited authority
+  to raise a child definition's ceiling. Each child invocation enforces its own
+  `max_total_effects` while every consumed effect and usage value also advances
+  the parent ledger. A repeated child visit gets a new local allowance but never
+  resets the parent total; a resumed child restores its local consumption.
+- One kernel effect must correspond to one provider turn. Because Pi tool loops
+  can contain multiple assistant/provider turns behind one outer prompt, exact
+  real Pi sessions are restricted to one read-only, tool-free turn with runtime
+  retries disabled until Helix can durably expose and journal each internal turn.
+- OpenRouter endpoint tag, provider name, and quantization are distinct binding
+  fields. The exact request pins tag plus quantization; streamed provider
+  metadata and generation metadata compare with provider name. Property order
+  in the request object is not identity.
+- Production-path package evidence must import the extracted adapter and execute
+  its shipped default session factory. Loading commands through Pi RPC, using an
+  injected session factory, or exercising a raw Pi mock proves a different seam.
+- “Let the parent ledger replace the child's ledger because both count the same
+  effects”: rejected. It silently changes the child's declared contract whenever
+  the parent ceiling is larger.
+- “Count one Pi prompt as one effect even if tools cause more provider turns”:
+  rejected. Provider work, usage, retry ownership, and continuation evidence are
+  per provider turn, not per outer prompt API call.

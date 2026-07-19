@@ -160,10 +160,13 @@ zero provider calls. See [providers.md](providers.md).
 
 The Pi adapter uses fresh in-memory sessions. The current executable exact path
 is OpenRouter: preflight binds the provider-issued creator account, requires one
-active ZDR/tool-capable endpoint for the exact model, endpoint tag, provider,
-and quantization, displays the route and account reference for consent, pins the
-tag and quantization, and audits every streamed call through a session-local
-`127.0.0.1` proxy. Response and generation model/provider observations must both
+active ZDR endpoint with the required token/reasoning parameters for the exact
+model, endpoint tag, provider, and quantization, displays the route and account
+reference for consent, pins the tag and quantization, and audits the request and
+streamed identity through a session-local `127.0.0.1` proxy. Exact real Pi
+execution is one read-only, tool-free provider turn with transport retries
+disabled; tool-bearing or mutating real definitions refuse before credential
+or provider-control access. Response and generation model/provider observations must both
 match their documented contracts: the streamed response model is mandatory,
 optional route metadata cannot drift, and generation model/provider proves the
 endpoint. A
@@ -211,7 +214,12 @@ npm run check:package
 
 Local `check:package` verifies the extracted artifact structurally. CI passes
 `--pi-bin node_modules/.bin/pi`, loads that extracted artifact through Pi RPC,
-and requires all Helix commands to be discovered across the complete Node
+requires all Helix commands to be discovered, then imports the extracted
+adapter and exercises its real default Pi AgentSession factory through the
+localhost audit proxy and a deterministic in-memory upstream. The proof requires
+the exact pinned request, one provider turn, usage, response/generation identity,
+attestation, and exactly one attempt for a retryable fixture failure, with no
+provider-service call. It runs across the complete Node
 22.19/26 and Pi 0.80.7/0.80.9 compatibility matrix. One aggregate `test` check
 requires every matrix leg.
 

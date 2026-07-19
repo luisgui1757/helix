@@ -75,6 +75,13 @@ The only supported workspace policy is
 `canonical-worktree`/`unchanged`/`off`; alternative persisted policy values
 refuse rather than being ignored.
 
+Deterministic mock adapters execute the complete validated tools and mutation
+contract. Exact real Pi execution currently supports one read-only, tool-free
+provider turn with transport retries disabled. Tool-bearing or mutating real
+definitions refuse before credential or provider-control access rather than
+silently changing the contract or hiding extra provider turns inside one
+kernel effect.
+
 ## Defaults and ceilings
 
 These values are exported once as `WORKFLOW_LIMITS`; checked-in exact/one-over
@@ -119,7 +126,11 @@ first wave is reserved atomically so a one-effect limit cannot launch two calls.
 Structured-output repair is another actual invocation, consumes the same
 lifetime budget, and stops at `limits.structured_repair_attempts`. Usage from a
 failed completed call remains counted. Definition budget maxima cannot be raised
-by resume or an injected scheduler ledger.
+by resume or an injected scheduler ledger. A child invocation enforces its own
+declared effect ceiling through a checkpointed scoped ledger while also
+consuming the shared parent lifetime budget. The effective allowance is always
+the lower remaining ceiling; a later child invocation receives a fresh local
+allowance without resetting the parent total.
 Loop-disabled mode follows an explicit `loops_off` target. Every decision edge
 whose target can reach that decision—including a forward-entry edge and a
 cyclic default—must be marked `loop: true`. The loops-disabled graph must prove
@@ -245,8 +256,9 @@ A checkpoint pauses after its durable scheduler/workspace commit and is shown
 as paused with the exact resume command. The attended resume supplies a
 one-shot continue action bound to that exact node visit; a later visit pauses
 again. A child checkpoint is namespaced beneath its parent and consumes the
-same one-shot consent exactly once. A subworkflow pins both id and version, shares the
-parent's budget/journal/workspace, emits nested structural events, and may not
+same one-shot consent exactly once. A subworkflow pins both id and version,
+shares the parent lifetime budget/journal/workspace while retaining its own
+effect ceiling, emits nested structural events, and may not
 invoke another subworkflow. Runtime smoke resolves the same pinned direct child
 bundle as product execution and includes child nodes, effects, and transitions
 in its observed counts. Deployment preflight, provider inventory, and consent
