@@ -522,11 +522,21 @@ closure requirements:
   exactly one provider attempt. It performs no live provider call.
 
 Focused closure evidence: kernel/product/adapter/proxy 102/102, provider
-contracts 34/34, and workflow conformance 98/98. The complete local `npm test`
-gate passes 727/727 with zero failures or skips, worktree self-test 12/12, and
+contracts 35/35, and workflow conformance 98/98. The complete local `npm test`
+gate passes 728/728 with zero failures or skips, worktree self-test 12/12, and
 objective-loop self-test 8/8. Documentation truth, resources, static
 no-live-egress, public-safety diff, both deterministic smokes, active Docker
-5/5, and `git diff --check` pass. Both package modes produce exactly 99 files;
-local Pi 0.80.10 passes extracted RPC plus the real default-factory proof. No
-live provider or model service was contacted. Committed exact-head CI and
+5/5, and `git diff --check` pass. Every package mode produces exactly 99 files;
+disposable Pi 0.80.7 and local Pi 0.80.10 both pass extracted RPC plus the real
+default-factory proof. No live provider or model service was contacted. Committed exact-head CI and
 fresh-context Sol rereview remain pending.
+
+First exact-head CI attempt `29679831694` exposed one compatibility defect in
+the new proof: Pi 0.80.9 passed on Node 22.19/26, but both Pi 0.80.7 legs failed
+inside the real default factory because 0.80.7 exports the pre-ModelRuntime
+AuthStorage/ModelRegistry session contract. The canonical correction belongs in
+the single Pi import seam: it capability-selects ModelRuntime when exported and
+otherwise requires the supported in-memory AuthStorage/ModelRegistry pair. The
+adapter builds the same isolated exact provider/model/key binding through either
+surface. The failed run remains historical evidence; a new exact-head run must
+pass every leg before rereview.

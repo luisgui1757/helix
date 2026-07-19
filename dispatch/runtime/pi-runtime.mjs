@@ -41,7 +41,12 @@ export async function loadPiSdk({ importer = () => import("@earendil-works/pi-co
   if (!isSupportedPiVersion(resolvedVersion)) throw new Error("pi-version-unsupported");
   let sdk;
   try { sdk = await importer(); } catch { throw new Error("pi-runtime-load-failed"); }
-  const required = ["createAgentSession", "DefaultResourceLoader", "ModelRuntime", "SessionManager", "SettingsManager", "getAgentDir"];
-  if (!sdk || required.some((key) => typeof sdk[key] === "undefined")) throw new Error("pi-runtime-contract-invalid");
-  return { sdk, version: resolvedVersion };
+  const required = ["createAgentSession", "DefaultResourceLoader", "SessionManager", "SettingsManager", "getAgentDir"];
+  const modelRuntime = typeof sdk?.ModelRuntime?.create === "function";
+  const registryAuth = typeof sdk?.AuthStorage?.inMemory === "function"
+    && typeof sdk?.ModelRegistry?.inMemory === "function";
+  if (!sdk || required.some((key) => typeof sdk[key] === "undefined") || (!modelRuntime && !registryAuth)) {
+    throw new Error("pi-runtime-contract-invalid");
+  }
+  return { sdk, version: resolvedVersion, session_runtime: modelRuntime ? "model-runtime" : "registry-auth" };
 }

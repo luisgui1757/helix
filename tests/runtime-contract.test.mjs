@@ -11,7 +11,7 @@ import {
 } from "../dispatch/runtime/contract.mjs";
 import { providerPathFor, providerPolicy } from "../dispatch/runtime/policy-register.mjs";
 import { createRuntimeRegistry } from "../dispatch/runtime/registry.mjs";
-import { isSupportedPiVersion } from "../dispatch/runtime/pi-runtime.mjs";
+import { isSupportedPiVersion, loadPiSdk } from "../dispatch/runtime/pi-runtime.mjs";
 
 function runtime(attestation = createMockAttestation()) {
   return brandRuntime({
@@ -108,4 +108,26 @@ test("Pi range is exact and certification keys are deterministic", () => {
   assert.equal(isSupportedPiVersion("0.80.6"), false);
   assert.equal(isSupportedPiVersion("0.81.0"), false);
   assert.equal(certificationKey({ a: 1, b: 2 }), certificationKey({ b: 2, a: 1 }));
+});
+
+test("Pi import seam accepts both supported session-runtime contracts and rejects incomplete SDKs", async () => {
+  const base = {
+    createAgentSession() {}, DefaultResourceLoader: class {}, SessionManager: class {},
+    SettingsManager: class {}, getAgentDir() {},
+  };
+  const legacy = await loadPiSdk({
+    version: "0.80.7",
+    importer: async () => ({
+      ...base,
+      AuthStorage: { inMemory() {} },
+      ModelRegistry: { inMemory() {} },
+    }),
+  });
+  assert.equal(legacy.session_runtime, "registry-auth");
+  const current = await loadPiSdk({
+    version: "0.80.9",
+    importer: async () => ({ ...base, ModelRuntime: { create() {} } }),
+  });
+  assert.equal(current.session_runtime, "model-runtime");
+  await assert.rejects(loadPiSdk({ version: "0.80.9", importer: async () => base }), /pi-runtime-contract-invalid/);
 });

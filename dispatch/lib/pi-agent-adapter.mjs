@@ -149,7 +149,7 @@ function exactOpenRouterModel(model, route, quantization) {
 }
 
 async function defaultSessionFactory({ cwd, model, modelRegistry, tools, thinkingLevel, apiKey = null }) {
-  const { sdk } = await loadPiSdk();
+  const { sdk, session_runtime: sessionRuntime } = await loadPiSdk();
   if (typeof apiKey !== "string" || apiKey.length < 1) throw new Error("pi-agent-exact-key-unavailable");
   const agentDir = sdk.getAgentDir();
   const settingsManager = sdk.SettingsManager.inMemory({
@@ -165,9 +165,7 @@ async function defaultSessionFactory({ cwd, model, modelRegistry, tools, thinkin
     noThemes: true,
   });
   await loader.reload();
-  const activeRuntime = await sdk.ModelRuntime.create({ modelsPath: null, allowModelNetwork: false });
-  await activeRuntime.setRuntimeApiKey(model.provider, apiKey);
-  activeRuntime.registerProvider(model.provider, {
+  const providerConfig = {
     name: model.provider,
     baseUrl: model.baseUrl,
     api: model.api,
@@ -186,13 +184,29 @@ async function defaultSessionFactory({ cwd, model, modelRegistry, tools, thinkin
       ...(model.headers ? { headers: structuredClone(model.headers) } : {}),
       ...(model.compat ? { compat: structuredClone(model.compat) } : {}),
     }],
-  });
-  const activeModel = activeRuntime.getModel(model.provider, model.id);
+  };
+  let activeModel;
+  let runtimeOptions;
+  if (sessionRuntime === "model-runtime") {
+    const activeRuntime = await sdk.ModelRuntime.create({ modelsPath: null, allowModelNetwork: false });
+    await activeRuntime.setRuntimeApiKey(model.provider, apiKey);
+    activeRuntime.registerProvider(model.provider, providerConfig);
+    activeModel = activeRuntime.getModel(model.provider, model.id);
+    runtimeOptions = { modelRuntime: activeRuntime };
+  } else {
+    const activeAuth = sdk.AuthStorage.inMemory({
+      [model.provider]: { type: "api_key", key: apiKey },
+    });
+    const activeRegistry = sdk.ModelRegistry.inMemory(activeAuth);
+    activeRegistry.registerProvider(model.provider, providerConfig);
+    activeModel = activeRegistry.find(model.provider, model.id);
+    runtimeOptions = { authStorage: activeAuth, modelRegistry: activeRegistry };
+  }
   if (!activeModel) throw new Error("pi-agent-exact-model-unavailable");
   const created = await sdk.createAgentSession({
     cwd,
     model: activeModel,
-    modelRuntime: activeRuntime,
+    ...runtimeOptions,
     resourceLoader: loader,
     tools,
     settingsManager,

@@ -374,6 +374,9 @@ The single source for test rules.
   `>=0.80.7 <0.81.0`. Provider runtimes require structural branding and a
   short-lived exact CapabilityAttestation; requested-only values never count as
   effective identity.
+  The seam selects the SDK's actual session-runtime contract: Pi 0.80.7 uses
+  its in-memory AuthStorage/ModelRegistry pair, while newer compatible builds
+  use ModelRuntime. Callers never guess from a version string.
 - Provider/model/effort/route/account fallback is forbidden unless modeled as
   an explicit workflow transition. OpenRouter exact mode always disables
   fallback and binds the provider-issued creator account, the unique endpoint

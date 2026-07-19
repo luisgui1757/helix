@@ -123,8 +123,8 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > extracted adapter and executes its real default AgentSession factory through
 > the localhost audit proxy and deterministic in-memory upstream. No live
 > provider or model call is part of this closure. The complete local gate passes
-> 727/727 with zero skips, worktree 12/12, objective loop 8/8, conformance 98/98,
-> provider contracts 34/34, both package modes with exactly 99 files and Pi RPC/
+> 728/728 with zero skips, worktree 12/12, objective loop 8/8, conformance 98/98,
+> provider contracts 35/35, all package modes with exactly 99 files and Pi RPC/
 > default-factory proof, and active Docker 5/5. Exact-head CI and independent
 > rereview remain mandatory before live testing.
 

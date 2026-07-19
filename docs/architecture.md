@@ -173,6 +173,10 @@ direct-child bundle and complete effective cast.
 accepts `>=0.80.7 <0.81.0`. AgentRuntime instances use a private WeakSet brand;
 a matching `kind` string cannot forge one. Runtime resolution selects one exact
 provider path and never falls back after refusal.
+The seam selects the exported session-runtime contract by capability: the
+supported 0.80.7 SDK uses an isolated in-memory AuthStorage/ModelRegistry pair,
+while later compatible SDKs use ModelRuntime. Both construct the same exact
+model and credential binding; product code does not branch on a guessed version.
 
 A short-lived CapabilityAttestation separates requested and effective
 provider/model/effort/route/account fields, per-field evidence grade, credential
