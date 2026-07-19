@@ -132,7 +132,9 @@ consuming the shared parent lifetime budget. The effective allowance is always
 the lower remaining ceiling; a later child invocation receives a fresh local
 allowance without resetting the parent total. On continuation, every nested
 child effect, token, cost, and reservation total must be contained by the
-enclosing parent snapshot or the checkpoint refuses before execution.
+enclosing parent snapshot or the checkpoint refuses before execution. The root
+totals must also cover durable journal-prefix usage and checkpointed calls not
+yet represented there; resetting all nested levels together still refuses.
 Loop-disabled mode follows an explicit `loops_off` target. Every decision edge
 whose target can reach that decision—including a forward-entry edge and a
 cyclic default—must be marked `loop: true`. The loops-disabled graph must prove

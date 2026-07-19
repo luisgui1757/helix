@@ -137,6 +137,13 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > parent snapshot before execution; the paused-child regression resets all
 > three consumed totals and proves refusal with zero additional calls.
 
+> A second fresh review then reset both parent and child totals together and
+> showed that containment alone was insufficient. Root checkpoint admission
+> now derives an independent minimum from the exact durable journal prefix and
+> checkpointed invocations not yet in that prefix. Effects, tokens, and cost
+> below that evidence refuse before execution, closing coordinated nested
+> resets without rejecting journal-ahead recovery.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:

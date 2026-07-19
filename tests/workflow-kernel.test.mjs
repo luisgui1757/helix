@@ -1539,6 +1539,20 @@ test("a paused child preserves its local effect allowance across parent continua
   assert.equal(inconsistent.ok, false);
   assert.equal(inconsistent.code, "kernel-checkpoint-child-invalid");
   assert.equal(calls, 1);
+  const resetAllBudgets = structuredClone(snapshot);
+  for (const budget of [resetAllBudgets.budget, resetAllBudgets.active.child.scheduler.budget]) {
+    budget.effects = 0;
+    budget.tokens = 0;
+    budget.cost_micros = 0;
+  }
+  const journalInconsistent = await runWorkflowKernel(parent, { task: "child budget pause" }, {
+    ...deps,
+    resume: resetAllBudgets,
+    checkpoint: () => ({ continue: true }),
+  });
+  assert.equal(journalInconsistent.ok, false);
+  assert.equal(journalInconsistent.code, "kernel-checkpoint-budget-invalid");
+  assert.equal(calls, 1);
   const resumed = await runWorkflowKernel(parent, { task: "child budget pause" }, {
     ...deps,
     resume: snapshot,

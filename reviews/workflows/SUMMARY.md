@@ -563,3 +563,21 @@ provider contracts 35/35. Documentation truth, resources, static checks, both
 deterministic smokes, `git diff --check`, the 99-file extracted package with
 real default-factory proof, and active Docker 5/5 all pass. Exact-head CI and
 fresh-context review evidence follow only after they run on the committed fix.
+
+The next fresh review found the necessary second-order closure: resetting the
+parent and child totals together satisfied containment while discarding the
+same lifetime usage at both levels. A deterministic paused-child probe resumed
+a second provider call and reported only one effect despite two durable journal
+records. Root checkpoint admission now computes an independent lower bound from
+the exact durable journal prefix plus in-flight/completed checkpoint state not
+yet represented by that prefix. Stored effects, tokens, and cost below this
+evidence refuse as `kernel-checkpoint-budget-invalid`; the coordinated-reset
+regression proves zero additional calls while the original journal-ahead and
+unchanged-resume paths remain supported.
+
+Post-closure local evidence: `npm test` passes 728/728 with zero skips,
+worktree 12/12, and objective loop 8/8; workflow conformance passes 98/98 and
+provider contracts 35/35. Documentation truth, resources, both deterministic
+smokes, static checks, `git diff --check`, the extracted 99-file package with
+Pi RPC/default-factory proof, and active Docker 5/5 all pass. Exact-head CI and
+a fresh final review remain pending until this closure is committed and pushed.

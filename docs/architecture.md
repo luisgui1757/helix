@@ -62,7 +62,10 @@ cannot raise the child, a larger child limit cannot raise the parent, and a
 fresh later child invocation gets a fresh local allowance without resetting
 the parent total. Continuation recursively verifies that the child's effects,
 tokens, cost, and reservations do not exceed the enclosing parent snapshot;
-an inconsistent nested checkpoint refuses before any new invocation.
+an inconsistent nested checkpoint refuses before any new invocation. The root
+budget must independently cover the exact durable journal prefix plus every
+checkpointed in-flight or completed invocation not yet present in that prefix,
+so resetting every level together cannot reset lifetime accounting.
 One run abort signal propagates through nodes, provider calls, objective commands, and
 workspaces. Scheduler-owned races bound even a non-cooperative injected gate,
 artifact, checkpoint, or child-resolution promise; child workflows receive the

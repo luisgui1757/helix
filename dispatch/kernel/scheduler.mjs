@@ -144,6 +144,47 @@ function validateCompletedJournalState(active, records) {
   return validateCompletedJournalState(active.child?.scheduler?.active ?? null, records);
 }
 
+function checkpointBudgetEvidence(checkpoint, records) {
+  const prefix = records.slice(0, checkpoint.journal_entries);
+  const usage = checkedUsageTotal(prefix.map((record) => record.result));
+  if (usage == null) return null;
+  let effects = prefix.length;
+  let tokens = usage.tokens;
+  let costMicros = usage.cost_micros;
+  const prefixIdentities = new Set(prefix.map((record) => record.identity));
+  const activeIdentities = new Set();
+  const addEffect = (result = null) => {
+    const resultUsage = normalizedUsage(result?.usage);
+    const nextEffects = effects + 1;
+    const nextTokens = resultUsage == null ? null : tokens + resultUsage.tokens;
+    const nextCost = resultUsage == null ? null : costMicros + resultUsage.cost_micros;
+    if (![nextEffects, nextTokens, nextCost].every((value) => Number.isSafeInteger(value) && value >= 0)) return false;
+    effects = nextEffects;
+    tokens = nextTokens;
+    costMicros = nextCost;
+    return true;
+  };
+  const visit = (active) => {
+    if (active == null) return true;
+    for (const intent of Object.values(active.inflight ?? {})) {
+      if (prefixIdentities.has(intent.identity) || activeIdentities.has(intent.identity)) return false;
+      activeIdentities.add(intent.identity);
+      if (!addEffect()) return false;
+    }
+    for (const completed of Object.values(active.completed ?? {})) {
+      const identity = completed?._journal_identity ?? completed?._journal_pending?.identity ?? null;
+      if (completed?._journal_pending && prefixIdentities.has(identity)) return false;
+      if (identity != null && !prefixIdentities.has(identity)) {
+        if (activeIdentities.has(identity)) return false;
+        activeIdentities.add(identity);
+        if (!addEffect(completed)) return false;
+      }
+    }
+    return visit(active.child?.scheduler?.active ?? null);
+  };
+  return visit(checkpoint.active) ? { effects, tokens, cost_micros: costMicros } : null;
+}
+
 function validBudgetSnapshot(value) {
   const keys = ["effects", "tokens", "cost_micros", "max_effects", "max_tokens", "max_cost_micros", "reserved"];
   return value != null && typeof value === "object" && !Array.isArray(value)
@@ -233,8 +274,16 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     expected_records: resume?.journal_entries ?? null,
   });
   if (resume) {
-    const consistent = validateCompletedJournalState(resume.active, journal.records());
+    const records = journal.records();
+    const consistent = validateCompletedJournalState(resume.active, records);
     if (!consistent.ok) return { ok: false, status: "refused", code: "kernel-checkpoint-journal-invalid" };
+    if ((deps.depth ?? 0) === 0) {
+      const evidence = checkpointBudgetEvidence(resume, records);
+      if (evidence == null || resume.budget.effects < evidence.effects
+        || resume.budget.tokens < evidence.tokens || resume.budget.cost_micros < evidence.cost_micros) {
+        return { ok: false, status: "refused", code: "kernel-checkpoint-budget-invalid" };
+      }
+    }
     const suffix = journal.suffix(resume.journal_entries);
     if (!suffix.ok) return { ok: false, status: "refused", code: suffix.code };
     const pending = resume.schema_version === 2 ? pendingJournalIdentities(resume.active) : new Set();

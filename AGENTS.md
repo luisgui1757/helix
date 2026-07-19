@@ -350,6 +350,8 @@ The single source for test rules.
   the shared parent lifetime ledger; neither ceiling may raise the other.
   A resumed nested child checkpoint is accepted only when every consumed and
   reserved child total is contained by the enclosing parent lifetime totals.
+  The root checkpoint totals must also cover its exact durable journal prefix
+  and every checkpointed invocation not yet represented in that prefix.
   Abort-policy fan-out stops dequeuing after the first decisive failure and
   releases reservations for work that never started.
 - Agent, pipeline, parallel, map, and child effect identities include the
