@@ -412,3 +412,11 @@ The existing pinned Docker image passed the active `--network none` smoke 5/5,
 including offline Pi 0.80.7 package loading and the localhost-only mock path.
 No live provider call was made or claimed. Exact-head CI and the independent
 post-ship review are appended below after they exist.
+
+Remote evidence for remediation commit
+`5dfbc81eda3b4aff9c0aa1ff81602c135cdd1082`: exact-head push CI run
+`29675265619` completed successfully. All four Node 22.19/26 × Pi
+0.80.7/0.80.9 matrix jobs passed every substantive step, including 708/708,
+package RPC, deterministic smokes, active Docker, and diff checks; the aggregate
+`test` job also completed successfully. The independent post-ship review is the
+remaining release-quality gate before live testing.
