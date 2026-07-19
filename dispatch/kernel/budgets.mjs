@@ -11,9 +11,7 @@ export function createBudgetLedger({
   if (max_cost_micros != null && (!Number.isSafeInteger(max_cost_micros) || max_cost_micros < 0)) throw new Error("kernel-budget-invalid");
   if (!Number.isSafeInteger(initial_effects) || initial_effects < 0 || initial_effects > max_effects
     || !Number.isSafeInteger(initial_tokens) || initial_tokens < 0
-    || !Number.isSafeInteger(initial_cost_micros) || initial_cost_micros < 0
-    || (max_tokens != null && initial_tokens > max_tokens)
-    || (max_cost_micros != null && initial_cost_micros > max_cost_micros)) throw new Error("kernel-budget-invalid");
+    || !Number.isSafeInteger(initial_cost_micros) || initial_cost_micros < 0) throw new Error("kernel-budget-invalid");
   let effects = initial_effects;
   let tokens = initial_tokens;
   let cost = initial_cost_micros;
@@ -98,6 +96,16 @@ export function createBudgetLedger({
       cost = nextCost;
       const overshoot = (max_tokens != null && nextTokens > max_tokens) || (max_cost_micros != null && nextCost > max_cost_micros);
       return overshoot ? { ok: false, code: "kernel-budget-provider-overshoot" } : { ok: true };
+    },
+    revertAccount({ tokens: actualTokens = 0, cost_micros: actualCost = 0 } = {}) {
+      if (!Number.isSafeInteger(actualTokens) || actualTokens < 0
+        || !Number.isSafeInteger(actualCost) || actualCost < 0
+        || actualTokens > tokens || actualCost > cost) {
+        return { ok: false, code: "kernel-budget-commit-invalid" };
+      }
+      tokens -= actualTokens;
+      cost -= actualCost;
+      return { ok: true };
     },
     commit(id, { tokens: actualTokens = 0, cost_micros: actualCost = 0 } = {}) {
       if (!reservations.has(id) || !Number.isSafeInteger(actualTokens) || actualTokens < 0

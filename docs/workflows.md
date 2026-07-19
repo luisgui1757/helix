@@ -65,6 +65,16 @@ Conditions support `always`, scalar `eq`/`neq`/ordering/`contains`, boolean
 `and`/`or`, and `not` over safe JSON pointers. No JavaScript, shell, template
 evaluation, or implicit truthiness is allowed. Missing paths do not match.
 
+Agent fields are executable contracts, not descriptive metadata. `role` is one
+of `scout`, `planner`, `builder`, `reviewer`, `redteam`, or `documenter`;
+`prompt` is exactly `tracked-step-v1`; non-reviewers use `semantic-v2`, while a
+reviewer may use `semantic-v2` or `verdict-v1`. The runtime receives the exact
+declared tool allowlist and mutation mode. Read-only roles cannot declare a
+mutating mode, and a read-only agent cannot receive `bash`, `edit`, or `write`.
+The only supported workspace policy is
+`canonical-worktree`/`unchanged`/`off`; alternative persisted policy values
+refuse rather than being ignored.
+
 ## Defaults and ceilings
 
 These values are exported once as `WORKFLOW_LIMITS`; checked-in exact/one-over
@@ -106,6 +116,10 @@ boundaries.
 Retries and panel members are effects: every actual model invocation consumes
 the shared effect/token/cost budget and appears in observed events. A panel's
 first wave is reserved atomically so a one-effect limit cannot launch two calls.
+Structured-output repair is another actual invocation, consumes the same
+lifetime budget, and stops at `limits.structured_repair_attempts`. Usage from a
+failed completed call remains counted. Definition budget maxima cannot be raised
+by resume or an injected scheduler ledger.
 Loop-disabled mode follows an explicit `loops_off` target. Every decision edge
 whose target can reach that decision—including a forward-entry edge and a
 cyclic default—must be marked `loop: true`. The loops-disabled graph must prove
@@ -119,6 +133,9 @@ under one writer mutex with private before-state checkpoints.
 `isolated-proposal` writers run in disposable real Git worktrees, then promote
 only when the canonical workspace still has the exact captured fingerprint.
 Conflict or cleanup ambiguity refuses; Helix does not auto-resolve semantics.
+Repeated visits use distinct agent, map, parallel, and child-run identities.
+Continuation accepts a completed entry only when its exact journal record,
+visit, recursively nested child state, and budget state all validate.
 
 ## Programmatic example
 

@@ -30,6 +30,7 @@ function inspectSseLine(line, state, model, route) {
     state.invalid = true;
     state.failure_code ??= "response-model-mismatch";
   }
+  if (typeof parsed.model === "string") state.model_observed = true;
   if (typeof parsed.provider === "string") {
     state.route_observed = true;
     if (parsed.provider !== route) {
@@ -49,7 +50,7 @@ export async function createOpenRouterAuditProxy({
   if (signal?.aborted) abort();
   else signal?.addEventListener?.("abort", abort, { once: true });
   const state = {
-    calls: 0, completed: 0, finished: 0, invalid: false, route_observed: false,
+    calls: 0, completed: 0, finished: 0, invalid: false, route_observed: false, model_observed: false,
     upstream_status: null, failure_code: null,
   };
   const idleWaiters = new Set();
@@ -143,7 +144,7 @@ export async function createOpenRouterAuditProxy({
     base_url: `http://127.0.0.1:${address.port}/api/v1`,
     verify() {
       return state.calls > 0 && state.finished === state.calls && state.completed === state.calls
-        && state.route_observed && !state.invalid;
+        && state.model_observed && !state.invalid;
     },
     async settle(timeoutMs = 1_000) {
       if (state.finished === state.calls) return true;

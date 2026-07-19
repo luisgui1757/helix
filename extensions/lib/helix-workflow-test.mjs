@@ -160,6 +160,8 @@ export async function smokeTestWorkflowRuntime({ workflow, subworkflows = [], cw
         async begin() { return { ok: true, cwd: checkout, before_ref: worktreeRef(checkout) }; },
         async commit() { return { ok: true, workspace_ref: worktreeRef(checkout) }; },
         async rollback() { return { ok: true }; },
+        serialize() { return { cwd: checkout, workspace_ref: worktreeRef(checkout) }; },
+        async finalize() { return { ok: true }; },
       };
       result = await runWorkflowKernel(definition, smokeInput(definition), {
         run_id: `smoke-${process.pid}-${Date.now().toString(36)}`,
@@ -172,6 +174,9 @@ export async function smokeTestWorkflowRuntime({ workflow, subworkflows = [], cw
         async runGate(_gate, ctx) {
           const activeDefinition = definitions.find((entry) => entry.id === ctx.definition_id);
           return { result: preferredGateResult(activeDefinition, ctx.node_id, finalGates.get(ctx.definition_id)), evidence_ref: journalRef({ smoke: ctx.node_id }) };
+        },
+        async verifyArtifact(artifact, ctx) {
+          return { ok: true, ref: journalRef({ definition_id: ctx.definition_id, node_id: ctx.node_id, artifact }) };
         },
         async checkpoint() { return { continue: true }; },
         resolveSubworkflow: (id, version) => children.get(`${id}@${version}`) ?? null,

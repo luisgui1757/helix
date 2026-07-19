@@ -71,7 +71,11 @@ effect journal, and permits success only through the final objective gate.
 The final node has no second objective: it executes the top-level
 `objective_gate`, and the successful terminal has no other incoming edge.
 Every candidate, panel member, and retry is one independently budgeted and
-journaled model effect; a panel cannot start unless its whole first wave fits.
+journaled model effect; structured-output repairs are additional counted
+effects and stop at the definition's declared repair ceiling. A panel cannot
+start unless its whole first wave fits. Valid usage from a failed call is still
+counted, malformed usage fails, and resume cannot raise the definition's
+effect/token/cost ceilings.
 The whole-run deadline is cumulative: elapsed time is stored in the private
 checkpoint, and continuation receives only the remaining duration. Historical
 schema-1 checkpoints can still be inspected, but named kernel continuation
@@ -119,6 +123,16 @@ enforce the same 8 MiB limit as journal reads. If a valid individual result
 would exhaust the reserved compact-failure headroom, the attempt becomes the
 stable `kernel-result-capacity-exceeded` result; mutation is rolled back, the
 compact record remains reopenable, and continuation does not repeat the call.
+Resume also validates every completed result against its exact journal identity,
+the active node visit, recursively nested child state, and immutable lifetime
+budget before execution continues.
+
+Each agent call receives the validated `tracked-step-v1` prompt contract,
+declared output schema, exact tool allowlist, mutation mode, artifact contract,
+visit, attempt, and run namespace. A returned RoleEnvelope must agree with that
+identity and status. Deterministic mock workflows preserve the same counted
+agent boundary; artifact verifiers and objective gates observe evidence but do
+not create it.
 
 ## Models and settings
 
@@ -145,9 +159,14 @@ effective identity. Uncertified paths are visible as exact-disabled and produce
 zero provider calls. See [providers.md](providers.md).
 
 The Pi adapter uses fresh in-memory sessions. The current executable exact path
-is OpenRouter: preflight requires one active ZDR/tool-capable route, binds the
-Pi-synced API-key account, displays the route and account reference for consent,
-and audits every streamed call through a session-local `127.0.0.1` proxy. A
+is OpenRouter: preflight binds the provider-issued creator account, requires one
+active ZDR/tool-capable endpoint for the exact model, endpoint tag, provider,
+and quantization, displays the route and account reference for consent, pins the
+tag and quantization, and audits every streamed call through a session-local
+`127.0.0.1` proxy. Response and generation model/provider observations must both
+match their documented contracts: the streamed response model is mandatory,
+optional route metadata cannot drift, and generation model/provider proves the
+endpoint. A
 route/account change before execution refuses without creating a run. Official
 Anthropic, OpenAI Responses, Codex Business/Enterprise, GitHub Copilot,
 Foundry Claude, and Azure OpenAI adapter contracts are installed but remain

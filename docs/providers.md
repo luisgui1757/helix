@@ -18,7 +18,7 @@ extend a claim.
 | GitHub Copilot | Official SDK/CLI/ACP session | returned model, effort, account/session | uncertified-disabled |
 | Foundry Claude | Explicit Claude deployment | deployment, model, region/account, effort | uncertified-disabled |
 | Azure OpenAI | Explicit GPT deployment, never Model Router | deployment, served model, tenant/account, effort | uncertified-disabled |
-| OpenRouter | Pi-synced API key plus audited Chat Completions | returned model/provider route/account, strict privacy/fallback pins | attended per-run certification; otherwise exact-disabled |
+| OpenRouter | Pi-synced API key plus audited Chat Completions | creator account, exact endpoint tag/quantization, returned and generation model/provider | attended per-run certification; otherwise exact-disabled |
 | Anthropic consumer OAuth | Consumer subscription reuse in a third-party host | unsupported by current policy | policy-blocked |
 | CLIProxyAPI | translated/pool/rotation gateway | cannot satisfy account/route/protocol invariants | rejected |
 
@@ -43,6 +43,7 @@ Every exact request contains one model and one endpoint provider route:
   "provider": {
     "only": ["<route>"],
     "order": ["<route>"],
+    "quantizations": ["<quantization>"],
     "allow_fallbacks": false,
     "require_parameters": true,
     "data_collection": "deny",
@@ -53,15 +54,19 @@ Every exact request contains one model and one endpoint provider route:
 
 No `models` fallback list, permissive preset, sorting shortcut, or inherited
 provider default is accepted. The response must return the exact requested
-model and provider route. A different or unrequested effective route is a
-failed call, not success with a warning.
+model; optional response route metadata, when present, must match. The
+generation record must report the same model and the selected endpoint
+provider. A different or unrequested effective endpoint is a failed call, not
+success with a warning.
 
 For the product path, attended preflight reads the configured credential only
-through Pi's AuthStorage, proves its provider-issued account label, and queries
-OpenRouter's current ZDR endpoint registry. Execution is allowed only when
-exactly one active route supports the model's tools, token parameter, and any
-requested reasoning control. The displayed consent binds the route and a hash
-of the account label; raw labels and credentials remain memory-only.
+through Pi's AuthStorage, binds `/key`'s provider-issued `creator_user_id`, and
+queries OpenRouter's current ZDR endpoint registry. Execution is allowed only
+when exactly one active endpoint supplies the model id, endpoint tag, provider
+name, quantization, tool/token parameters, and any requested reasoning control.
+The request pins the endpoint tag and quantization. Displayed consent binds the
+route, quantization, and a hash of the account id; raw ids and credentials
+remain memory-only.
 
 Pi's streaming message omits the OpenRouter route. Helix therefore uses a
 session-local HTTP proxy bound only to `127.0.0.1`. It rejects any outbound
@@ -77,10 +82,13 @@ network calls. They prove request ordering, strict routing, response identity,
 unattested zero-egress refusal, account mismatch, and cancellation.
 
 The optional live tool supports only an explicitly authorized OpenRouter free
-model. It first proves the expected opaque account handle, then sends one tiny
-strict request. Missing model, route, account, credential, `:free` suffix, or
-returned identity refuses. The tool never chooses a substitute or prints the
-credential/account. See the command in [manual.md](manual.md).
+model. It first proves the expected creator account and one exact endpoint,
+then sends one tiny request pinned to that endpoint tag and quantization. It
+records `live-certified` evidence only after the response id/model/route/usage
+and generation model/provider all match. Missing model, endpoint, account,
+credential, `:free` suffix, or returned identity refuses. The tool never
+chooses a substitute or prints the credential/account. See the command in
+[manual.md](manual.md).
 
 The standalone tool proves the provider-specific runtime. Release verification
 also exercises the production Pi AgentSession path through its localhost audit
@@ -104,3 +112,7 @@ Official sources:
 - [Azure OpenAI reference](https://learn.microsoft.com/en-us/azure/foundry/openai/reference)
 - [Foundry Claude configuration](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/configure-claude-code)
 - [OpenRouter provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
+- [OpenRouter current-key identity](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key)
+- [OpenRouter ZDR endpoint metadata](https://openrouter.ai/docs/api/api-reference/endpoints/list-endpoints-zdr)
+- [OpenRouter generation metadata](https://openrouter.ai/docs/api/api-reference/generations/get-generation)
+- [OpenRouter usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting)

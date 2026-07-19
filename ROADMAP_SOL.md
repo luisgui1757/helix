@@ -88,6 +88,24 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > active Docker network denial passes 5/5. Exact-head remote CI after the single
 > normal push remains the final delivery authority.
 
+> **Runtime-contract and durable-state closure (2026-07-19):** the next
+> independent exact-head reviews found that validated agent fields were not all
+> executable contracts, resumed completion/budget state admitted forged or
+> drifting combinations, visit identities could collide, host/mock callbacks
+> could manufacture effects, and OpenRouter proof did not bind the complete
+> account/endpoint/generation tuple. The canonical closure carries prompt,
+> output, tools, mutation, artifact, visit, attempt, run, and RoleEnvelope
+> identity through every product/runtime boundary; recursively validates
+> completed journal evidence, visits, child state, and immutable lifetime
+> budgets; counts failed usage and structured repairs; namespaces repeated
+> visits; closes every host effect; and keeps mock mutation inside the counted
+> candidate adapter. OpenRouter preflight and the opt-in certification tool now
+> bind creator account, unique endpoint tag/quantization/provider, response,
+> and generation observations before certification. The complete local suite
+> passes 723/723 plus worktree 12/12 and objective loop 8/8. Exact-head remote
+> CI and independent post-push review remain the authority for live-testing
+> readiness.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:

@@ -27,8 +27,8 @@ const SEMANTIC_SCHEMA = Object.freeze({
   },
 });
 
-const MUTATING_ROLES = new Set(["planner", "builder", "documenter"]);
-const VERDICT_ROLES = new Set(["reviewer"]);
+const PI_TOOLS = new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]);
+const MUTATION_TOOLS = new Set(["bash", "edit", "write"]);
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 const CONTROL_MAX_BYTES = 8 * 1024 * 1024;
 
@@ -46,11 +46,15 @@ function textOfAssistant(message) {
     .map((item) => item.text).join("\n");
 }
 
-function parseSemanticOutput(text) {
+function parseSemanticOutput(text, outputSchema = "semantic-v2") {
   try {
     const trimmed = text.trim();
     const parsed = JSON.parse(trimmed);
-    if (trimmed.startsWith("{") && trimmed.endsWith("}") && validate(SEMANTIC_SCHEMA, parsed, "$").valid) return parsed;
+    const validVerdict = outputSchema !== "verdict-v1"
+      || ["approve", "revise", "revise-jump"].includes(parsed?.recommendation);
+    if (["semantic-v2", "verdict-v1"].includes(outputSchema)
+      && trimmed.startsWith("{") && trimmed.endsWith("}")
+      && validate(SEMANTIC_SCHEMA, parsed, "$").valid && validVerdict) return parsed;
   } catch {
     // Stable refusal below. Fences, prose, and trailing JSON are not trusted.
   }
@@ -58,17 +62,23 @@ function parseSemanticOutput(text) {
 }
 
 function usageOf(message) {
-  const usage = message?.usage ?? {};
-  const input = usage.input_tokens ?? usage.input ?? 0;
-  const output = usage.output_tokens ?? usage.output ?? 0;
-  return {
-    input_tokens: Number.isSafeInteger(input) && input >= 0 ? input : 0,
-    output_tokens: Number.isSafeInteger(output) && output >= 0 ? output : 0,
-  };
+  const usage = message?.usage;
+  if (usage == null || typeof usage !== "object" || Array.isArray(usage)) return null;
+  const input = Object.hasOwn(usage, "input_tokens") ? usage.input_tokens : usage.input;
+  const output = Object.hasOwn(usage, "output_tokens") ? usage.output_tokens : usage.output;
+  return Number.isSafeInteger(input) && input >= 0 && Number.isSafeInteger(output) && output >= 0
+    ? { input_tokens: input, output_tokens: output }
+    : null;
 }
 
-function outputContract(role, verdictRole) {
-  const verdict = role === verdictRole || VERDICT_ROLES.has(role)
+function failureWithUsage(code, usage) {
+  const error = new Error(code);
+  if (usage != null) error.usage = { ...usage };
+  return error;
+}
+
+function outputContract(outputSchema) {
+  const verdict = outputSchema === "verdict-v1"
     ? " For reviewer routing, recommendation MUST be exactly approve, revise, or revise-jump."
     : "";
   return `\n\nFinish with exactly one JSON object and no text after it:\n` +
@@ -105,7 +115,7 @@ async function boundedJson(fetchImpl, url, options, maxBytes = CONTROL_MAX_BYTES
   catch { return { ok: false, code: "provider-control-response-invalid" }; }
 }
 
-function exactOpenRouterModel(model, route) {
+function exactOpenRouterModel(model, route, quantization) {
   return {
     ...model,
     compat: {
@@ -115,6 +125,7 @@ function exactOpenRouterModel(model, route) {
       openRouterRouting: {
         only: [route],
         order: [route],
+        quantizations: [quantization],
         allow_fallbacks: false,
         require_parameters: true,
         data_collection: "deny",
@@ -124,7 +135,7 @@ function exactOpenRouterModel(model, route) {
   };
 }
 
-async function defaultSessionFactory({ cwd, model, modelRegistry, role, thinkingLevel, apiKey = null }) {
+async function defaultSessionFactory({ cwd, model, modelRegistry, tools, thinkingLevel, apiKey = null }) {
   const { sdk } = await loadPiSdk();
   const agentDir = sdk.getAgentDir();
   const loader = new sdk.DefaultResourceLoader({
@@ -136,9 +147,6 @@ async function defaultSessionFactory({ cwd, model, modelRegistry, role, thinking
     noThemes: true,
   });
   await loader.reload();
-  const tools = MUTATING_ROLES.has(role)
-    ? ["read", "bash", "edit", "write", "grep", "find", "ls"]
-    : ["read", "grep", "find", "ls"];
   let activeRegistry = modelRegistry;
   let activeModel = model;
   let activeAuth = modelRegistry.authStorage;
@@ -194,7 +202,7 @@ export function createPiAgentAdapter({
     throw new Error("pi-model-registry-unavailable");
   }
 
-  let failureCode = null;
+  let lastFailureCode = null;
   let identityCode = null;
   let identityState = null;
   const certifications = new Map();
@@ -226,10 +234,10 @@ export function createPiAgentAdapter({
       if (typeof apiKey !== "string" || apiKey.length < 1) return { ok: false, code: "provider-account-unavailable" };
       const headers = { Authorization: `Bearer ${apiKey}` };
       const [accountResult, endpointResult] = await Promise.all([
-        boundedJson(fetchImpl, `${OPENROUTER_BASE}/auth/key`, { headers, signal: controller.signal }, 64 * 1024),
-        boundedJson(fetchImpl, `${OPENROUTER_BASE}/endpoints/zdr`, { signal: controller.signal }),
+        boundedJson(fetchImpl, `${OPENROUTER_BASE}/key`, { headers, signal: controller.signal }, 64 * 1024),
+        boundedJson(fetchImpl, `${OPENROUTER_BASE}/endpoints/zdr`, { headers, signal: controller.signal }),
       ]);
-      const account = accountResult.value?.data?.label;
+      const account = accountResult.value?.data?.creator_user_id;
       const endpoints = endpointResult.value?.data;
       if (!accountResult.ok || !boundedOpaque(account)) return { ok: false, code: "provider-account-unverified" };
       if (!endpointResult.ok || !Array.isArray(endpoints)) return { ok: false, code: "provider-route-unverified" };
@@ -241,23 +249,26 @@ export function createPiAgentAdapter({
         if (!model || !modelRegistry.hasConfiguredAuth(model)) {
           return { ok: false, code: "pi-model-unavailable-or-unauthenticated" };
         }
-        const routes = [...new Set(endpoints.filter((endpoint) => endpoint?.model_id === spec.model
+        const routes = endpoints.filter((endpoint) => endpoint?.model_id === spec.model
           && endpoint.status === 0 && boundedOpaque(endpoint.provider_name)
+          && boundedOpaque(endpoint.tag) && boundedOpaque(endpoint.quantization)
           && Array.isArray(endpoint.supported_parameters)
           && endpoint.supported_parameters.includes("max_tokens")
           && endpoint.supported_parameters.includes("tools")
           && (!model.reasoning || spec.effort === "default" || spec.effort === "provider-managed"
             || endpoint.supported_parameters.includes("reasoning")
-            || endpoint.supported_parameters.includes("reasoning_effort")))
-          .map((endpoint) => endpoint.provider_name))];
+            || endpoint.supported_parameters.includes("reasoning_effort")));
         if (routes.length !== 1) return { ok: false, code: "openrouter-exact-route-ambiguous-or-unavailable" };
-        const route = routes[0];
+        const endpoint = routes[0];
+        const route = endpoint.tag;
         pending.set(key, {
           apiKey,
           account,
           route,
-          model: exactOpenRouterModel(model, route),
-          attestation_ref: `sha256:${sha256(`${spec.provider}\0${spec.model}\0${spec.effort}\0${route}\0${account}`)}`,
+          provider_name: endpoint.provider_name,
+          quantization: endpoint.quantization,
+          model: exactOpenRouterModel(model, route, endpoint.quantization),
+          attestation_ref: `sha256:${sha256(`${spec.provider}\0${spec.model}\0${spec.effort}\0${route}\0${endpoint.quantization}\0${account}`)}`,
         });
       }
       certifications.clear();
@@ -267,6 +278,7 @@ export function createPiAgentAdapter({
         model: spec.model,
         effort: spec.effort,
         route: pending.get(key).route,
+        quantization: pending.get(key).quantization,
         account_ref: `sha256:${sha256(pending.get(key).account)}`,
       }));
       return {
@@ -304,7 +316,8 @@ export function createPiAgentAdapter({
           `${OPENROUTER_BASE}/generation?id=${encodeURIComponent(assistant.responseId)}`,
           { headers, signal: controller.signal }, 256 * 1024);
         if (result.ok) {
-          const matched = result.value?.data?.provider_name === certificate.route;
+          const matched = result.value?.data?.provider_name === certificate.provider_name
+            && result.value?.data?.model === certificate.model.id;
           identityCode = matched ? "openrouter-route-verified" : "openrouter-route-mismatch";
           return matched;
         }
@@ -323,7 +336,8 @@ export function createPiAgentAdapter({
     }
   };
 
-  const run = async ({ role, provider, model: modelId, effort = "default", stage, prompt, ctx, verdictRole = null }) => {
+  const runEffect = async ({ role, provider, model: modelId, effort = "default", stage, prompt, ctx, verdictRole = null }) => {
+    let failureCode = null;
     let model;
     const certificate = exactMode ? certifications.get(assignmentKey({ provider, model: modelId, effort })) : null;
     if (exactMode && !certificate) {
@@ -351,7 +365,21 @@ export function createPiAgentAdapter({
         : PI_EFFORT_CODES.INVALID;
       throw new Error(failureCode);
     }
-    const fullPrompt = `${prompt ?? "Perform the assigned workflow role."}${outputContract(role, verdictRole)}`;
+    const outputSchema = ctx.output_schema?.id ?? (role === verdictRole ? "verdict-v1" : "semantic-v2");
+    if (!["semantic-v2", "verdict-v1"].includes(outputSchema)) {
+      failureCode ??= "pi-agent-output-schema-invalid";
+      throw new Error(failureCode);
+    }
+    const fullPrompt = `${prompt ?? "Perform the assigned workflow role."}${outputContract(outputSchema)}`;
+    const tools = ctx.tools;
+    const mutation = ctx.mutation;
+    if (!Array.isArray(tools) || tools.length > 16 || new Set(tools).size !== tools.length
+      || tools.some((tool) => !PI_TOOLS.has(tool))
+      || !["read-only", "shared-serialized", "isolated-proposal"].includes(mutation)
+      || (mutation === "read-only" && tools.some((tool) => MUTATION_TOOLS.has(tool)))) {
+      failureCode ??= "pi-agent-tools-invalid";
+      throw new Error(failureCode);
+    }
     const activeSignals = [...new Set([signal, ctx.signal].filter(Boolean))];
     let session = null;
     let auditProxy = null;
@@ -394,7 +422,8 @@ export function createPiAgentAdapter({
           cwd: ctx.cwd,
           model: sessionModel,
           modelRegistry,
-          role,
+          tools: structuredClone(tools),
+          mutation,
           effort,
           thinkingLevel,
           ...(certificate ? { apiKey: certificate.apiKey } : {}),
@@ -430,7 +459,7 @@ export function createPiAgentAdapter({
           if (!["pi-agent-call-timeout", "pi-agent-call-cancelled"].includes(error?.message)) {
             failureCode ??= "pi-agent-session-failed";
           }
-          throw new Error(failureCode ?? "pi-agent-session-failed");
+          throw failureWithUsage(failureCode ?? "pi-agent-session-failed", usageOf(assistant));
         }
       }
       if (auditProxy) {
@@ -443,27 +472,26 @@ export function createPiAgentAdapter({
           : !auditSettled ? "openrouter-audit-response-incomplete"
             : auditStatus.calls === 0 ? "openrouter-audit-request-unobserved"
             : auditStatus.completed !== auditStatus.calls ? "openrouter-audit-response-incomplete"
-              : !auditStatus.route_observed ? "openrouter-audit-route-unobserved"
-                : "openrouter-audit-identity-mismatch";
+              : "openrouter-audit-identity-mismatch";
         try { await bounded(auditProxy.close()); }
         catch { auditVerified = false; failureCode ??= "openrouter-audit-proxy-failed"; }
       }
       if (timer) clearTimeout(timer);
       for (const activeSignal of activeSignals) activeSignal.removeEventListener?.("abort", cancelHandler);
     }
-    const identityVerified = !certificate || (auditProxy
-      ? auditVerified
-      : await verifyOpenRouterGeneration(certificate, assistant, ctx.signal ?? signal));
+    const observedUsage = usageOf(assistant);
+    const identityVerified = !certificate || ((!auditProxy || auditVerified)
+      && await verifyOpenRouterGeneration(certificate, assistant, ctx.signal ?? signal));
     if (!identityVerified) {
       failureCode ??= "openrouter-effective-route-unverified";
-      throw new Error(failureCode);
+      throw failureWithUsage(failureCode, observedUsage);
     }
     let semantic;
     try {
-      semantic = parseSemanticOutput(textOfAssistant(assistant));
+      semantic = parseSemanticOutput(textOfAssistant(assistant), outputSchema);
     } catch {
       failureCode ??= "pi-agent-semantic-output-invalid";
-      throw new Error(failureCode);
+      throw failureWithUsage(failureCode, observedUsage);
     }
     const inputHash = sha256(fullPrompt);
     const semanticHash = sha256(JSON.stringify(semantic));
@@ -488,6 +516,10 @@ export function createPiAgentAdapter({
     };
     const attestationRef = certificate?.attestation_ref
       ?? `sha256:${sha256(JSON.stringify({ requested, effective }))}`;
+    if (observedUsage == null) {
+      failureCode ??= "pi-agent-usage-invalid";
+      throw new Error(failureCode);
+    }
     return {
       schema_version: 2,
       run_id: ctx.run_id,
@@ -498,7 +530,7 @@ export function createPiAgentAdapter({
       requested,
       effective,
       attestation_ref: attestationRef,
-      usage: usageOf(assistant),
+      usage: observedUsage,
       attempt: Number.isSafeInteger(ctx.attempt) && ctx.attempt > 0 ? ctx.attempt : 1,
       iteration: Number.isSafeInteger(ctx.pass) && ctx.pass > 0 ? ctx.pass : 1,
       input_ref: { kind: "sha256", value: inputHash, algorithm: "sha256" },
@@ -506,6 +538,17 @@ export function createPiAgentAdapter({
       evidence_ref: `sha256:${sha256(`${semanticHash}:evidence`)}`,
       ...semantic,
     };
+  };
+
+  const run = async (args) => {
+    try {
+      const result = await runEffect(args);
+      lastFailureCode = null;
+      return result;
+    } catch (error) {
+      lastFailureCode = typeof error?.message === "string" ? error.message : "pi-agent-effect-failed";
+      throw error;
+    }
   };
 
   return {
@@ -518,7 +561,7 @@ export function createPiAgentAdapter({
     attests(spec, ref) {
       return certifications.get(assignmentKey(spec))?.attestation_ref === ref;
     },
-    lastFailureCode() { return failureCode; },
+    lastFailureCode() { return lastFailureCode; },
     supportsProvider(provider) {
       return provider !== "mock" && provider !== "claude-local";
     },
@@ -531,19 +574,22 @@ export function createPiAgentAdapter({
     runJudge(input, ctx) {
       return run({
         role: "judge", provider: ctx.judge.provider, model: ctx.judge.model, effort: ctx.judge.effort, stage: "judge",
-        prompt: metaPrompt(ctx.task_instruction, `Rank these structural candidate projections:\n${JSON.stringify(input)}`), ctx,
+        prompt: metaPrompt(ctx.task_instruction, `Rank these structural candidate projections:\n${JSON.stringify(input)}`),
+        ctx: { ...ctx, tools: ctx.tools ?? ["read", "grep", "find", "ls"], mutation: ctx.mutation ?? "read-only" },
       });
     },
     runSynthesis(input, ctx) {
       return run({
         role: "synthesizer", provider: ctx.synthesis.provider, model: ctx.synthesis.model, effort: ctx.synthesis.effort, stage: "synthesis",
-        prompt: metaPrompt(ctx.task_instruction, `Synthesize these candidate projections without dropping contradictions:\n${JSON.stringify(input)}`), ctx,
+        prompt: metaPrompt(ctx.task_instruction, `Synthesize these candidate projections without dropping contradictions:\n${JSON.stringify(input)}`),
+        ctx: { ...ctx, tools: ctx.tools ?? ["read", "grep", "find", "ls"], mutation: ctx.mutation ?? "read-only" },
       });
     },
     runVerifier(input, ctx) {
       return run({
         role: "verifier", provider: ctx.verification.provider, model: ctx.verification.model, effort: ctx.verification.effort, stage: "verification",
-        prompt: metaPrompt(ctx.task_instruction, `Verify this structural workflow evidence:\n${JSON.stringify(input)}`), ctx,
+        prompt: metaPrompt(ctx.task_instruction, `Verify this structural workflow evidence:\n${JSON.stringify(input)}`),
+        ctx: { ...ctx, tools: ctx.tools ?? ["read", "grep", "find", "ls"], mutation: ctx.mutation ?? "read-only" },
       });
     },
   };

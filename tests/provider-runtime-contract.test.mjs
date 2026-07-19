@@ -124,3 +124,37 @@ test("runtime cancellation reaches the provider transport", async () => {
   const result = await pending;
   assert.equal(result.code, "provider-request-cancelled");
 });
+
+test("every provider runtime rejects incomplete, malformed, and aggregate-unsafe usage", async () => {
+  const fixtures = [
+    ["anthropic-api", createAnthropicRuntime, {}, (tuple, usage) => ({ model: tuple.model, content: [], usage })],
+    ["openai-api", createOpenAIRuntime, {}, (tuple, usage) => ({ model: tuple.model, output: [], usage })],
+    ["azure-foundry-claude", createAzureClaudeRuntime, { route: "deployment-a" },
+      (tuple, usage) => ({ deployment: tuple.route, body: { model: tuple.model, content: [], usage } })],
+    ["azure-openai", createAzureOpenAIRuntime, { route: "deployment-a" },
+      (tuple, usage) => ({ deployment: tuple.route, body: { model: tuple.model, output: [], usage } })],
+    ["openrouter", createOpenRouterRuntime, { route: "endpoint/tag" },
+      (tuple, usage) => ({ model: tuple.model, provider: tuple.route, choices: [], usage })],
+    ["codex-business-token", createCodexRuntime, {},
+      (tuple, usage) => ({ model: tuple.model, effort: tuple.effort, account: tuple.expected_account, output: [], usage })],
+    ["github-copilot", createCopilotRuntime, {},
+      (tuple, usage) => ({ model: tuple.model, effort: tuple.effort, account: tuple.expected_account, output: [], usage })],
+  ];
+  for (const [providerPath, create, extra, response] of fixtures) {
+    const tuple = {
+      provider: providerPath, model: "model-test", effort: "high", expected_account: "account-test", ...extra,
+    };
+    const malformed = providerPath === "openrouter" || providerPath.includes("codex") || providerPath === "github-copilot"
+      ? [{}, { total_tokens: -1 }, { total_tokens: "1" }]
+      : [{}, { input_tokens: 1 }, { output_tokens: 1 }, { input_tokens: -1, output_tokens: 1 },
+        { input_tokens: Number.MAX_SAFE_INTEGER, output_tokens: 1 }];
+    for (const usage of malformed) {
+      const runtime = create({ transport: async () => response(tuple, usage) });
+      const preflight = await runtime.preflight(tuple, { now, capability: capability(tuple, providerPath) });
+      assert.equal(preflight.ok, true, `${providerPath}: ${JSON.stringify(preflight)}`);
+      const result = await runtime.execute({ tuple, messages }, { now, attestation: preflight.attestation });
+      assert.equal(result.code, "provider-response-usage-invalid", `${providerPath}: ${JSON.stringify(usage)}`);
+      runtime.dispose();
+    }
+  }
+});

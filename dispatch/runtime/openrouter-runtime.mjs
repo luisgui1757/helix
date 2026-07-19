@@ -1,4 +1,4 @@
-import { boundedMaxOutput, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
+import { boundedMaxOutput, checkedProviderUsage, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
 
 export function createOpenRouterRuntime({ transport } = {}) {
   return createStrictRuntime({
@@ -33,6 +33,8 @@ export function createOpenRouterRuntime({ transport } = {}) {
       const body = response?.body ?? response;
       if (!body || body.model !== attestation.requested.model || body.provider !== attestation.requested.route
         || !Array.isArray(body.choices)) return { ok: false, code: "openrouter-effective-route-unverified" };
+      const usage = checkedProviderUsage(body.usage?.total_tokens, body.usage?.cost_micros ?? 0);
+      if (usage == null) return { ok: false, code: "provider-response-usage-invalid" };
       return {
         ok: true,
         value: body.choices,
@@ -43,10 +45,7 @@ export function createOpenRouterRuntime({ transport } = {}) {
           route: body.provider,
           account: attestation.effective.account,
         },
-        usage: {
-          tokens: body.usage?.total_tokens ?? 0,
-          cost_micros: Number.isSafeInteger(body.usage?.cost_micros) ? body.usage.cost_micros : 0,
-        },
+        usage,
       };
     },
   });

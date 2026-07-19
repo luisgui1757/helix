@@ -39,7 +39,9 @@ also requires recorded final-gate pass evidence. Cycles are explicit and
 bounded. Conditions read safe JSON pointers and cannot execute user code.
 
 The scheduler uses stable node/instance/attempt ids. Parallel and map output is
-definition-ordered. Every actual model invocation is a budgeted, journaled
+definition-ordered; instance and child-run ids also include the current node
+visit so a later visit cannot collide with an earlier attempt. Every actual
+model invocation is a budgeted, journaled
 effect; multi-member panels reserve the complete first wave atomically before
 dispatch, then journal each member and retry independently. Resume reuses
 completed member attempts before reserving only the unfinished first wave.
@@ -49,7 +51,10 @@ With abort policy, the first decisive failure stops workers from claiming more
 indices; already-started effects settle, and every unused reservation is
 released. Provider usage is a closed pair of nonnegative safe integers, and
 every reservation, provider sum, and lifetime-total addition is checked before
-state changes.
+state changes. Failed provider calls retain and durably account any valid usage;
+malformed usage becomes a stable failure. Definition ceilings are immutable,
+and caller-supplied or resumed budget state may report consumed overshoot but
+cannot raise the original maximums.
 One run abort signal propagates through nodes, provider calls, objective commands, and
 workspaces. Scheduler-owned races bound even a non-cooperative injected gate,
 artifact, checkpoint, or child-resolution promise; child workflows receive the
@@ -63,7 +68,12 @@ it as the current rollback state.
 
 Every model effect identity binds the workflow hash, node/attempt/invocation,
 canonical inputs/upstream outputs, runtime/cast ref, tool and mutation policy,
-and current workspace fingerprint. Before a provider call, the scheduler
+current visit, declared artifact, and current workspace fingerprint. The
+product prompt binds the tracked prompt contract, stage, visit, attempt,
+iteration, exact run namespace, upstream/item/revision context, and artifact
+summary. The RoleEnvelope response must repeat the complete requested and
+effective identity and return a status and value valid for the declared output
+schema. Before a provider call, the scheduler
 consumes one effect and durably checkpoints an in-flight intent. After the call,
 it checkpoints the validated result and any pending workspace finalization,
 appends the matching journal record, then checkpoints that journal position.
@@ -74,6 +84,11 @@ retry consumes a new effect. An in-flight intent with no provable result refuses
 as outcome-unknown instead of guessing or replaying. Recovery material is
 finalized only after the durable result/journal checkpoints; cleanup failure is
 checkpointed and retried idempotently on resume.
+
+Malformed `semantic-v2` or reviewer `verdict-v1` output may be repaired only by
+another explicit invocation. Each repair consumes and journals a new lifetime
+effect, is independently bounded, and stops at the definition's
+`structured_repair_attempts` ceiling. There is no unmetered parser retry.
 
 ## Workspace model
 
@@ -125,7 +140,10 @@ journal prefix, and snapshot. A journal suffix newer than the checkpoint is
 preserved and accepted only when every suffix identity maps to durable pending
 or in-flight state in the complete parent/child checkpoint tree; extra or
 conflicting evidence is terminal drift. Every loaded result is re-hashed and
-its status must match its journal record. Completed attempts and reconciled
+its status must match its journal record. Every `active.completed` entry must
+map to that exact journal identity; active visit state, visit counters, budget
+totals, and nested child scheduler state are recursively validated before any
+node runs. Completed attempts and reconciled
 read-only results are not re-executed. Mutating reconciliation additionally
 requires the recorded workspace fingerprint. Corrupt, missing, stale,
 ambiguous, or mismatched state refuses.
@@ -165,7 +183,12 @@ Responses, Codex app-server, Copilot SDK, OpenRouter Chat Completions, Foundry
 Claude, and Azure OpenAI calls. OpenRouter exact mode pins `only` and `order`,
 sets `allow_fallbacks: false`, `require_parameters: true`,
 `data_collection: "deny"`, and `zdr: true`, then verifies the returned model and
-provider route.
+provider route. Its provider control-plane proof uses `/key`'s
+`creator_user_id` as the account, selects exactly one active endpoint by model,
+endpoint tag, provider name, supported parameters, and quantization, pins the
+tag and quantization on the request, then verifies response and generation
+identity: the streamed response model is mandatory, optional streamed route
+metadata must not drift, and generation model/provider is the route proof.
 
 The Pi AgentSession adapter is the installed broad-provider discovery path, but
 real product execution additionally requires an exact provider certificate.
@@ -174,8 +197,14 @@ account, selecting one active ZDR/tool-capable route, injecting Pi's native
 `openRouterRouting` controls, and auditing every streamed call through a
 session-local `127.0.0.1` byte-forwarding proxy. Consent binds the certificate;
 drift refuses before run-directory creation. The adapter parses only one
-complete closed JSON object. Unsupported provider/account proof remains
+complete closed JSON object and receives exactly the validated workflow tools,
+mutation mode, and output schema. Unsupported provider/account proof remains
 exact-disabled rather than being renamed “connected.”
+
+Deterministic mock execution preserves the same effect boundary. A synthetic
+artifact, when required by a mock candidate, is written inside that counted
+adapter call. Artifact verification and objective gates are read-only evidence
+observers and cannot create a successful artifact or convergence marker.
 
 ## Content and privacy
 

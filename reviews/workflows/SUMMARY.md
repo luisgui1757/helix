@@ -420,3 +420,69 @@ Remote evidence for remediation commit
 package RPC, deterministic smokes, active Docker, and diff checks; the aggregate
 `test` job also completed successfully. The independent post-ship review is the
 remaining release-quality gate before live testing.
+
+## 2026-07-19 — Exact agent-contract and durable-state closure
+
+Status before this change: HOLD at exact head
+`b8384c92c5436455f18722fea29c45a12892cdee`. The fresh-context GPT-5.6 Sol
+xhigh review revalidated the earlier Fable/Codex recovery closure and accepted
+the following additional contract and composition findings. The canonical
+closure is:
+
+- Executable v4 roles, prompt id, output schema, tool allowlist, mutation mode,
+  workspace policy, artifact contract, visit, attempt, iteration, and run
+  namespace are now closed at schema validation and propagated without
+  widening through prompt construction, product execution, Pi session
+  creation, and RoleEnvelope validation. A non-`ok` envelope,
+  requested/effective tuple drift, or schema-invalid value cannot converge.
+- Every `active.completed` value must map to its exact reconciled journal
+  identity. Active visit state, visit counters, immutable definition ceilings,
+  safe budget totals, and nested child scheduler state are recursively
+  validated before execution. Caller-supplied and checkpoint budget state may
+  report a truthful provider overshoot but cannot raise the workflow maxima.
+- Provider usage is absent/zero or one complete safe-integer pair. Valid usage
+  from failed calls is retained and durably accounted; malformed, partial, or
+  aggregate-unsafe usage becomes a stable failure. Journal-ahead accounting is
+  reverted if its checkpoint cannot be published, so a later continuation
+  neither loses nor double-counts it.
+- Repeated agent, pipeline, parallel, map, and subworkflow visits use
+  visit-scoped instance and child-run identities. An earlier visit can never be
+  mistaken for a later visit's completed work or checkpoint namespace.
+- Mutating execution now requires the complete workspace transaction surface;
+  declared artifacts require an exact verifier and hash. Workspace begin,
+  serialize, commit, rollback, and finalize failures close as scheduler
+  results, and serialization failure restores before-state. Gate exceptions
+  and malformed gate returns are kernel failures rather than authored
+  `on_fail` evidence.
+- `limits.structured_repair_attempts` is implemented as a real bounded repair
+  loop. Every repair is a separately reserved, called, journaled, and observed
+  lifetime effect. The closed workspace policy is limited to the one supported
+  canonical-worktree/unchanged/off combination; unsupported persisted policy
+  values refuse instead of being ignored.
+- Deterministic mock artifacts are created inside the counted candidate adapter
+  call. Host artifact verification and objective gates only observe evidence;
+  they no longer write convergence markers or unjournaled workspace state.
+- OpenRouter preflight binds `/key`'s `creator_user_id`, exactly one active
+  endpoint's model/tag/provider/quantization/parameters, and pins its tag and
+  quantization. Execution requires the documented streamed response model,
+  rejects optional route drift, and requires generation model/provider evidence.
+  The opt-in certification CLI derives its attestation
+  only after the same account, endpoint, response, usage, and generation checks
+  succeed; no live command was run during this closure.
+
+Focused suites and the complete local `npm test` gate pass 723/723 with zero
+failures or skips, plus worktree self-test 12/12 and objective-loop self-test
+8/8. Exact-head conformance, provider, documentation, package/Pi, Docker,
+remote CI, and independent post-push review evidence are appended only after
+they execute on the committed head.
+
+Complete local evidence before commit: `npm test` passed 723/723 with zero
+failures or skips, worktree self-test 12/12, and objective-loop self-test 8/8.
+Workflow conformance passed 96/96 and provider contracts 32/32. Documentation
+truth, resources, static no-live-egress, public-safety diff, both deterministic
+smokes, and `git diff --check` passed. The extracted package contains exactly
+99 files and passed RPC loading through local Pi 0.80.10. The active Docker
+`--network none` proof passed 5/5 with both external destinations denied,
+offline Pi 0.80.7 package loading, and the localhost-only mock path. No live
+provider or model service was contacted. Exact-head remote CI and the
+independent post-push review remain pending until the committed head exists.

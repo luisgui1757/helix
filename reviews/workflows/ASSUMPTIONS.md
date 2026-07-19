@@ -230,3 +230,48 @@ Rejected findings / bounded false alarms:
   can still create a file that the matching reader refuses.
 - “A hard run deadline is an operator cancellation”: rejected. Deadlines are
   failed timeouts; only an externally requested abort is operator cancellation.
+
+## 2026-07-19 — Executable contract and continuation-state invariants
+
+- A validated agent field is an executable contract. Prompt id, output schema,
+  tools, mutation mode, artifact, visit, attempt, iteration, run id, and
+  requested/effective runtime identity must reach the adapter and return
+  envelope unchanged; schema presence alone is not implementation evidence.
+- Completed scheduler state is never self-authenticating. Every completed
+  instance must have exact reconciled journal evidence, and active visit,
+  nested child scheduler, and budget state must validate as one recursive
+  continuation document before any effect can be reused.
+- Workflow budget maxima are immutable lifetime bindings. A provider may
+  truthfully overshoot an enforced soft token/cost maximum, but resume or an
+  injected ledger cannot increase the configured ceiling to legalize it.
+- Usage from a completed failed provider call is still consumed lifetime usage.
+  It must be durably accounted exactly once; malformed or partial usage cannot
+  be replaced with zero, and unsafe aggregate arithmetic cannot mutate totals.
+- Node visit is part of effect and child-run identity. Stable node ids alone are
+  insufficient when an authored loop revisits parallel, map, pipeline, agent,
+  checkpoint, or subworkflow work.
+- Structured repair is provider work, not parsing housekeeping. Each repair is
+  a separately bounded and journaled effect and the declared repair ceiling is
+  executable policy, not dormant metadata.
+- Host artifact verifiers and deterministic gates are evidence observers. Mock
+  and real convergence material must originate inside a counted agent/workspace
+  transaction; a host callback cannot create the artifact it then approves.
+- Exact OpenRouter evidence binds the provider-issued creator account, unique
+  endpoint tag, provider name, quantization, supported parameters, response
+  identity, and generation identity. A route label or self-authored prospective
+  attestation is not equivalent evidence.
+
+Rejected findings / bounded false alarms:
+
+- “A structurally valid checkpoint can trust `active.completed` without its
+  journal record”: rejected. That turns caller-controlled state into replay
+  authority and permits unperformed work to be reused.
+- “Failed calls need no usage accounting because the node did not succeed”:
+  rejected. Provider work was performed and lifetime ceilings apply to calls,
+  not only to successful workflow values.
+- “Role defaults may widen a declared tool list at runtime”: rejected. The
+  declared list is the consented executable capability set; defaults belong in
+  normalization before hashing and consent.
+- “Deterministic mocks may write gate markers from the verifier or gate host
+  callback”: rejected. That bypasses the journaled agent transaction and makes
+  the observer manufacture its own proof.

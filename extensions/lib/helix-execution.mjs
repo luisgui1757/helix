@@ -93,6 +93,41 @@ function nonMockSpecs(castContexts) {
   ]).filter((spec) => spec.provider !== "mock");
 }
 
+function promptHandoff(ctx) {
+  const priorNode = ctx.outputs?.[ctx.node_id] ?? null;
+  const gates = Object.fromEntries(Object.entries(ctx.outputs ?? {}).filter(([, value]) =>
+    value && typeof value === "object" && ["pass", "fail"].includes(value.result)));
+  const value = {
+    upstream: ctx.local.upstream ?? null,
+    item: ctx.local.item ?? null,
+    revision: ctx.visit > 1 ? { prior_node_output: priorNode, gate_outputs: gates } : null,
+  };
+  try { return frameContent("agent-output", value); }
+  catch {
+    return frameContent("agent-output", {
+      upstream_ref: hashRef(stableStringify(value.upstream ?? null)),
+      item_ref: hashRef(stableStringify(value.item ?? null)),
+      revision_ref: hashRef(stableStringify(value.revision ?? null)),
+    });
+  }
+}
+
+function agentOutputMatchesSchema(envelope, outputSchema) {
+  if (outputSchema?.id === "semantic-v2") return true;
+  return outputSchema?.id === "verdict-v1"
+    && ["approve", "revise", "revise-jump"].includes(envelope?.recommendation);
+}
+
+function schedulerUsageFromAdapterError(error) {
+  const value = error?.usage;
+  if (value == null || typeof value !== "object" || Array.isArray(value)
+    || Object.keys(value).length !== 2
+    || !Number.isSafeInteger(value.input_tokens) || value.input_tokens < 0
+    || !Number.isSafeInteger(value.output_tokens) || value.output_tokens < 0) return null;
+  const tokens = value.input_tokens + value.output_tokens;
+  return Number.isSafeInteger(tokens) ? { tokens, cost_micros: 0 } : null;
+}
+
 async function certifyCast(adapter, specs, signal, { require_live = false } = {}) {
   if (require_live && adapter?.liveCertification !== true) {
     return { ok: false, code: "provider-live-certification-required" };
@@ -214,7 +249,6 @@ async function executeKernelDefinition({
     checkpoint_effect: checkpoint,
   });
   const mock = createStagedMockAdapter();
-  const artifactChecks = new Map();
   const templatesDir = join(packageRoot, "dispatch", "config", "templates");
   const briefsDir = join(packageRoot, "dispatch", "config", "agents");
   const eventPath = `${runId}.kernel.events.jsonl`;
@@ -243,21 +277,31 @@ async function executeKernelDefinition({
     if (!spec) return { ok: false, code: "kernel-agent-cast-missing" };
     const activeDefinition = definitionsById.get(ctx.definition_id);
     if (!activeDefinition) return { ok: false, code: "kernel-subworkflow-binding-invalid" };
+    const attempt = ctx.local.attempt;
+    const iteration = ctx.visit;
+    const envelopeRunId = `${ctx.run_id}:${ctx.instance_id}`;
+    const activeArtifact = ctx.artifact ?? (node.mutation !== "read-only"
+      && activeDefinition.objective_gate.type === "file-contains"
+      ? { path: activeDefinition.objective_gate.path, kind: "notes" }
+      : null);
+    if (!Number.isSafeInteger(attempt) || attempt < 1 || !Number.isSafeInteger(iteration) || iteration < 1) {
+      return { ok: false, code: "kernel-agent-context-invalid" };
+    }
     let compiled;
     try {
       compiled = compileStepPrompt({
-        template_id: "step-prompt-v1",
+        template_id: node.prompt === "tracked-step-v1" ? "step-prompt-v1" : node.prompt,
         templates_dir: templatesDir,
         briefs_dir: briefsDir,
         role: node.role,
         fields: {
           chain_id: activeDefinition.id,
           stage_id: node.stage_id,
-          pass: 1,
+          pass: iteration,
           gate_summary: JSON.stringify(activeDefinition.objective_gate),
-          artifact_summary: "workflow-node-output",
+          artifact_summary: stableStringify(activeArtifact ?? { kind: "none", path: null }),
           task_instruction: frameContent("operator-task", task),
-          handoff: frameContent("agent-output", ctx.local.upstream ?? ctx.local.item ?? null),
+          handoff: promptHandoff(ctx),
         },
       });
     } catch { compiled = null; }
@@ -267,24 +311,45 @@ async function executeKernelDefinition({
     let envelope;
     try {
       envelope = await selected.runCandidate(spec, {
-          run_id: `${ctx.run_id}-${ctx.node_id}-${node._helix_member_index}`,
+          run_id: envelopeRunId,
           stage_id: node.stage_id,
-          verdict_role: node.role === "reviewer" ? "reviewer" : null,
+          verdict_role: node.output_schema.id === "verdict-v1" ? node.role : null,
           prompt: compiled.prompt,
           cwd: ctx.cwd,
-          pass: 1,
-          attempt: 1,
+          pass: iteration,
+          attempt,
+          tools: structuredClone(node.tools),
+          mutation: node.mutation,
+          output_schema: structuredClone(node.output_schema),
+          ...(spec.provider === "mock" ? { mock_effect: {
+            mutation: node.mutation,
+            artifact: activeArtifact == null ? null : structuredClone(activeArtifact),
+            objective_gate: structuredClone(activeDefinition.objective_gate),
+            visit: iteration,
+            max_visits: activeDefinition.nodes[ctx.node_id]?.max_visits ?? 1,
+          } } : {}),
           signal: ctx.signal,
       });
     } catch (error) {
-      if (error?.message === "pi-agent-call-cancelled") return { ok: false, code: "kernel-effect-cancelled" };
+      const usage = schedulerUsageFromAdapterError(error);
+      if (error?.message === "pi-agent-call-cancelled") {
+        return { ok: false, code: "kernel-effect-cancelled", ...(usage ? { usage } : {}) };
+      }
       const code = RETRYABLE_AGENT_FAILURES.has(error?.message) ? error.message : "kernel-agent-adapter-failed";
-      return { ok: false, code, ...(RETRYABLE_AGENT_FAILURES.has(code) ? { failure_class: "agent" } : {}) };
+      return { ok: false, code, ...(RETRYABLE_AGENT_FAILURES.has(code) ? { failure_class: "agent" } : {}),
+        ...(usage ? { usage } : {}) };
     }
     try { assertRoleEnvelope(envelope); }
     catch { return { ok: false, code: "kernel-agent-envelope-invalid" }; }
+    if (envelope.run_id !== envelopeRunId || envelope.stage !== "candidate" || envelope.role !== node.role
+      || envelope.provider !== spec.provider || envelope.model !== spec.model
+      || envelope.attempt !== attempt || envelope.iteration !== iteration) {
+      return { ok: false, code: "kernel-agent-envelope-identity-invalid" };
+    }
     if (spec.provider !== "mock") {
-      if (!envelope.effective || Object.values(envelope.effective.evidence).includes("requested-only")
+      if (!envelope.requested || envelope.requested.provider !== spec.provider || envelope.requested.model !== spec.model
+        || envelope.requested.effort !== spec.effort
+        || !envelope.effective || Object.values(envelope.effective.evidence).includes("requested-only")
         || envelope.effective.provider !== spec.provider || envelope.effective.model !== spec.model
         || envelope.effective.effort !== spec.effort
         || adapter.attests(spec, envelope.attestation_ref) !== true) {
@@ -293,36 +358,22 @@ async function executeKernelDefinition({
     }
     const tokens = envelope.usage.input_tokens + envelope.usage.output_tokens;
     if (!Number.isSafeInteger(tokens)) return { ok: false, code: "kernel-agent-usage-invalid" };
+    const usage = { tokens, cost_micros: 0 };
+    if (envelope.status !== "ok") {
+      return { ok: false, code: `pi-agent-status-${envelope.status}`, failure_class: "agent", usage };
+    }
+    if (!agentOutputMatchesSchema(envelope, node.output_schema)) {
+      return { ok: false, code: "kernel-agent-output-invalid", usage };
+    }
     return {
       ok: true,
       value: envelope,
-      usage: {
-        tokens,
-        cost_micros: 0,
-      },
+      usage,
       attestation_ref: envelope.attestation_ref ?? null,
     };
   };
   const verifyArtifact = async (artifact, ctx) => {
-    const activeDefinition = ctx.definition_id === definition.id
-      ? definition
-      : subworkflows.find((entry) => entry.definition.id === ctx.definition_id)?.definition;
-    const castByStage = castsByDefinition.get(ctx.definition_id);
-    const stageCast = castByStage?.get(ctx.node_id) ?? castByStage?.get(activeDefinition?.nodes[ctx.node_id]?.stages?.[0]?.stage_id);
-    const allMock = Object.values(stageCast?.roles ?? {}).flat().every((member) => member.provider === "mock");
     const path = join(ctx.cwd, artifact.path);
-    const artifactKey = `${ctx.definition_id}:${artifact.path}`;
-    const checks = (artifactChecks.get(artifactKey) ?? 0) + 1;
-    artifactChecks.set(artifactKey, checks);
-    if (allMock && !existsSync(path)) {
-      const marker = activeDefinition?.objective_gate.type === "file-contains" && activeDefinition.objective_gate.path === artifact.path
-        ? `\n${activeDefinition.objective_gate.contains}\n` : "\n";
-      writeTextAtomic(ctx.cwd, artifact.path, `Synthetic no-egress ${artifact.kind} artifact.${marker}`);
-    } else if (allMock && checks > 1 && activeDefinition?.objective_gate.type === "file-contains"
-      && activeDefinition.objective_gate.path === artifact.path) {
-      appendText(ctx.cwd, artifact.path, `\n${activeDefinition.objective_gate.contains}\n`);
-      mock.calls.revisions += 1;
-    }
     try {
       const stat = lstatSync(path);
       if (stat.isSymbolicLink() || !stat.isFile() || stat.size > 16 * 1024 * 1024) return { ok: false, code: "kernel-artifact-invalid" };
@@ -330,13 +381,8 @@ async function executeKernelDefinition({
     } catch { return { ok: false, code: "kernel-artifact-invalid" }; }
   };
   const runGate = async (gateDefinition, ctx) => {
-    const objective = makeObjectiveGate(created.path, gateDefinition, { signal });
+    const objective = makeObjectiveGate(created.path, gateDefinition, { signal: ctx.signal });
     const result = await objective({ stage_id: ctx.node_id, phase: ctx.final ? "conclusion" : "stage-expectation" });
-    if (ctx.final && result.result === "fail" && nonMock.length === 0
-      && gateDefinition.type === "file-contains") {
-      appendText(created.path, gateDefinition.path, `\n${gateDefinition.contains}\n`);
-      mock.calls.revisions += 1;
-    }
     return result;
   };
   const started = {

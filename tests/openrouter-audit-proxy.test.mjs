@@ -9,18 +9,19 @@ const routing = {
 };
 
 function stream(model, provider) {
-  return `data: ${JSON.stringify({ id: "generation", model, provider, choices: [{ delta: { content: "ok" } }] })}\n\n`
-    + `data: ${JSON.stringify({ id: "generation", model, provider, choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`
+  const identity = { id: "generation", model, ...(provider == null ? {} : { provider }) };
+  return `data: ${JSON.stringify({ ...identity, choices: [{ delta: { content: "ok" } }] })}\n\n`
+    + `data: ${JSON.stringify({ ...identity, choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`
     + "data: [DONE]\n\n";
 }
 
-test("OpenRouter audit proxy preserves bytes and proves exact streamed model and route", async () => {
+test("OpenRouter audit proxy preserves bytes and proves the required streamed model without undocumented route metadata", async () => {
   let captured;
   const proxy = await createOpenRouterAuditProxy({
     model: "vendor/model:free", route: "ExactRoute", apiKey: "credential",
     fetchImpl: async (_url, options) => {
       captured = { headers: options.headers, body: options.body.toString("utf8") };
-      return new Response(stream("vendor/model:free", "ExactRoute"), {
+      return new Response(stream("vendor/model:free", null), {
         status: 200, headers: { "content-type": "text/event-stream" },
       });
     },
@@ -67,6 +68,25 @@ test("OpenRouter audit proxy rejects outbound policy drift and observed route su
     });
     await response.text();
     assert.equal(upstreamCalls, 1);
+    assert.equal(proxy.verify(), false);
+  } finally {
+    await proxy.close();
+  }
+});
+
+test("OpenRouter audit proxy requires the streamed response model even when optional endpoint metadata matches", async () => {
+  const proxy = await createOpenRouterAuditProxy({
+    model: "vendor/model:free", route: "ExactRoute", apiKey: "credential",
+    fetchImpl: async () => new Response(stream(undefined, "ExactRoute"), {
+      status: 200, headers: { "content-type": "text/event-stream" },
+    }),
+  });
+  try {
+    const response = await fetch(`${proxy.base_url}/chat/completions`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "vendor/model:free", stream: true, messages: [], provider: routing }),
+    });
+    await response.text();
     assert.equal(proxy.verify(), false);
   } finally {
     await proxy.close();

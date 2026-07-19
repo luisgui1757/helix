@@ -343,8 +343,21 @@ The single source for test rules.
 - Every actual model invocation, including panel members and retries, is one
   independently budgeted and journaled effect. Panel reservations are atomic,
   token/cost arithmetic uses checked safe-integer addition, and malformed
-  usage fails closed. Abort-policy fan-out stops dequeuing after the first
-  decisive failure and releases reservations for work that never started.
+  usage fails closed. Usage from a completed failed call is still lifetime
+  usage and must be durably accounted. Workflow ceilings are immutable across
+  continuation; neither injected budget state nor a checkpoint may raise them.
+  Abort-policy fan-out stops dequeuing after the first decisive failure and
+  releases reservations for work that never started.
+- Agent, pipeline, parallel, map, and child effect identities include the
+  current node visit. A resumed completion is reusable only when its exact
+  journal identity exists in the reconciled parent/child journal; visit counts,
+  active state, nested child state, and budget totals are recursively validated.
+- Agent execution binds the validated `tracked-step-v1` prompt contract,
+  output schema, exact tool allowlist, mutation mode, artifact contract, visit,
+  attempt, and run namespace through the product and runtime boundaries.
+  Runtime status or identity drift cannot be converted into a model success.
+  Structured-output repair is a separately budgeted, journaled invocation and
+  is capped by the definition's `structured_repair_attempts`.
 - Result, output, journal, and checkpoint admission preserve enough headroom
   for a compact durable failure. Aggregate growth may stop a workflow with a
   stable capacity result, but may never create an oversized checkpoint or a
@@ -361,7 +374,13 @@ The single source for test rules.
   effective identity.
 - Provider/model/effort/route/account fallback is forbidden unless modeled as
   an explicit workflow transition. OpenRouter exact mode always disables
-  fallback and verifies the returned endpoint route.
+  fallback and binds the provider-issued creator account, the unique endpoint
+  tag and quantization, the streamed response model and any optional route
+  metadata, and the generation
+  model/provider observation.
+- Deterministic mock workflows may mutate only inside their counted candidate
+  adapter effect. Host verifiers and gates observe artifacts and objective
+  evidence; they never manufacture convergence or unjournaled workspace state.
 - Kernel public events contain structural ids, hashes, counts, status, and
   stable codes only. Tasks, prompts, responses, provider bodies, account
   handles, credentials, and workspace content stay out of public projections.

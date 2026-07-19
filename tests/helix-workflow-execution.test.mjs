@@ -138,24 +138,22 @@ test("an exact-limit persisted definition can be watched and resumed", async () 
   const cwd = repo();
   const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
   const stages = Array.from({ length: WORKFLOW_LIMITS.max_inline_stages }, (_, index) => agent({
-    role: "reviewer", stage_id: `review-${index}`, prompt: "p", mutation: "read-only", timeout_ms: 1_000,
+    role: "reviewer", stage_id: `review-${index}`, mutation: "read-only", timeout_ms: 1_000,
   }));
   const built = workflow({
     id: "definition-limit", name: "Definition limit", description: "Exact byte-limit workflow.", start: "approval",
     nodes: {
-      approval: checkpoint("limit-approval", "work"), work: pipeline(stages, "objective", { max_visits: 1 }),
+      approval: checkpoint("limit-approval", "route"),
+      route: decision([{ when: { op: "eq", path: "/inputs/task", value: "" }, target: "work" }], "work"),
+      work: pipeline(stages, "objective", { max_visits: 1 }),
       objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
     },
     limits: { max_total_effects: stages.length }, objective_gate: objective,
   });
   assert.equal(built.ok, true, JSON.stringify(built.errors));
   let remaining = WORKFLOW_LIMITS.max_workflow_bytes - Buffer.byteLength(stableWorkflowStringify(built.definition));
-  for (const stage of built.definition.nodes.work.stages) {
-    const added = Math.min(WORKFLOW_LIMITS.max_prompt_length - stage.prompt.length, remaining);
-    stage.prompt += "p".repeat(added);
-    remaining -= added;
-  }
-  assert.equal(remaining, 0);
+  built.definition.nodes.route.transitions[0].when.value = "p".repeat(remaining);
+  assert.ok(remaining > 0);
   assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
   const binding = executionBinding(stateRoot, "definition-limit");
   const paused = await executeNamedWorkflow({
@@ -190,6 +188,24 @@ function executionBinding(stateRoot, id, modelInventory = null) {
   assert.equal(preflight.ok, true, JSON.stringify(preflight));
   assert.match(preflight.details.execution_binding_ref, /^sha256:[0-9a-f]{64}$/);
   return preflight.details.execution_binding_ref;
+}
+
+function exactEnvelope(spec, ctx, overrides = {}) {
+  return {
+    schema_version: 2, run_id: ctx.run_id, stage: "candidate", role: spec.role,
+    provider: spec.provider, model: spec.model,
+    requested: { provider: spec.provider, model: spec.model, effort: spec.effort },
+    effective: {
+      provider: spec.provider, model: spec.model, effort: spec.effort,
+      evidence: { provider: "verified-response", model: "verified-response", effort: "verified-session" },
+    },
+    attestation_ref: `sha256:${"a".repeat(64)}`,
+    usage: { input_tokens: 2, output_tokens: 1 }, attempt: ctx.attempt, iteration: ctx.pass,
+    input_ref: { kind: "local-ref", value: "local-ref:input/workflow-contract", algorithm: null },
+    claims_ref: "local-ref:claims/workflow-contract", evidence_ref: "local-ref:evidence/workflow-contract",
+    uncertainty: [], risks: [], recommendation: "approve", proposed_actions: [], open_questions: [], status: "ok",
+    ...overrides,
+  };
 }
 
 test("named user workflow executes canonical blocks and never persists the raw task", async () => {
@@ -443,6 +459,183 @@ test("mixed casts route mock members locally and real members through the exact 
   assert.equal(adapterCalls, 1);
 });
 
+test("product agents receive exact declared tools, mutation, output, artifact, and visit context", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-agent-contract-"));
+  const cwd = repo();
+  const objective = { type: "file-contains", path: "result.md", contains: "READY" };
+  const built = workflow({
+    id: "agent-contract", name: "Agent contract", description: "Exercise the exact v4 agent contract.", start: "work",
+    nodes: {
+      work: { ...agent({
+        role: "builder", stage_id: "work", output_schema: "semantic-v2",
+        tools: ["read", "write"], mutation: "shared-serialized", timeout_ms: 1_000,
+        artifact: { path: "result.md", kind: "notes" },
+      }), next: "objective", max_visits: 2 },
+      objective: { ...objectiveGate("success", "work"), loops_off: "failed" },
+      success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+    },
+    limits: { max_total_effects: 2, structured_repair_attempts: 0 },
+    provider_policy: {
+      exact: true, assignments: {},
+      default_assignment: { kind: "model", provider: "openrouter", model: "vendor/contract:free", effort: "high" },
+      require_live_certification: false,
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const inventory = [{ provider: "openrouter", model: "vendor/contract:free", reasoning: true, supported_efforts: ["high"] }];
+  const exactRef = `sha256:${"b".repeat(64)}`;
+  const contexts = [];
+  const adapter = {
+    kind: "helix-pi-agent", exactMode: true, supportsProvider: () => true,
+    async preflightExact() { return { ok: true, bindings: [{ provider: "openrouter" }], binding_ref: exactRef }; },
+    attests: () => true,
+    async runCandidate(spec, ctx) {
+      contexts.push({
+        run_id: ctx.run_id, pass: ctx.pass, attempt: ctx.attempt, tools: structuredClone(ctx.tools),
+        mutation: ctx.mutation, output_schema: structuredClone(ctx.output_schema), prompt: ctx.prompt, cwd: ctx.cwd,
+      });
+      writeFileSync(join(ctx.cwd, "result.md"), ctx.pass === 1 ? "draft\n" : "READY\n", "utf8");
+      return exactEnvelope(spec, ctx, { recommendation: "built" });
+    },
+  };
+  const result = await executeNamedWorkflow({
+    workflow_id: "agent-contract", task: "build the declared result", run_id: "agent-contract-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "agent-contract", inventory), expected_exact_ref: exactRef, adapter,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.total_passes, 2);
+  assert.deepEqual(contexts.map(({ run_id, pass, attempt, tools, mutation, output_schema }) => ({
+    run_id, pass, attempt, tools, mutation, output_schema,
+  })), [
+    {
+      run_id: "agent-contract-run:work:1:member-0:attempt-1", pass: 1, attempt: 1,
+      tools: ["read", "write"], mutation: "shared-serialized", output_schema: { id: "semantic-v2" },
+    },
+    {
+      run_id: "agent-contract-run:work:2:member-0:attempt-1", pass: 2, attempt: 1,
+      tools: ["read", "write"], mutation: "shared-serialized", output_schema: { id: "semantic-v2" },
+    },
+  ]);
+  assert.match(contexts[0].prompt, /Stage: work · Pass: 1/);
+  assert.match(contexts[0].prompt, /\{"kind":"notes","path":"result.md"\}/);
+  assert.match(contexts[1].prompt, /Stage: work · Pass: 2/);
+  assert.match(contexts[1].prompt, /"revision":\{"prior_node_output":/);
+  assert.equal(readFileSync(join(result.worktree_path, "result.md"), "utf8"), "READY\n");
+});
+
+test("non-ok envelopes and output-schema violations cannot reach the objective gate", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-agent-result-contract-"));
+  const cwd = repo();
+  const objective = { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 };
+  const built = workflow({
+    id: "agent-result-contract", name: "Agent result contract", description: "Refuse unusable agent envelopes.", start: "review",
+    nodes: {
+      review: pipeline([agent({
+        role: "reviewer", stage_id: "review", output_schema: "verdict-v1", mutation: "read-only", timeout_ms: 1_000,
+      })], "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+    },
+    limits: { max_total_effects: 2, structured_repair_attempts: 1 },
+    provider_policy: {
+      exact: true, assignments: {},
+      default_assignment: { kind: "model", provider: "openrouter", model: "vendor/result:free", effort: "high" },
+      require_live_certification: false,
+    },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const inventory = [{ provider: "openrouter", model: "vendor/result:free", reasoning: true, supported_efforts: ["high"] }];
+  const exactRef = `sha256:${"c".repeat(64)}`;
+  let outcome = {};
+  let repairMode = false;
+  let repairCalls = 0;
+  const adapter = {
+    kind: "helix-pi-agent", exactMode: true, supportsProvider: () => true,
+    async preflightExact() { return { ok: true, bindings: [{ provider: "openrouter" }], binding_ref: exactRef }; },
+    attests: () => true,
+    async runCandidate(spec, ctx) {
+      if (repairMode) {
+        repairCalls += 1;
+        if (repairCalls === 1) {
+          const error = new Error("pi-agent-semantic-output-invalid");
+          error.usage = { input_tokens: 2, output_tokens: 1 };
+          throw error;
+        }
+      }
+      return exactEnvelope(spec, ctx, outcome);
+    },
+  };
+  const binding = executionBinding(stateRoot, "agent-result-contract", inventory);
+  for (const status of ["blocked", "failed", "refused", "timeout"]) {
+    outcome = { status };
+    const result = await executeNamedWorkflow({
+      workflow_id: "agent-result-contract", task: "must not converge", run_id: `agent-status-${status}`, cwd,
+      state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+      expected_binding_ref: binding, expected_exact_ref: exactRef, adapter,
+    });
+    assert.equal(result.code, `pi-agent-status-${status}`);
+    assert.equal(result.converged, false);
+  }
+  outcome = { recommendation: "looks-good" };
+  const invalidOutput = await executeNamedWorkflow({
+    workflow_id: "agent-result-contract", task: "must not converge", run_id: "agent-output-invalid", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding, expected_exact_ref: exactRef, adapter,
+  });
+  assert.equal(invalidOutput.code, "kernel-agent-output-invalid");
+  assert.equal(invalidOutput.converged, false);
+
+  outcome = {};
+  repairMode = true;
+  const repaired = await executeNamedWorkflow({
+    workflow_id: "agent-result-contract", task: "repair the closed output", run_id: "agent-output-repaired", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: binding, expected_exact_ref: exactRef, adapter,
+  });
+  assert.equal(repaired.ok, true, JSON.stringify(repaired));
+  assert.equal(repairCalls, 2);
+  const repairedCheckpoint = JSON.parse(readFileSync(
+    join(stateRoot, "private", "runs", "agent-output-repaired", "kernel-checkpoint.json"), "utf8"));
+  assert.equal(repairedCheckpoint.scheduler.budget.tokens, 6);
+  const repairEvents = readFileSync(repaired.events_path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(repairEvents.filter((event) => event.kind === "effect-repair").length, 1);
+});
+
+test("mock artifact mutation is one counted candidate effect, not a verifier or gate side effect", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-counted-mock-effect-"));
+  const cwd = repo();
+  const objective = { type: "file-contains", path: "mock-result.md", contains: "DONE" };
+  const built = workflow({
+    id: "counted-mock-effect", name: "Counted mock effect", description: "Mock mutations stay in the agent boundary.", start: "work",
+    nodes: {
+      work: { ...agent({
+        role: "builder", stage_id: "work", mutation: "shared-serialized", timeout_ms: 1_000,
+        artifact: { path: "mock-result.md", kind: "notes" },
+      }), next: "objective", max_visits: 1 },
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+    },
+    limits: { max_total_effects: 1 },
+    objective_gate: objective,
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const result = await executeNamedWorkflow({
+    workflow_id: "counted-mock-effect", task: "produce the mock artifact", run_id: "counted-mock-effect-run", cwd,
+    state_root: stateRoot, package_root: packageRoot, chain_registry: chains, run_registry: runs,
+    expected_binding_ref: executionBinding(stateRoot, "counted-mock-effect"),
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.calls.candidates, 1);
+  const events = readFileSync(result.events_path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(events.filter((event) => event.kind === "effect-start").length, 1);
+  assert.equal(events.filter((event) => event.kind === "effect-end").length, 1);
+  assert.match(readFileSync(join(result.worktree_path, "mock-result.md"), "utf8"), /DONE/);
+});
+
 test("run-directory collisions refuse without creating a raw task artifact", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-workflow-collision-"));
   const cwd = repo();
@@ -663,7 +856,7 @@ test("product execution pins and runs a depth-one named subworkflow through the 
   const child = workflow({
     id: "child-v4", name: "Child", description: "Child workflow.", start: "child-work",
     nodes: {
-      "child-work": pipeline([agent({ role: "reviewer", stage_id: "child-work", mutation: "read-only", timeout_ms: 1_000 })], "child-objective", { max_visits: 1, artifact: { path: "child.md", kind: "notes" } }),
+      "child-work": pipeline([agent({ role: "builder", stage_id: "child-work", mutation: "shared-serialized", timeout_ms: 1_000 })], "child-objective", { max_visits: 1, artifact: { path: "child.md", kind: "notes" } }),
       "child-objective": objectiveGate("child-success", "child-failed"),
       "child-success": terminal("succeeded"),
       "child-failed": terminal("failed", "child-gate-failed"),
@@ -674,7 +867,7 @@ test("product execution pins and runs a depth-one named subworkflow through the 
   const parent = workflow({
     id: "parent-v4", name: "Parent", description: "Parent workflow.", start: "parent-work",
     nodes: {
-      "parent-work": pipeline([agent({ role: "reviewer", stage_id: "parent-work", mutation: "read-only", timeout_ms: 1_000 })], "child", { max_visits: 1, artifact: { path: "parent.md", kind: "notes" } }),
+      "parent-work": pipeline([agent({ role: "builder", stage_id: "parent-work", mutation: "shared-serialized", timeout_ms: 1_000 })], "child", { max_visits: 1, artifact: { path: "parent.md", kind: "notes" } }),
       child: subworkflow("child-v4", 1, "parent-objective"),
       "parent-objective": objectiveGate("parent-success", "parent-failed"),
       "parent-success": terminal("succeeded"),
@@ -982,7 +1175,7 @@ test("checkpoint node pauses durably and attended resume is its explicit continu
   const built = workflow({
     id: "checkpoint-v4", name: "Checkpoint", description: "Checkpoint workflow.", start: "work",
     nodes: {
-      work: pipeline([agent({ role: "reviewer", stage_id: "work", mutation: "read-only", timeout_ms: 1_000 })], "approval", { max_visits: 1, artifact: { path: "checkpoint.md", kind: "notes" } }),
+      work: pipeline([agent({ role: "builder", stage_id: "work", mutation: "shared-serialized", timeout_ms: 1_000 })], "approval", { max_visits: 1, artifact: { path: "checkpoint.md", kind: "notes" } }),
       approval: checkpoint("operator-approval", "objective"),
       objective: objectiveGate("success", "failed"),
       success: terminal("succeeded"),

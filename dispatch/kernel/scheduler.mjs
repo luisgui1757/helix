@@ -16,6 +16,7 @@ import { isRecoverableKernelFailure, KERNEL_CHECKPOINT_LIMITS, validateKernelChe
 
 const MUTATING = new Set(["shared-serialized", "isolated-proposal"]);
 const FAILURE_CLASSES = new Set(["agent", "kernel"]);
+const HASH = /^sha256:[0-9a-f]{64}$/;
 
 function safeCode(value, fallback) {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value) && value.length <= 160 ? value : fallback;
@@ -54,9 +55,10 @@ async function mapConcurrent(values, limit, task, shouldStop = null) {
 function normalizedUsage(value) {
   if (value == null) return { tokens: 0, cost_micros: 0 };
   if (typeof value !== "object" || Array.isArray(value)
-    || Object.keys(value).some((key) => !["tokens", "cost_micros"].includes(key))) return null;
-  const tokens = value.tokens ?? 0;
-  const costMicros = value.cost_micros ?? 0;
+    || Object.keys(value).length !== 2
+    || !Object.hasOwn(value, "tokens") || !Object.hasOwn(value, "cost_micros")) return null;
+  const tokens = value.tokens;
+  const costMicros = value.cost_micros;
   return Number.isSafeInteger(tokens) && tokens >= 0 && Number.isSafeInteger(costMicros) && costMicros >= 0
     ? { tokens, cost_micros: costMicros }
     : null;
@@ -98,6 +100,63 @@ function pendingJournalIdentities(active, identities = new Set()) {
   return pendingJournalIdentities(active.child?.scheduler?.active, identities);
 }
 
+function journalResult(result) {
+  if (result == null || typeof result !== "object" || Array.isArray(result)) return null;
+  const cloned = structuredClone(result);
+  delete cloned._journal_identity;
+  delete cloned._journal_pending;
+  delete cloned._workspace_pending;
+  return cloned;
+}
+
+function validateCompletedJournalState(active, records) {
+  if (active == null) return { ok: true };
+  if (typeof active !== "object" || Array.isArray(active)) return { ok: false };
+  const byIdentity = new Map(records.map((record) => [record.identity, record]));
+  for (const [instanceId, completed] of Object.entries(active.completed ?? {})) {
+    let clean;
+    try { clean = journalResult(completed); } catch { return { ok: false }; }
+    const resultRef = tryJournalRef(clean);
+    if (resultRef == null) return { ok: false };
+    const pending = completed._journal_pending ?? null;
+    let identity = completed._journal_identity ?? pending?.identity ?? null;
+    if (pending != null) {
+      if (typeof pending !== "object" || Array.isArray(pending)
+        || !HASH.test(pending.identity ?? "") || !HASH.test(pending.base_identity ?? "")
+        || pending.node_id !== active.node_id || pending.instance_id !== instanceId
+        || pending.status !== clean.status || tryJournalRef(pending.result) !== resultRef
+        || typeof pending.mutating !== "boolean") return { ok: false };
+      identity = pending.identity;
+    }
+    const matches = records.filter((record) => record.node_id === active.node_id
+      && record.instance_id === instanceId && record.result_ref === resultRef);
+    if (identity != null && !HASH.test(identity)) return { ok: false };
+    if (identity != null && byIdentity.has(identity)) {
+      const record = byIdentity.get(identity);
+      if (record.node_id !== active.node_id || record.instance_id !== instanceId || record.result_ref !== resultRef) return { ok: false };
+    } else if (pending == null && matches.length !== 1) {
+      return { ok: false };
+    } else if (pending == null) {
+      identity = matches[0].identity;
+    }
+    if (completed._journal_identity != null && completed._journal_identity !== identity) return { ok: false };
+  }
+  return validateCompletedJournalState(active.child?.scheduler?.active ?? null, records);
+}
+
+function validBudgetSnapshot(value) {
+  const keys = ["effects", "tokens", "cost_micros", "max_effects", "max_tokens", "max_cost_micros", "reserved"];
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+    && [value.effects, value.tokens, value.cost_micros, value.reserved]
+      .every((entry) => Number.isSafeInteger(entry) && entry >= 0)
+    && Number.isSafeInteger(value.max_effects) && value.max_effects >= 1
+    && Number.isSafeInteger(value.effects + value.reserved)
+    && value.effects + value.reserved <= value.max_effects
+    && [value.max_tokens, value.max_cost_micros]
+      .every((entry) => entry === null || (Number.isSafeInteger(entry) && entry >= 0));
+}
+
 export async function runWorkflowKernel(definition, input, deps = {}) {
   const validation = validateWorkflowDefinition(definition);
   if (!validation.valid) return { ok: false, status: "refused", code: "kernel-definition-invalid", errors: validation.errors };
@@ -106,6 +165,20 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
   input = inputValidation.input;
   if (typeof deps.executeAgent !== "function" || typeof deps.runGate !== "function") {
     return { ok: false, status: "refused", code: "kernel-effects-missing" };
+  }
+  const agents = Object.values(definition.nodes).flatMap((node) => node.kind === "agent" ? [node]
+    : node.kind === "pipeline" ? node.stages
+      : node.kind === "parallel" ? node.branches
+        : node.kind === "map" ? [node.body] : []);
+  if (agents.some((agent) => MUTATING.has(agent.mutation))) {
+    const required = ["currentRef", "verifyRef", "begin", "commit", "rollback", "serialize", "finalize"];
+    if (deps.workspace == null || required.some((name) => typeof deps.workspace[name] !== "function")) {
+      return { ok: false, status: "refused", code: "kernel-workspace-effects-missing" };
+    }
+  }
+  if (Object.values(definition.nodes).some((node) => ["agent", "pipeline"].includes(node.kind) && node.artifact)
+    && typeof deps.verifyArtifact !== "function") {
+    return { ok: false, status: "refused", code: "kernel-artifact-effect-missing" };
   }
   const runId = deps.run_id ?? definition.id;
   const finalGateId = Object.keys(definition.nodes).find((id) => definition.nodes[id].kind === "gate" && definition.nodes[id].final === true);
@@ -123,6 +196,17 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     if (!checked.valid) return { ok: false, status: "refused", code: checked.code };
     if (resume.schema_version === 1) {
       return { ok: false, status: "refused", code: "kernel-checkpoint-elapsed-unknown" };
+    }
+    if (resume.active?.child) {
+      const parentNode = definition.nodes[resume.active.node_id];
+      const expectedChildRunId = `${runId}.${resume.active.node_id}.${resume.active.visit}`;
+      if (parentNode?.kind !== "subworkflow"
+        || resume.active.child.workflow_id !== parentNode.workflow_id
+        || resume.active.child.version !== parentNode.version
+        || resume.active.child.run_id !== expectedChildRunId
+        || resume.active.child.scheduler.run_id !== expectedChildRunId) {
+        return { ok: false, status: "refused", code: "kernel-checkpoint-child-invalid" };
+      }
     }
   }
   const events = [];
@@ -149,6 +233,8 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     expected_records: resume?.journal_entries ?? null,
   });
   if (resume) {
+    const consistent = validateCompletedJournalState(resume.active, journal.records());
+    if (!consistent.ok) return { ok: false, status: "refused", code: "kernel-checkpoint-journal-invalid" };
     const suffix = journal.suffix(resume.journal_entries);
     if (!suffix.ok) return { ok: false, status: "refused", code: suffix.code };
     const pending = resume.schema_version === 2 ? pendingJournalIdentities(resume.active) : new Set();
@@ -156,14 +242,41 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       return { ok: false, status: "refused", code: "kernel-journal-checkpoint-drift" };
     }
   }
-  const budget = deps.budget ?? createBudgetLedger({
+  let injectedBudget = null;
+  if (deps.budget != null) {
+    const required = ["snapshot", "reserve", "reserveBatch", "consume", "revertConsume", "account", "revertAccount", "release"];
+    if (required.some((name) => typeof deps.budget[name] !== "function")) {
+      return { ok: false, status: "refused", code: "kernel-budget-effects-missing" };
+    }
+    try { injectedBudget = deps.budget.snapshot(); } catch { injectedBudget = null; }
+    if (!validBudgetSnapshot(injectedBudget)) {
+      return { ok: false, status: "refused", code: "kernel-budget-binding-invalid" };
+    }
+  }
+  const budgetLimits = injectedBudget ?? {
     max_effects: definition.limits.max_total_effects,
     max_tokens: deps.max_tokens ?? null,
     max_cost_micros: deps.max_cost_micros ?? null,
-    initial_effects: resume?.budget.effects ?? 0,
-    initial_tokens: resume?.budget.tokens ?? 0,
-    initial_cost_micros: resume?.budget.cost_micros ?? 0,
-  });
+  };
+  if (resume && (resume.budget.max_effects !== budgetLimits.max_effects
+    || resume.budget.max_tokens !== budgetLimits.max_tokens
+    || resume.budget.max_cost_micros !== budgetLimits.max_cost_micros
+    || (injectedBudget != null && tryJournalRef(resume.budget) !== tryJournalRef(injectedBudget)))) {
+    return { ok: false, status: "refused", code: "kernel-budget-binding-drift" };
+  }
+  let budget;
+  try {
+    budget = deps.budget ?? createBudgetLedger({
+      max_effects: budgetLimits.max_effects,
+      max_tokens: budgetLimits.max_tokens,
+      max_cost_micros: budgetLimits.max_cost_micros,
+      initial_effects: resume?.budget.effects ?? 0,
+      initial_tokens: resume?.budget.tokens ?? 0,
+      initial_cost_micros: resume?.budget.cost_micros ?? 0,
+    });
+  } catch {
+    return { ok: false, status: "refused", code: "kernel-budget-binding-invalid" };
+  }
   const outputs = resume ? structuredClone(resume.outputs) : {};
   const visits = resume ? structuredClone(resume.visits) : Object.fromEntries(Object.keys(definition.nodes).map((id) => [id, 0]));
   let startedAt;
@@ -290,6 +403,22 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     checkpointTail = checkpointTail.then(task, task);
     return checkpointTail;
   };
+  const verifyNodeArtifact = async (node, nodeId) => {
+    if (!node.artifact) return { ok: true, artifact_ref: null };
+    let artifact;
+    try {
+      artifact = await runBoundary(() => deps.verifyArtifact(node.artifact, {
+        run_id: runId, node_id: nodeId, definition_id: definition.id, cwd: deps.workspace?.cwd ?? deps.cwd,
+        signal: runController.signal,
+      }));
+    } catch {
+      return { ok: false, status: "failed", code: "kernel-artifact-verification-failed" };
+    }
+    if (cancelled) return { ok: false, ...interruption() };
+    if (!artifact?.ok) return { ok: false, status: "failed", code: safeCode(artifact?.code, "kernel-artifact-invalid") };
+    if (!HASH.test(artifact.ref ?? "")) return { ok: false, status: "failed", code: "kernel-artifact-result-invalid" };
+    return { ok: true, artifact_ref: artifact.ref };
+  };
 
   const resumeCompleted = async (nodeId, instanceId) => {
     if (active?.node_id === nodeId && Object.hasOwn(active.inflight, instanceId)) {
@@ -298,16 +427,33 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       if (!record || (record.status === "ok" && intent.mutating && journal.lookup(intent.identity, { mutating: true }) == null)) {
         return { found: true, result: settled("failed", { code: "kernel-effect-outcome-unknown" }) };
       }
+      const usage = normalizedUsage(record.result?.usage);
+      if (usage == null) return { found: true, result: settled("failed", { code: "kernel-agent-usage-invalid" }) };
+      const accounted = budget.account(usage);
+      if (!accounted.ok && !(accounted.code === "kernel-budget-provider-overshoot"
+        && record.result?.code === "kernel-budget-provider-overshoot")) {
+        if (accounted.code === "kernel-budget-provider-overshoot") budget.revertAccount(usage);
+        return { found: true, result: settled("failed", { code: accounted.code }) };
+      }
       delete active.inflight[instanceId];
       if (isRecoverableKernelFailure(record.result?.code)) {
         const saved = await checkpoint();
+        if (!saved.ok) {
+          budget.revertAccount(usage);
+          active.inflight[instanceId] = intent;
+        }
         return saved.ok
           ? { found: false, result: null }
           : { found: true, result: settled("failed", { code: saved.code }) };
       }
-      active.completed[instanceId] = structuredClone(record.result);
+      active.completed[instanceId] = structuredClone({ ...record.result, _journal_identity: record.identity });
       const saved = await checkpoint();
-      if (!saved.ok) return { found: true, result: settled("failed", { code: saved.code }) };
+      if (!saved.ok) {
+        budget.revertAccount(usage);
+        delete active.completed[instanceId];
+        active.inflight[instanceId] = intent;
+        return { found: true, result: settled("failed", { code: saved.code }) };
+      }
     }
     if (active?.node_id === nodeId && Object.hasOwn(active.completed, instanceId)) {
       const resumed = structuredClone(active.completed[instanceId]);
@@ -321,7 +467,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       }
       if (resumed._workspace_pending) {
         let finalized;
-        try { finalized = await deps.workspace?.finalize?.(resumed._workspace_pending) ?? { ok: true }; }
+        try { finalized = await deps.workspace.finalize(resumed._workspace_pending); }
         catch { finalized = null; }
         if (!finalized?.ok) {
           return { found: true, result: settled("failed", { code: safeCode(finalized?.code, "kernel-workspace-finalize-failed") }) };
@@ -389,7 +535,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       }
       let tx = null;
       if (mutating) {
-        try { tx = await deps.workspace?.begin?.({ node_id: nodeId, instance_id: instanceId, mode: agent.mutation, before_ref: beforeRef }) ?? { before_ref: beforeRef }; }
+        try { tx = await deps.workspace.begin({ node_id: nodeId, instance_id: instanceId, mode: agent.mutation, before_ref: beforeRef }); }
         catch {
           budget.release(reservation.id);
           return settled("failed", { code: "kernel-workspace-begin-failed" });
@@ -398,12 +544,16 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           budget.release(reservation.id);
           return settled("refused", { code: safeCode(tx.code, "kernel-workspace-begin-failed") });
         }
+        if (tx?.ok !== true || tx.before_ref !== beforeRef || typeof tx.cwd !== "string" || tx.cwd.length === 0) {
+          budget.release(reservation.id);
+          return settled("failed", { code: "kernel-workspace-begin-invalid" });
+        }
       }
       const consumed = budget.consume(reservation.id);
       if (!consumed.ok) {
         let restored = { ok: true };
         if (mutating && tx) {
-          try { restored = await deps.workspace?.rollback?.(tx) ?? { ok: true }; }
+          try { restored = await deps.workspace.rollback(tx); }
           catch { restored = null; }
         }
         return settled("failed", { code: restored?.ok ? consumed.code : safeCode(restored?.code, "kernel-workspace-restore-failed") });
@@ -415,7 +565,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         budget.revertConsume();
         let restored = { ok: true };
         if (mutating && tx) {
-          try { restored = await deps.workspace?.rollback?.(tx) ?? { ok: true }; }
+          try { restored = await deps.workspace.rollback(tx); }
           catch { restored = null; }
         }
         return settled("failed", { code: restored?.ok ? intentSaved.code : safeCode(restored?.code, "kernel-workspace-restore-failed") });
@@ -438,6 +588,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
             run_id: runId, node_id: nodeId, instance_id: instanceId, task: input.task,
             definition_id: definition.id,
             input: structuredClone(input), outputs: structuredClone(outputs), local: structuredClone(local),
+            visit: visits[nodeId], artifact: definition.nodes[nodeId]?.artifact ?? agent.artifact ?? null,
             cwd: tx?.cwd ?? deps.workspace?.cwd ?? deps.cwd, signal: controller.signal,
           })),
           new Promise((resolve) => controller.signal.addEventListener("abort", () => resolve({ ok: false, code: controller.signal.reason }), { once: true })),
@@ -447,11 +598,15 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       deps.signal?.removeEventListener?.("abort", cancel);
       runController.signal.removeEventListener("abort", cancel);
       let result;
-      if (raw?.ok === true) {
+      let observedUsage = normalizedUsage(raw?.usage);
+      if (observedUsage == null) {
+        result = settled("failed", { code: "kernel-agent-usage-invalid" });
+      }
+      if (observedUsage != null && raw?.ok === true) {
         try {
           result = settled("ok", {
             value: structuredClone(raw.value),
-            usage: structuredClone(raw.usage ?? { tokens: 0, cost_micros: 0 }),
+            usage: structuredClone(observedUsage),
             attestation_ref: raw.attestation_ref ?? null,
           });
         } catch {
@@ -460,13 +615,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         if (result.status === "ok" && tryJournalRef(result) == null) {
           result = settled("failed", { code: "kernel-agent-result-invalid" });
         }
-        if (result.status === "ok") {
-          const usage = normalizedUsage(result.usage);
-          result = usage == null
-            ? settled("failed", { code: "kernel-agent-usage-invalid" })
-            : { ...result, usage };
-        }
-      } else {
+      } else if (observedUsage != null) {
         const stopped = cancelled ? interruption() : null;
         result = settled(stopped?.status
           ?? (raw?.code === "kernel-effect-cancelled" || raw?.code === "kernel-run-cancelled" ? "cancelled" : "failed"), {
@@ -481,7 +630,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       const rollback = async () => {
         if (!mutating || !tx) return { ok: true };
         let restored;
-        try { restored = await deps.workspace?.rollback?.(tx) ?? { ok: true }; }
+        try { restored = await deps.workspace.rollback(tx); }
         catch { restored = null; }
         workspaceApplied = false;
         workspaceRef = null;
@@ -493,7 +642,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       if (mutating) {
         if (result.status === "ok") {
           let committed;
-          try { committed = await deps.workspace?.commit?.(tx, result) ?? { ok: true, workspace_ref: journalRef({ before_ref: beforeRef, identity }) }; }
+          try { committed = await deps.workspace.commit(tx, result); }
           catch { committed = null; }
           if (!committed?.ok || !/^sha256:[0-9a-f]{64}$/.test(committed.workspace_ref ?? "")) {
             result = settled("failed", { code: safeCode(committed?.code, "kernel-workspace-commit-failed") });
@@ -508,13 +657,16 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           if (!restored.ok) result = settled("failed", { code: restored.code });
         }
       }
-      const usage = normalizedUsage(result.usage);
-      const accounted = budget.account(usage ?? { tokens: 0, cost_micros: 0 });
-      if (!accounted.ok && result.status === "ok") {
-        result = settled("failed", { code: accounted.code });
-        const restored = await rollback();
-        if (!restored.ok) result = settled("failed", { code: restored.code });
+      if (observedUsage != null) result = { ...result, usage: observedUsage };
+      const accounted = budget.account(observedUsage ?? { tokens: 0, cost_micros: 0 });
+      if (!accounted.ok) {
+        result = settled("failed", { code: accounted.code, ...(observedUsage ? { usage: observedUsage } : {}) });
+        if (workspaceApplied) {
+          const restored = await rollback();
+          if (!restored.ok) result = settled("failed", { code: restored.code, ...(observedUsage ? { usage: observedUsage } : {}) });
+        }
       }
+      if (observedUsage != null && result.usage == null) result = { ...result, usage: observedUsage };
       if (workspaceRecoveryFailed) {
         emit("effect-end", { node_id: nodeId, instance_id: instanceId, effect_ref: identity, status: "failed", code: workspaceRecoveryCode });
         return settled("failed", { code: workspaceRecoveryCode });
@@ -527,7 +679,8 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         reserve_bytes: KERNEL_JOURNAL_LIMITS.min_failure_headroom_bytes,
       })?.code === "kernel-journal-capacity-exceeded") {
         const restored = await rollback();
-        result = settled("failed", { code: restored.ok ? "kernel-result-capacity-exceeded" : restored.code });
+        result = settled("failed", { code: restored.ok ? "kernel-result-capacity-exceeded" : restored.code,
+          ...(observedUsage ? { usage: observedUsage } : {}) });
         workspaceRef = null;
         workspaceApplied = false;
         journalRecord = {
@@ -536,10 +689,26 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         };
       }
       if (active?.node_id === nodeId) {
-        let pending = workspaceApplied ? deps.workspace?.serialize?.(tx) ?? null : null;
+        let pending = null;
+        if (workspaceApplied) {
+          try { pending = deps.workspace.serialize(tx); } catch { pending = null; }
+          if (pending == null || tryJournalRef(pending) == null) {
+            const restored = await rollback();
+            result = settled("failed", { code: restored.ok ? "kernel-workspace-serialize-failed" : restored.code,
+              ...(observedUsage ? { usage: observedUsage } : {}) });
+            workspaceRef = null;
+            workspaceApplied = false;
+            pending = null;
+            journalRecord = {
+              identity, base_identity: baseIdentity, node_id: nodeId, instance_id: instanceId, input_ref: inputRef, runtime_ref: runtimeRef,
+              before_ref: beforeRef, workspace_ref: null, mutating, status: result.status, result,
+            };
+          }
+        }
         const installCompleted = () => {
           active.completed[instanceId] = structuredClone({
             ...result,
+            _journal_identity: identity,
             _journal_pending: journalRecord,
             ...(pending ? { _workspace_pending: pending } : {}),
           });
@@ -548,7 +717,8 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         installCompleted();
         if (!checkpointFits({ reserve_bytes: KERNEL_CHECKPOINT_LIMITS.min_failure_headroom_bytes })) {
           const restored = await rollback();
-          result = settled("failed", { code: restored.ok ? "kernel-result-capacity-exceeded" : restored.code });
+          result = settled("failed", { code: restored.ok ? "kernel-result-capacity-exceeded" : restored.code,
+            ...(observedUsage ? { usage: observedUsage } : {}) });
           workspaceRef = null;
           workspaceApplied = false;
           pending = null;
@@ -560,6 +730,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           if (!checkpointFits()) {
             delete active.completed[instanceId];
             active.inflight[instanceId] = { identity, base_identity: baseIdentity, mutating };
+            if (observedUsage != null) budget.revertAccount(observedUsage);
             return settled("failed", { code: "kernel-checkpoint-capacity-exceeded" });
           }
         }
@@ -568,10 +739,12 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           const restored = await rollback();
           delete active.completed[instanceId];
           active.inflight[instanceId] = { identity, base_identity: baseIdentity, mutating };
+          if (observedUsage != null) budget.revertAccount(observedUsage);
           const recoverableRecord = !mutating && restored.ok
             ? journalRecord
             : (() => {
-              const failure = settled("failed", { code: restored.ok ? saved.code : restored.code });
+              const failure = settled("failed", { code: restored.ok ? saved.code : restored.code,
+                ...(observedUsage ? { usage: observedUsage } : {}) });
               return { ...journalRecord, workspace_ref: null, status: failure.status, result: failure };
             })();
           const reconciled = journal.commit(recoverableRecord);
@@ -592,7 +765,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         emit("effect-end", { node_id: nodeId, instance_id: instanceId, effect_ref: identity, status: result.status, ...(result.code ? { code: result.code } : {}) });
         if (workspaceApplied) {
           let finalized;
-          try { finalized = await deps.workspace?.finalize?.(tx) ?? { ok: true }; }
+          try { finalized = await deps.workspace.finalize(tx); }
           catch { finalized = null; }
           if (!finalized?.ok) return settled("failed", { code: safeCode(finalized?.code, "kernel-workspace-finalize-failed") });
           delete active.completed[instanceId]._workspace_pending;
@@ -617,17 +790,29 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         return await executeWithRetry(agent, nodeId, instanceId, local, firstReservation, firstCompleted, coordination, true);
       } finally { release(); }
     }
-    for (let attempt = 1; attempt <= agent.retry.max_attempts; attempt += 1) {
-      const result = attempt === 1 && firstCompleted?.found
+    let ordinaryAttempt = 1;
+    let repairAttempt = 0;
+    let invocationAttempt = 1;
+    while (ordinaryAttempt <= agent.retry.max_attempts) {
+      const result = invocationAttempt === 1 && firstCompleted?.found
         ? firstCompleted.result
-        : await executeOne(agent, nodeId, `${instanceId}:attempt-${attempt}`, { ...local, attempt }, attempt === 1 ? firstReservation : null, coordination);
+        : await executeOne(agent, nodeId, `${instanceId}:attempt-${invocationAttempt}`,
+          { ...local, attempt: invocationAttempt, repair_attempt: repairAttempt }, invocationAttempt === 1 ? firstReservation : null, coordination);
+      if (result.status === "failed" && result.failure_class === "agent"
+        && result.code === "pi-agent-semantic-output-invalid"
+        && repairAttempt < definition.limits.structured_repair_attempts) {
+        repairAttempt += 1;
+        invocationAttempt += 1;
+        emit("effect-repair", { node_id: nodeId, instance_id: instanceId, repair_attempt: repairAttempt });
+        continue;
+      }
       if (result.status === "ok" || result.status === "cancelled" || result.status === "refused"
         || result.failure_class !== "agent"
-        || attempt === agent.retry.max_attempts) {
+        || ordinaryAttempt === agent.retry.max_attempts) {
         coordination?.stop?.(result);
         return result;
       }
-      emit("effect-retry", { node_id: nodeId, instance_id: instanceId, attempt, next_attempt: attempt + 1 });
+      emit("effect-retry", { node_id: nodeId, instance_id: instanceId, attempt: ordinaryAttempt, next_attempt: ordinaryAttempt + 1 });
       if (agent.retry.backoff_ms > 0) {
         await new Promise((resolve) => {
           let timer;
@@ -646,6 +831,8 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         coordination?.stop?.(result);
         return result;
       }
+      ordinaryAttempt += 1;
+      invocationAttempt += 1;
     }
     const result = settled("failed", { code: "kernel-retry-state-invalid" });
     coordination?.stop?.(result);
@@ -738,10 +925,10 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
 
   const allowedFailure = (result, codes = []) => result.status === "ok"
     || (result.status === "failed" && result.failure_class === "agent" && codes.includes(result.code));
-  const runInlineList = async (agents, nodeId, { concurrency = 1, failure = "abort", allow_failure_codes = [], local = {} } = {}) => {
+  const runInlineList = async (agents, nodeId, { visit, concurrency = 1, failure = "abort", allow_failure_codes = [], local = {} } = {}) => {
     const prepared = [];
     for (let index = 0; index < agents.length; index += 1) {
-      prepared.push(await prepareAgentExecution(agents[index], nodeId, `${nodeId}:${index}`, { ...local, index }));
+      prepared.push(await prepareAgentExecution(agents[index], nodeId, `${nodeId}:${visit}:${index}`, { ...local, index }));
     }
     const reserved = reservePrepared(prepared);
     if (!reserved.ok) return { ok: false, status: "refused", code: reserved.code, values: [] };
@@ -790,8 +977,11 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       let nodeStatus = "ok";
       if (node.kind === "agent") {
         const result = await executeAgentWithRetry(node, current, `${current}:${visits[current]}`);
-        if (!storeOutput(current, result)) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
         if (result.status !== "ok") return { ok: false, status: result.status, code: result.code ?? "kernel-agent-failed", events, outputs, budget: budget.snapshot() };
+        const artifact = await verifyNodeArtifact(node, current);
+        if (!artifact.ok) return { ok: false, status: artifact.status, code: artifact.code, events, outputs, budget: budget.snapshot() };
+        const agentOutput = artifact.artifact_ref ? { ...result, artifact_ref: artifact.artifact_ref } : result;
+        if (!storeOutput(current, agentOutput)) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
         next = node.next;
       } else if (node.kind === "pipeline") {
         const values = [];
@@ -811,28 +1001,17 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         if (!storeOutput(current, { values: values.map(outputValue), by_role: byRole })) {
           return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
         }
-        if (node.artifact && typeof deps.verifyArtifact === "function") {
-          let artifact;
-          try {
-            artifact = await runBoundary(() => deps.verifyArtifact(node.artifact, {
-              run_id: runId, node_id: current, definition_id: definition.id, cwd: deps.workspace?.cwd ?? deps.cwd,
-              signal: runController.signal,
-            }));
-          } catch {
-            return { ok: false, status: "failed", code: "kernel-artifact-verification-failed", events, outputs, budget: budget.snapshot() };
-          }
-          if (cancelled) {
-            const stopped = interruption();
-            return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
-          }
-          if (!artifact?.ok) return { ok: false, status: "failed", code: safeCode(artifact?.code, "kernel-artifact-invalid"), events, outputs, budget: budget.snapshot() };
-          if (!storeOutput(current, { ...outputs[current], artifact_ref: artifact.ref ?? null })) {
+        if (node.artifact) {
+          const artifact = await verifyNodeArtifact(node, current);
+          if (!artifact.ok) return { ok: false, status: artifact.status, code: artifact.code, events, outputs, budget: budget.snapshot() };
+          if (!storeOutput(current, { ...outputs[current], artifact_ref: artifact.artifact_ref })) {
             return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
           }
         }
         next = node.next;
       } else if (node.kind === "parallel") {
         const result = await runInlineList(node.branches, current, {
+          visit: visits[current],
           concurrency: Math.min(node.max_concurrency, definition.limits.max_concurrency),
           failure: node.failure,
           allow_failure_codes: node.allow_failure_codes ?? [],
@@ -846,7 +1025,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         if (resolved.value.length > node.max_items || resolved.value.length > definition.limits.max_map_items) return { ok: false, status: "refused", code: "kernel-map-cardinality-exceeded", events, outputs };
         const prepared = [];
         for (let index = 0; index < resolved.value.length; index += 1) {
-          prepared.push(await prepareAgentExecution(node.body, current, `${current}:${index}`, { item: resolved.value[index], index }));
+          prepared.push(await prepareAgentExecution(node.body, current, `${current}:${visits[current]}:${index}`, { item: resolved.value[index], index }));
         }
         const reserved = reservePrepared(prepared);
         if (!reserved.ok) return { ok: false, status: "refused", code: reserved.code, events, outputs, budget: budget.snapshot() };
@@ -885,10 +1064,15 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         let result;
         const objective = node.final === true ? definition.objective_gate : node.gate;
         try { result = await runBoundary(() => deps.runGate(objective, { run_id: runId, node_id: current, definition_id: definition.id, final: node.final === true, cwd: deps.workspace?.cwd ?? deps.cwd, signal: runController.signal })); }
-        catch { result = null; }
+        catch { return { ok: false, status: "failed", code: "kernel-gate-effect-failed", events, outputs, budget: budget.snapshot() }; }
         if (cancelled) {
           const stopped = interruption();
           return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+        }
+        if (!result || typeof result !== "object" || Array.isArray(result)
+          || !["pass", "fail"].includes(result.result)
+          || (result.evidence_ref != null && !HASH.test(result.evidence_ref))) {
+          return { ok: false, status: "failed", code: "kernel-gate-result-invalid", events, outputs, budget: budget.snapshot() };
         }
         const pass = result?.result === "pass";
         if (!storeOutput(current, { result: pass ? "pass" : "fail", evidence_ref: result?.evidence_ref ?? null, final: node.final === true })) {
@@ -933,7 +1117,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         if (child && !childInputSchemaAcceptsParent(definition.inputs, child.inputs)) {
           return { ok: false, status: "refused", code: "kernel-subworkflow-binding-invalid", events, outputs };
         }
-        const childRunId = `${runId}.${current}`;
+        const childRunId = `${runId}.${current}.${visits[current]}`;
         const childResume = active?.child?.workflow_id === node.workflow_id
           && active.child.version === node.version && active.child.run_id === childRunId
           ? active.child.scheduler

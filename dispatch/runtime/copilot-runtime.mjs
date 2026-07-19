@@ -1,4 +1,4 @@
-import { boundedMaxOutput, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
+import { boundedMaxOutput, checkedProviderUsage, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
 
 export function createCopilotRuntime({ transport } = {}) {
   return createStrictRuntime({
@@ -21,6 +21,8 @@ export function createCopilotRuntime({ transport } = {}) {
         || response.account !== attestation.effective.account) {
         return { ok: false, code: "copilot-effective-session-unverified" };
       }
+      const usage = checkedProviderUsage(response.usage?.total_tokens);
+      if (usage == null) return { ok: false, code: "provider-response-usage-invalid" };
       return {
         ok: true,
         value: response.output,
@@ -31,7 +33,7 @@ export function createCopilotRuntime({ transport } = {}) {
           ...(attestation.requested.route ? { route: response.route } : {}),
           account: response.account,
         },
-        usage: { tokens: response.usage?.total_tokens ?? 0, cost_micros: 0 },
+        usage,
       };
     },
   });

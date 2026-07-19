@@ -8,7 +8,6 @@
 import { createHash } from "node:crypto";
 import { isSafeWorktreeFilePath } from "../lib/persistence.mjs";
 import { isPublicCode } from "../lib/public-values.mjs";
-import { ROLES } from "../lib/role-envelope.mjs";
 
 const ID = /^[a-z0-9][a-z0-9._-]*$/;
 const NODE_ID = /^[a-z][a-z0-9-]*$/;
@@ -381,15 +380,16 @@ function validateAgent(node, path, errors, { inline = false } = {}) {
     errors.push(issue(path, "must contain only agent fields"));
     return;
   }
-  if (!ROLES.includes(node.role)) errors.push(issue(`${path}.role`, "must be a known Helix role"));
+  const executableRoles = ["scout", "planner", "builder", "reviewer", "redteam", "documenter"];
+  if (!executableRoles.includes(node.role)) errors.push(issue(`${path}.role`, "must be an executable workflow-agent role"));
   if (!safeId(node.stage_id, NODE_ID)) errors.push(issue(`${path}.stage_id`, "must be a safe stage id"));
-  if (typeof node.prompt !== "string" || node.prompt.length < 1 || node.prompt.length > WORKFLOW_LIMITS.max_prompt_length) {
-    errors.push(issue(`${path}.prompt`, "must be a non-empty bounded prompt template id"));
+  if (node.prompt !== "tracked-step-v1") {
+    errors.push(issue(`${path}.prompt`, "must name the tracked-step-v1 prompt contract"));
   }
-  if (!plain(node.output_schema) || typeof node.output_schema.id !== "string"
-    || !["semantic-v2", "verdict-v1", "freeform-v1"].includes(node.output_schema.id)
+  const outputSchemas = node.role === "reviewer" ? ["semantic-v2", "verdict-v1"] : ["semantic-v2"];
+  if (!plain(node.output_schema) || !outputSchemas.includes(node.output_schema.id)
     || Object.keys(node.output_schema).some((key) => key !== "id")) {
-    errors.push(issue(`${path}.output_schema`, "must name a supported closed output schema"));
+    errors.push(issue(`${path}.output_schema`, `role '${node.role}' requires ${outputSchemas.join(" or ")}`));
   }
   const toolsValid = Array.isArray(node.tools) && node.tools.length <= WORKFLOW_LIMITS.max_agent_tools
     && new Set(node.tools).size === node.tools.length
@@ -774,9 +774,9 @@ export function validateWorkflowDefinition(definition) {
   }
   if (!exactKeys(definition.workspace_policy, ["mode", "proposal_cleanup", "transcripts"])
     || definition.workspace_policy.mode !== "canonical-worktree"
-    || !["unchanged", "explicit"].includes(definition.workspace_policy.proposal_cleanup)
-    || !["off", "private"].includes(definition.workspace_policy.transcripts)) {
-    errors.push(issue("$.workspace_policy", "must declare canonical-worktree mode, cleanup, and transcript policy"));
+    || definition.workspace_policy.proposal_cleanup !== "unchanged"
+    || definition.workspace_policy.transcripts !== "off") {
+    errors.push(issue("$.workspace_policy", "must use the supported canonical-worktree/unchanged/off policy"));
   }
   validateGate(definition.objective_gate, "$.objective_gate", errors);
   try {

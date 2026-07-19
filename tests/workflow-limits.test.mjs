@@ -42,7 +42,7 @@ test("workflow node and serialized-definition ceilings accept exact and reject o
   assert.equal(excessNodes.ok, false);
   assert.equal(excessNodes.errors.some((entry) => entry.message.includes("1..256 nodes")), true);
 
-  const branches = Array.from({ length: WORKFLOW_LIMITS.max_parallel_branches }, () => reviewer("p"));
+  const branches = Array.from({ length: WORKFLOW_LIMITS.max_parallel_branches }, () => reviewer());
   const built = workflow({
     id: "byte-boundary", name: "Byte boundary", description: "Exact serialized workflow boundary.", start: "work",
     nodes: {
@@ -56,30 +56,32 @@ test("workflow node and serialized-definition ceilings accept exact and reject o
   const excessBranches = structuredClone(built.definition);
   excessBranches.nodes.work.branches.push(reviewer("p"));
   assert.equal(validateWorkflowDefinition(excessBranches).valid, false);
-  let remaining = WORKFLOW_LIMITS.max_workflow_bytes - Buffer.byteLength(stableWorkflowStringify(built.definition));
-  for (const branch of built.definition.nodes.work.branches) {
-    const available = 16_384 - branch.prompt.length;
-    const added = Math.min(available, remaining);
-    branch.prompt += "p".repeat(added);
-    remaining -= added;
-  }
-  assert.equal(remaining, 0);
-  assert.equal(Buffer.byteLength(stableWorkflowStringify(built.definition)), WORKFLOW_LIMITS.max_workflow_bytes);
-  assert.equal(validateWorkflowDefinition(built.definition).valid, true);
+  const byteBuilt = workflow({
+    id: "byte-boundary", name: "Byte boundary", description: "Exact serialized workflow boundary.", start: "route",
+    nodes: {
+      route: decision([{ when: { op: "eq", path: "/inputs/task", value: "" }, target: "objective" }], "objective"),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(byteBuilt.ok, true, JSON.stringify(byteBuilt.errors));
+  let remaining = WORKFLOW_LIMITS.max_workflow_bytes - Buffer.byteLength(stableWorkflowStringify(byteBuilt.definition));
+  byteBuilt.definition.nodes.route.transitions[0].when.value = "p".repeat(remaining);
+  assert.ok(remaining > 0);
+  assert.equal(Buffer.byteLength(stableWorkflowStringify(byteBuilt.definition)), WORKFLOW_LIMITS.max_workflow_bytes);
+  assert.equal(validateWorkflowDefinition(byteBuilt.definition).valid, true);
   const root = mkdtempSync(join(tmpdir(), "helix-workflow-byte-boundary-"));
   try {
-    assert.equal(saveUserWorkflowV4(root, built.definition).ok, true);
-    const savedPath = join(root, "workflows", `${built.definition.id}.json`);
+    assert.equal(saveUserWorkflowV4(root, byteBuilt.definition).ok, true);
+    const savedPath = join(root, "workflows", `${byteBuilt.definition.id}.json`);
     assert.equal(statSync(savedPath).size, WORKFLOW_LIMITS.max_workflow_bytes + 1);
     assert.equal(listUserWorkflows(root).ok, true);
-    assert.equal(stableWorkflowStringify(JSON.parse(readFileSync(savedPath, "utf8"))), stableWorkflowStringify(built.definition));
+    assert.equal(stableWorkflowStringify(JSON.parse(readFileSync(savedPath, "utf8"))), stableWorkflowStringify(byteBuilt.definition));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-  const excessBytes = structuredClone(built.definition);
-  const branch = excessBytes.nodes.work.branches.find((entry) => entry.prompt.length < 16_384);
-  assert.ok(branch);
-  branch.prompt += "p";
+  const excessBytes = structuredClone(byteBuilt.definition);
+  excessBytes.nodes.route.transitions[0].when.value += "p";
   assert.equal(validateWorkflowDefinition(excessBytes).errors.some((entry) => entry.message.includes("256 KiB")), true);
 });
 

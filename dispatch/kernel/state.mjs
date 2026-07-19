@@ -60,7 +60,13 @@ export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, r
     || !exact(checkpoint.budget, ["effects", "tokens", "cost_micros", "max_effects", "max_tokens", "max_cost_micros", "reserved"])
     || ![checkpoint.budget.effects, checkpoint.budget.tokens, checkpoint.budget.cost_micros]
       .every((value) => Number.isSafeInteger(value) && value >= 0)
-    || !Number.isSafeInteger(checkpoint.budget.reserved) || checkpoint.budget.reserved < 0) {
+    || !Number.isSafeInteger(checkpoint.budget.max_effects) || checkpoint.budget.max_effects < 1
+    || checkpoint.budget.effects > checkpoint.budget.max_effects
+    || ![checkpoint.budget.max_tokens, checkpoint.budget.max_cost_micros]
+      .every((value) => value === null || (Number.isSafeInteger(value) && value >= 0))
+    || !Number.isSafeInteger(checkpoint.budget.reserved) || checkpoint.budget.reserved < 0
+    || !Number.isSafeInteger(checkpoint.budget.effects + checkpoint.budget.reserved)
+    || checkpoint.budget.effects + checkpoint.budget.reserved > checkpoint.budget.max_effects) {
     return { valid: false, code: "kernel-checkpoint-invalid" };
   }
   if (checkpoint.active !== null) {
@@ -70,6 +76,7 @@ export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, r
     if (!exact(checkpoint.active, activeKeys)
       || checkpoint.active.node_id !== checkpoint.current
       || !Number.isSafeInteger(checkpoint.active.visit) || checkpoint.active.visit < 1
+      || checkpoint.active.visit !== checkpoint.visits[checkpoint.active.node_id]
       || !plain(checkpoint.active.completed)
       || Object.entries(checkpoint.active.completed).some(([id, result]) => typeof id !== "string" || id.length > 256
         || !plain(result) || !["ok", "failed", "refused", "cancelled"].includes(result.status))) {
@@ -89,6 +96,19 @@ export function validateKernelCheckpoint(checkpoint, { run_id, definition_ref, r
         || !Number.isSafeInteger(checkpoint.active.child.version) || checkpoint.active.child.version < 1
         || typeof checkpoint.active.child.run_id !== "string" || !plain(checkpoint.active.child.scheduler))) {
       return { valid: false, code: "kernel-checkpoint-child-invalid" };
+    }
+    if (Object.hasOwn(checkpoint.active, "child")) {
+      const child = checkpoint.active.child.scheduler;
+      const childChecked = validateKernelCheckpoint(child, {
+        run_id: child.run_id,
+        definition_ref: child.definition_ref,
+        runtime_ref: child.runtime_ref,
+        task_ref: child.task_ref,
+        node_ids: new Set(plain(child.visits) ? Object.keys(child.visits) : []),
+      });
+      if (!childChecked.valid || checkpoint.active.child.run_id !== child.run_id) {
+        return { valid: false, code: "kernel-checkpoint-child-invalid" };
+      }
     }
   }
   try {

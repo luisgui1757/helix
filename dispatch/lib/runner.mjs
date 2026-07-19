@@ -1218,7 +1218,7 @@ export function makeGitWorktreeEffect(repoRoot, { baseDir } = {}) {
 export function createStagedMockAdapter({ verdicts = {} } = {}) {
   const remaining = Object.fromEntries(Object.entries(verdicts).map(([k, v]) => [k, [...v]]));
   const calls = { candidates: 0, judges: 0, synthesis: 0, verifiers: 0, revisions: 0 };
-  const envelope = ({ run_id, stage = "candidate", role, provider, model, recommendation, risks = [], open_questions = [] }) => ({
+  const envelope = ({ run_id, stage = "candidate", role, provider, model, recommendation, risks = [], open_questions = [], attempt = 1, iteration = 1 }) => ({
     schema_version: 2,
     run_id,
     stage,
@@ -1226,11 +1226,11 @@ export function createStagedMockAdapter({ verdicts = {} } = {}) {
     provider,
     model,
     usage: { input_tokens: 10, output_tokens: 5 },
-    attempt: 1,
-    iteration: 1,
-    input_ref: { kind: "local-ref", value: `local-ref:input/${run_id}`, algorithm: null },
-    claims_ref: `local-ref:claims/${run_id}`,
-    evidence_ref: `local-ref:evidence/${run_id}`,
+    attempt,
+    iteration,
+    input_ref: { kind: "sha256", value: hashRef(`input:${run_id}`).slice("sha256:".length), algorithm: "sha256" },
+    claims_ref: hashRef(`claims:${run_id}`),
+    evidence_ref: hashRef(`evidence:${run_id}`),
     uncertainty: [],
     risks,
     recommendation,
@@ -1238,19 +1238,40 @@ export function createStagedMockAdapter({ verdicts = {} } = {}) {
     open_questions,
     status: "ok",
   });
+  const applyCandidateEffect = (ctx) => {
+    const effect = ctx.mock_effect;
+    if (effect == null || effect.mutation === "read-only") return false;
+    if (effect == null || typeof effect !== "object" || Array.isArray(effect)
+      || !["shared-serialized", "isolated-proposal"].includes(effect.mutation)
+      || !Number.isSafeInteger(effect.visit) || effect.visit < 1
+      || !Number.isSafeInteger(effect.max_visits) || effect.max_visits < 1
+      || (effect.artifact != null && (typeof effect.artifact.path !== "string"
+        || typeof effect.artifact.kind !== "string"))) throw new Error("mock-agent-effect-invalid");
+    if (effect.artifact == null) return false;
+    const gate = effect.objective_gate;
+    const satisfies = effect.visit > 1 || effect.max_visits === 1;
+    const marker = gate?.type === "file-contains" && gate.path === effect.artifact.path && satisfies
+      ? `\n${gate.contains}\n` : "\n";
+    writeTextAtomic(ctx.cwd, effect.artifact.path, `Deterministic no-egress ${effect.artifact.kind} artifact.${marker}`);
+    return effect.visit > 1;
+  };
   return {
     calls,
     dispatchAdapter: {
       kind: "helix-staged-mock",
       runCandidate(spec, ctx) {
         calls.candidates += 1;
+        if (applyCandidateEffect(ctx)) calls.revisions += 1;
         let recommendation = `${spec.role}-ok`;
         if (ctx.stage_id != null && remaining[ctx.stage_id]?.length && spec.role === ctx.verdict_role) {
           recommendation = remaining[ctx.stage_id].shift();
         } else if (spec.role === ctx.verdict_role) {
           recommendation = "approve";
         }
-        return envelope({ run_id: ctx.run_id, role: spec.role, provider: spec.provider, model: spec.model, recommendation });
+        return envelope({
+          run_id: ctx.run_id, role: spec.role, provider: spec.provider, model: spec.model, recommendation,
+          attempt: ctx.attempt, iteration: ctx.pass,
+        });
       },
       runJudge(_input, ctx) {
         calls.judges += 1;

@@ -120,7 +120,7 @@ test("decision retries are bounded and loops-off advances explicitly", async () 
     success: terminal("succeeded"),
     failed: terminal("failed", "objective-failed"),
   });
-  const deps = readOnlyDeps({ async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "revise" }, usage: { tokens: 1 } }; } });
+  const deps = readOnlyDeps({ async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "revise" }, usage: { tokens: 1, cost_micros: 0 } }; } });
   const bounded = await runWorkflowKernel(graph, { task: "review" }, deps);
   assert.equal(bounded.code, "kernel-node-visits-exhausted:work");
   assert.equal(calls, 2);
@@ -173,7 +173,7 @@ test("parallel preserves order and bounds in-flight effects", async () => {
   }));
   assert.equal(result.ok, true);
   assert.equal(peak, 2);
-  assert.deepEqual(result.outputs.work.map((entry) => entry.value), Array.from({ length: 6 }, (_, i) => `work:${i}:attempt-1`));
+  assert.deepEqual(result.outputs.work.map((entry) => entry.value), Array.from({ length: 6 }, (_, i) => `work:1:${i}:attempt-1`));
 });
 
 test("parallel and map abort release unstarted reservations after the first decisive failure", async () => {
@@ -211,6 +211,8 @@ test("parallel and map abort release unstarted reservations after the first deci
           async begin() { return { ok: true, cwd: "/tmp/mock", before_ref: journalRef({ generation }) }; },
           async commit() { generation += 1; return { ok: true, workspace_ref: journalRef({ generation }) }; },
           async rollback() { return { ok: true }; },
+          serialize() { return { generation }; },
+          async finalize() { return { ok: true }; },
         };
       })(),
     },
@@ -257,6 +259,8 @@ test("malformed usage fails closed and budget arithmetic never creates unsafe to
       async begin() { return { ok: true, cwd: "/tmp/mock", before_ref: workspaceRef }; },
       async commit() { return { ok: true, workspace_ref: workspaceRef }; },
       async rollback() { rollbacks += 1; return { ok: true }; },
+      serialize() { return { workspace_ref: workspaceRef }; },
+      async finalize() { return { ok: true }; },
     },
     async executeAgent() {
       return { ok: true, value: { recommendation: "approve" }, usage: { tokens: -1, cost_micros: 0 } };
@@ -264,6 +268,15 @@ test("malformed usage fails closed and budget arithmetic never creates unsafe to
   }));
   assert.equal(mutatingResult.code, "kernel-agent-usage-invalid");
   assert.equal(rollbacks, 1);
+
+  const failedUsage = await runWorkflowKernel(graph, { task: "failed usage" }, readOnlyDeps({
+    async executeAgent() {
+      return { ok: false, code: "provider-refused", failure_class: "agent", usage: { tokens: 7, cost_micros: 2 } };
+    },
+  }));
+  assert.equal(failedUsage.code, "provider-refused");
+  assert.equal(failedUsage.budget.tokens, 7);
+  assert.equal(failedUsage.budget.cost_micros, 2);
 
   const budget = createBudgetLedger({ max_effects: 2 });
   assert.equal(budget.account({ tokens: Number.MAX_SAFE_INTEGER, cost_micros: 0 }).ok, true);
@@ -481,7 +494,9 @@ test("mutating effects serialize and journal only after workspace commit", async
       return { ok: true, before_ref: beforeRef, cwd: "/tmp/mock" };
     },
     async commit() { generation += 1; const ref = journalRef({ generation }); refs.add(ref); return { ok: true, workspace_ref: ref }; },
-    async rollback() {},
+    async rollback() { return { ok: true }; },
+    serialize() { return { generation }; },
+    async finalize() { return { ok: true }; },
     verifyRef: (ref) => refs.has(ref),
   };
   const journal = createEffectJournal({ verify_workspace: workspace.verifyRef });
@@ -561,9 +576,11 @@ test("journal failure after a workspace apply restores before returning", async 
     cwd: "/tmp/mock",
     currentRef: () => journalRef("workspace"),
     verifyRef: () => true,
-    async begin() { return { ok: true, mode: "shared-serialized", cwd: "/tmp/mock", generation: "effect-1", tree_ref: journalRef("before") }; },
+    async begin() { return { ok: true, mode: "shared-serialized", cwd: "/tmp/mock", generation: "effect-1", tree_ref: journalRef("before"), before_ref: journalRef("workspace") }; },
     async commit() { return { ok: true, workspace_ref: journalRef("after") }; },
     async rollback() { rolledBack += 1; return { ok: true }; },
+    serialize() { return { generation: "effect-1" }; },
+    async finalize() { return { ok: true }; },
   };
   const journal = {
     lookup: () => null,
@@ -788,7 +805,7 @@ test("a read-only result survives failure of its first result checkpoint", async
     runtime_ref: journalRef("result-checkpoint-runtime"),
     workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
     journal,
-    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" } }; },
+    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 9, cost_micros: 4 } }; },
     async onCheckpoint(state) {
       if (!failedResultCheckpoint && Object.values(state.active?.completed ?? {}).some((entry) => entry._journal_pending)) {
         failedResultCheckpoint = true;
@@ -807,6 +824,8 @@ test("a read-only result survives failure of its first result checkpoint", async
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   assert.equal(calls, 1);
   assert.equal(resumed.budget.effects, 1);
+  assert.equal(resumed.budget.tokens, 9);
+  assert.equal(resumed.budget.cost_micros, 4);
 });
 
 test("a transient journal write interruption heals on resume without another invocation", async () => {
@@ -885,7 +904,7 @@ test("a recoverable workspace commit failure retries as a new counted invocation
     runtime_ref: journalRef("workspace-retry-runtime"),
     workspace,
     journal,
-    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" } }; },
+    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 5, cost_micros: 2 } }; },
     async onCheckpoint(state) { checkpoint = structuredClone(state); return { ok: true }; },
   });
   const interrupted = await runWorkflowKernel(graph, { task: "retry workspace" }, deps);
@@ -894,7 +913,229 @@ test("a recoverable workspace commit failure retries as a new counted invocation
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
   assert.equal(calls, 2);
   assert.equal(resumed.budget.effects, 2);
+  assert.equal(resumed.budget.tokens, 10);
+  assert.equal(resumed.budget.cost_micros, 4);
   assert.equal(journal.records().length, 2);
+});
+
+test("resume binds immutable lifetime ceilings and rejects cap drift before effects", async () => {
+  const graph = definition({
+    approval: checkpoint("operator-approval", "work"),
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  }, "approval", { max_total_effects: 1 });
+  const workspaceRef = journalRef("budget-binding-workspace");
+  let snapshot = null;
+  let calls = 0;
+  const deps = readOnlyDeps({
+    task_ref: journalRef("budget-binding-task"), runtime_ref: journalRef("budget-binding-runtime"),
+    max_tokens: 10, max_cost_micros: 20,
+    workspace: { currentRef: () => workspaceRef, verifyRef: () => true },
+    async executeAgent() { calls += 1; return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 8, cost_micros: 3 } }; },
+    checkpoint: () => ({ continue: false }),
+    async onCheckpoint(state) { snapshot = structuredClone(state); return { ok: true }; },
+  });
+  assert.equal((await runWorkflowKernel(graph, { task: "bind budgets" }, deps)).status, "paused");
+  for (const drift of [{ max_tokens: null, max_cost_micros: 20 }, { max_tokens: 10, max_cost_micros: null }, { max_tokens: 11, max_cost_micros: 20 }]) {
+    const refused = await runWorkflowKernel(graph, { task: "bind budgets" }, {
+      ...deps, ...drift, resume: snapshot, checkpoint: () => ({ continue: true }),
+    });
+    assert.equal(refused.code, "kernel-budget-binding-drift");
+  }
+  assert.equal(calls, 0);
+  const resumed = await runWorkflowKernel(graph, { task: "bind budgets" }, {
+    ...deps, resume: snapshot, checkpoint: () => ({ continue: true }),
+  });
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  assert.equal(calls, 1);
+  assert.deepEqual(resumed.budget, {
+    effects: 1, tokens: 8, cost_micros: 3, max_effects: 1, max_tokens: 10, max_cost_micros: 20, reserved: 0,
+  });
+
+  const injectedPaused = await runWorkflowKernel(graph, { task: "bind injected budget" }, {
+    ...deps,
+    budget: createBudgetLedger({ max_effects: 1, max_tokens: 10, max_cost_micros: 20 }),
+  });
+  assert.equal(injectedPaused.status, "paused");
+  const injectedDrift = await runWorkflowKernel(graph, { task: "bind injected budget" }, {
+    ...deps,
+    resume: snapshot,
+    checkpoint: () => ({ continue: true }),
+    budget: createBudgetLedger({ max_effects: 2, max_tokens: 10, max_cost_micros: 20 }),
+  });
+  assert.equal(injectedDrift.code, "kernel-budget-binding-drift");
+});
+
+test("checkpoint validation rejects forged completion and active-visit replay state", async () => {
+  const graph = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 1 });
+  const workspaceRef = journalRef("checkpoint-integrity-workspace");
+  let preEffect = null;
+  const deps = readOnlyDeps({
+    task_ref: journalRef("checkpoint-integrity-task"), runtime_ref: journalRef("checkpoint-integrity-runtime"),
+    workspace: { currentRef: () => workspaceRef, verifyRef: () => true },
+    journal: createEffectJournal({ verify_workspace: () => true }),
+    async onCheckpoint(state) {
+      if (state.active?.node_id === "work" && Object.keys(state.active.inflight).length === 0) {
+        preEffect = structuredClone(state);
+        return { ok: false, code: "synthetic-stop-before-effect" };
+      }
+      return { ok: true };
+    },
+  });
+  assert.equal((await runWorkflowKernel(graph, { task: "checkpoint integrity" }, deps)).code, "synthetic-stop-before-effect");
+  const forged = structuredClone(preEffect);
+  forged.active.completed["work:1:0:attempt-1"] = {
+    status: "ok", value: { recommendation: "approve" }, usage: { tokens: 0, cost_micros: 0 }, attestation_ref: null,
+  };
+  const forgedResult = await runWorkflowKernel(graph, { task: "checkpoint integrity" }, {
+    ...deps, journal: createEffectJournal({ verify_workspace: () => true }), resume: forged, onCheckpoint: async () => ({ ok: true }),
+  });
+  assert.equal(forgedResult.code, "kernel-checkpoint-journal-invalid");
+  const visitDrift = structuredClone(preEffect);
+  visitDrift.active.visit += 1;
+  const driftResult = await runWorkflowKernel(graph, { task: "checkpoint integrity" }, {
+    ...deps, journal: createEffectJournal({ verify_workspace: () => true }), resume: visitDrift, onCheckpoint: async () => ({ ok: true }),
+  });
+  assert.equal(driftResult.code, "kernel-checkpoint-active-invalid");
+});
+
+test("gate exceptions and malformed results are kernel failures, never authored fail edges", async () => {
+  const graph = definition({
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "objective");
+  const thrown = await runWorkflowKernel(graph, { task: "throwing gate" }, readOnlyDeps({
+    async runGate() { throw new Error("gate host failed"); },
+  }));
+  assert.equal(thrown.code, "kernel-gate-effect-failed");
+  for (const value of [null, {}, { result: "PASS" }, { result: true }, { result: "pass", evidence_ref: "bad-ref" }]) {
+    const malformed = await runWorkflowKernel(graph, { task: "malformed gate" }, readOnlyDeps({
+      async runGate() { return value; },
+    }));
+    assert.equal(malformed.code, "kernel-gate-result-invalid", JSON.stringify(value));
+    assert.notEqual(malformed.status, "succeeded");
+  }
+});
+
+test("declared mutations and artifacts require complete host effects and serialize failures restore", async () => {
+  const mutating = definition({
+    work: { ...builder(), next: "objective", max_visits: 1 },
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  });
+  assert.equal((await runWorkflowKernel(mutating, { task: "missing workspace" }, readOnlyDeps())).code,
+    "kernel-workspace-effects-missing");
+
+  const artifact = definition({
+    work: pipeline([reviewer()], "objective", { max_visits: 1, artifact: { path: "proposal.txt", kind: "notes" } }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  });
+  assert.equal((await runWorkflowKernel(artifact, { task: "missing verifier" }, readOnlyDeps())).code,
+    "kernel-artifact-effect-missing");
+
+  const workspaceRef = journalRef("serialize-workspace");
+  let rollbacks = 0;
+  const serialization = await runWorkflowKernel(mutating, { task: "serialize rollback" }, readOnlyDeps({
+    workspace: {
+      cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true,
+      async begin() { return { ok: true, cwd: "/tmp/mock", before_ref: workspaceRef }; },
+      async commit() { return { ok: true, workspace_ref: workspaceRef }; },
+      async rollback() { rollbacks += 1; return { ok: true }; },
+      serialize() { throw new Error("cannot serialize"); },
+      async finalize() { return { ok: true }; },
+    },
+  }));
+  assert.equal(serialization.code, "kernel-workspace-serialize-failed");
+  assert.equal(rollbacks, 1);
+});
+
+test("parallel, map, and child identities are scoped to each node visit", async () => {
+  const loop = (work) => ({
+    work,
+    route: decision([
+      { when: { op: "eq", path: "/visits/work", value: 1 }, target: "work", loop: true },
+    ], "objective", { loops_off: "objective" }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  });
+  const observed = [];
+  const parallelGraph = definition(loop(parallel([reviewer()], "route", { max_concurrency: 1 })), "work", { max_total_effects: 2 });
+  const parallelResult = await runWorkflowKernel(parallelGraph, { task: "parallel visits" }, readOnlyDeps({
+    async executeAgent(_node, ctx) {
+      observed.push(`${ctx.run_id}:${ctx.instance_id}`);
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 0, cost_micros: 0 } };
+    },
+  }));
+  assert.equal(parallelResult.ok, true, JSON.stringify(parallelResult));
+  assert.deepEqual(observed, ["run-1:work:1:0:attempt-1", "run-1:work:2:0:attempt-1"]);
+
+  observed.length = 0;
+  const mapGraph = definition(loop(map("/inputs/items", reviewer(), "route", { max_items: 1 })), "work", { max_total_effects: 2 }, {
+    type: "object", additionalProperties: false, required: ["task", "items"],
+    properties: {
+      task: { type: "string", minLength: 1, maxLength: 64 },
+      items: { type: "array", items: { type: "string", minLength: 1, maxLength: 8 }, minItems: 1, maxItems: 1 },
+    },
+  });
+  const mapResult = await runWorkflowKernel(mapGraph, { task: "map visits", items: ["x"] }, readOnlyDeps({
+    async executeAgent(_node, ctx) {
+      observed.push(`${ctx.run_id}:${ctx.instance_id}`);
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 0, cost_micros: 0 } };
+    },
+  }));
+  assert.equal(mapResult.ok, true, JSON.stringify(mapResult));
+  assert.deepEqual(observed, ["run-1:work:1:0:attempt-1", "run-1:work:2:0:attempt-1"]);
+
+  const child = workflow({
+    id: "visit-child", name: "Visit child", description: "Visit-scoped child workflow.", start: "work",
+    nodes: {
+      work: pipeline([reviewer()], "objective", { max_visits: 1 }),
+      objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "child-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  observed.length = 0;
+  const parent = definition(loop(subworkflow("visit-child", 1, "route")), "work", { max_total_effects: 2 });
+  const childResult = await runWorkflowKernel(parent, { task: "child visits" }, readOnlyDeps({
+    depth: 0,
+    resolveSubworkflow: () => child.definition,
+    async executeAgent(_node, ctx) {
+      observed.push(`${ctx.run_id}:${ctx.instance_id}`);
+      return { ok: true, value: { recommendation: "approve" }, usage: { tokens: 0, cost_micros: 0 } };
+    },
+  }));
+  assert.equal(childResult.ok, true, JSON.stringify(childResult));
+  assert.deepEqual(observed, [
+    "run-1.work.1:work:1:0:attempt-1",
+    "run-1.work.2:work:1:0:attempt-1",
+  ]);
+});
+
+test("structured output repair is separately bounded and every repair is a counted effect", async () => {
+  const repairing = { ...reviewer(), retry: { max_attempts: 1, backoff_ms: 0 } };
+  const graph = definition({
+    work: pipeline([repairing], "objective", { max_visits: 1 }),
+    objective: objectiveGate("success", "failed"), success: terminal("succeeded"), failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 3, structured_repair_attempts: 2 });
+  let calls = 0;
+  const result = await runWorkflowKernel(graph, { task: "repair output" }, readOnlyDeps({
+    async executeAgent(_node, ctx) {
+      calls += 1;
+      assert.equal(ctx.local.attempt, calls);
+      assert.equal(ctx.local.repair_attempt, Math.max(0, calls - 1));
+      return calls < 3
+        ? { ok: false, code: "pi-agent-semantic-output-invalid", failure_class: "agent", usage: { tokens: 1, cost_micros: 0 } }
+        : { ok: true, value: { recommendation: "approve" }, usage: { tokens: 1, cost_micros: 0 } };
+    },
+  }));
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(calls, 3);
+  assert.equal(result.budget.effects, 3);
+  assert.equal(result.events.filter((event) => event.kind === "effect-repair").length, 2);
+  assert.equal(result.events.some((event) => event.kind === "effect-retry"), false);
 });
 
 test("failed workspace finalization resumes as non-maskable without replay", async () => {
@@ -1188,11 +1429,28 @@ test("a namespaced child checkpoint advances exactly once on parent resume", asy
   });
   assert.equal(paused.status, "paused");
   assert.equal(snapshot.active.child.scheduler.current, "approval");
+  const nestedBindingDrift = structuredClone(snapshot);
+  nestedBindingDrift.active.child.run_id = "run-1.child.2";
+  nestedBindingDrift.active.child.scheduler.run_id = "run-1.child.2";
+  const bindingRefusal = await runWorkflowKernel(parent, { task: "child pause" }, {
+    ...base,
+    resume: nestedBindingDrift,
+    checkpoint: () => ({ continue: true }),
+  });
+  assert.equal(bindingRefusal.code, "kernel-checkpoint-child-invalid");
+  const nestedDrift = structuredClone(snapshot);
+  nestedDrift.active.child.scheduler.budget.max_effects = 0;
+  const nestedRefusal = await runWorkflowKernel(parent, { task: "child pause" }, {
+    ...base,
+    resume: nestedDrift,
+    checkpoint: () => ({ continue: true }),
+  });
+  assert.equal(nestedRefusal.code, "kernel-checkpoint-child-invalid");
   const resumed = await runWorkflowKernel(parent, { task: "child pause" }, {
     ...base,
     resume: snapshot,
     checkpoint: ({ node_id, child_run_id }) => ({
-      continue: child_run_id === "run-1.child" && node_id === "approval",
+      continue: child_run_id === "run-1.child.1" && node_id === "approval",
     }),
   });
   assert.equal(resumed.ok, true, JSON.stringify(resumed));
@@ -1265,6 +1523,8 @@ test("host callback exceptions return structured kernel failures and preserve wo
       async begin() { return { ok: true, mode: "shared-serialized", cwd: "/tmp/mock", generation: "effect-1", tree_ref: workspaceRef, before_ref: workspaceRef }; },
       async commit() { return { ok: true, workspace_ref: workspaceRef }; },
       async rollback() { rollbacks += 1; return { ok: true }; },
+      serialize() { return { generation: "effect-1" }; },
+      async finalize() { return { ok: true }; },
     },
     onEvent(event) { if (event.kind === "effect-start") throw new Error("event sink failed"); },
   }));

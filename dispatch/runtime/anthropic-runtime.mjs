@@ -1,4 +1,4 @@
-import { boundedMaxOutput, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
+import { boundedMaxOutput, checkedProviderUsagePair, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
 
 export function createAnthropicRuntime({ transport } = {}) {
   return createStrictRuntime({
@@ -19,6 +19,8 @@ export function createAnthropicRuntime({ transport } = {}) {
       if (!body || body.model !== attestation.requested.model || !Array.isArray(body.content)) {
         return { ok: false, code: "provider-response-identity-mismatch" };
       }
+      const usage = checkedProviderUsagePair(body.usage?.input_tokens, body.usage?.output_tokens);
+      if (usage == null) return { ok: false, code: "provider-response-usage-invalid" };
       return {
         ok: true,
         value: body.content,
@@ -28,10 +30,7 @@ export function createAnthropicRuntime({ transport } = {}) {
           effort: attestation.effective.effort,
           account: attestation.effective.account,
         },
-        usage: {
-          tokens: (body.usage?.input_tokens ?? 0) + (body.usage?.output_tokens ?? 0),
-          cost_micros: 0,
-        },
+        usage,
       };
     },
   });

@@ -196,6 +196,38 @@ test("pure builder creates the same closed definition contract", () => {
     objective_gate: objective,
   });
   assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.deepEqual(agent({ role: "reviewer", stage_id: "review" }).tools, ["read", "grep", "find", "ls"]);
+});
+
+test("v4 executable agent and workspace policy fields are closed to implemented contracts", () => {
+  const base = normalizeWorkflowDefinition(currentWorkflow()).definition;
+  const pipelineId = Object.keys(base.nodes).find((id) => base.nodes[id].kind === "pipeline");
+  const agentPath = `$.nodes.${pipelineId}.stages[0]`;
+  const cases = [
+    ["role", "judge"],
+    ["prompt", "custom-prompt"],
+    ["output_schema", { id: "freeform-v1" }],
+  ];
+  for (const [field, value] of cases) {
+    const candidate = structuredClone(base);
+    candidate.nodes[pipelineId].stages[0][field] = value;
+    const checked = validateWorkflowDefinition(candidate);
+    assert.equal(checked.valid, false, field);
+    assert.equal(checked.errors.some((entry) => entry.path === `${agentPath}.${field}`), true, field);
+  }
+  const builderVerdict = structuredClone(base);
+  builderVerdict.nodes[pipelineId].stages[0].role = "builder";
+  builderVerdict.nodes[pipelineId].stages[0].mutation = "shared-serialized";
+  builderVerdict.nodes[pipelineId].stages[0].output_schema = { id: "verdict-v1" };
+  assert.equal(validateWorkflowDefinition(builderVerdict).errors.some((entry) => entry.path === `${agentPath}.output_schema`), true);
+
+  for (const [field, value] of [["proposal_cleanup", "explicit"], ["transcripts", "private"]]) {
+    const candidate = structuredClone(base);
+    candidate.workspace_policy[field] = value;
+    const checked = validateWorkflowDefinition(candidate);
+    assert.equal(checked.valid, false, field);
+    assert.equal(checked.errors.some((entry) => entry.path === "$.workspace_policy"), true, field);
+  }
 });
 
 test("every cyclic decision edge is explicitly marked and has a loops-off escape", () => {

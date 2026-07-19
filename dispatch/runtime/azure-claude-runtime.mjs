@@ -1,4 +1,4 @@
-import { boundedMaxOutput, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
+import { boundedMaxOutput, checkedProviderUsagePair, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
 
 export function createAzureClaudeRuntime({ transport } = {}) {
   return createStrictRuntime({
@@ -21,6 +21,8 @@ export function createAzureClaudeRuntime({ transport } = {}) {
       if (!body || body.model !== attestation.requested.model || deployment !== request.deployment || !Array.isArray(body.content)) {
         return { ok: false, code: "azure-served-model-unverified" };
       }
+      const usage = checkedProviderUsagePair(body.usage?.input_tokens, body.usage?.output_tokens);
+      if (usage == null) return { ok: false, code: "provider-response-usage-invalid" };
       return {
         ok: true,
         value: body.content,
@@ -31,7 +33,7 @@ export function createAzureClaudeRuntime({ transport } = {}) {
           route: deployment,
           account: attestation.effective.account,
         },
-        usage: { tokens: (body.usage?.input_tokens ?? 0) + (body.usage?.output_tokens ?? 0), cost_micros: 0 },
+        usage,
       };
     },
   });

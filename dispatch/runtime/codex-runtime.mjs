@@ -1,4 +1,4 @@
-import { boundedMaxOutput, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
+import { boundedMaxOutput, checkedProviderUsage, createStrictRuntime, normalizeMessages } from "./strict-runtime.mjs";
 
 export function createCodexRuntime({ transport, provider_path = "codex-business-token" } = {}) {
   if (!new Set(["codex-business-token", "codex-personal-oauth"]).has(provider_path)) {
@@ -24,6 +24,8 @@ export function createCodexRuntime({ transport, provider_path = "codex-business-
         || response.account !== attestation.effective.account) {
         return { ok: false, code: "codex-effective-session-unverified" };
       }
+      const usage = checkedProviderUsage(response.usage?.total_tokens);
+      if (usage == null) return { ok: false, code: "provider-response-usage-invalid" };
       return {
         ok: true,
         value: response.output,
@@ -34,7 +36,7 @@ export function createCodexRuntime({ transport, provider_path = "codex-business-
           ...(attestation.requested.route ? { route: response.route } : {}),
           account: response.account,
         },
-        usage: { tokens: response.usage?.total_tokens ?? 0, cost_micros: 0 },
+        usage,
       };
     },
   });

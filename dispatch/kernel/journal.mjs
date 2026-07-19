@@ -134,16 +134,22 @@ export function createEffectJournal({ root = null, run_id = null, verify_workspa
     lookup(identity, { mutating = false } = {}) {
       const record = byIdentity.get(identity);
       if (!record || record.status !== "ok" || record.mutating !== mutating) return null;
-      if (mutating && (record.workspace_ref == null || typeof verify_workspace !== "function"
-        || verify_workspace(record.workspace_ref) !== true)) return null;
+      if (mutating) {
+        if (record.workspace_ref == null || typeof verify_workspace !== "function") return null;
+        try { if (verify_workspace(record.workspace_ref) !== true) return null; }
+        catch { return null; }
+      }
       return structuredClone(record);
     },
     lookupBase(baseIdentity, { mutating = false } = {}) {
       const record = records.findLast((entry) => (entry.base_identity ?? entry.identity) === baseIdentity
         && entry.status === "ok" && entry.mutating === mutating);
       if (!record) return null;
-      if (mutating && (record.workspace_ref == null || typeof verify_workspace !== "function"
-        || verify_workspace(record.workspace_ref) !== true)) return null;
+      if (mutating) {
+        if (record.workspace_ref == null || typeof verify_workspace !== "function") return null;
+        try { if (verify_workspace(record.workspace_ref) !== true) return null; }
+        catch { return null; }
+      }
       return structuredClone(record);
     },
     canCommit(candidate, { reserve_bytes: reserveBytes = 0 } = {}) {

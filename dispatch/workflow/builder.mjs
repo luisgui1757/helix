@@ -15,14 +15,15 @@ function options(value) {
 
 export function agent(value = {}) {
   const { role, stage_id, prompt = "tracked-step-v1", output_schema = "semantic-v2", tools, mutation, timeout_ms, retry, next, max_visits, artifact, label } = options(value);
+  const activeMutation = mutation ?? "read-only";
   return {
     kind: "agent",
     role,
     stage_id,
     prompt,
     output_schema: { id: output_schema },
-    tools: tools ?? (mutation === "read-only" ? ["read", "grep", "find", "ls"] : ["read", "grep", "find", "ls", "bash", "edit", "write"]),
-    mutation: mutation ?? "read-only",
+    tools: tools ?? (activeMutation === "read-only" ? ["read", "grep", "find", "ls"] : ["read", "grep", "find", "ls", "bash", "edit", "write"]),
+    mutation: activeMutation,
     timeout_ms: timeout_ms ?? WORKFLOW_DEFAULTS.max_call_ms,
     retry: retry ?? { max_attempts: 1, backoff_ms: 0 },
     ...(next ? { next } : {}),

@@ -30,6 +30,20 @@ function exactRequested(left, right) {
     && (left?.expected_account ?? null) === (right?.expected_account ?? null);
 }
 
+export function checkedProviderUsage(tokens, cost_micros = 0) {
+  return Number.isSafeInteger(tokens) && tokens >= 0
+    && Number.isSafeInteger(cost_micros) && cost_micros >= 0
+    ? { tokens, cost_micros }
+    : null;
+}
+
+export function checkedProviderUsagePair(inputTokens, outputTokens, cost_micros = 0) {
+  if (!Number.isSafeInteger(inputTokens) || inputTokens < 0
+    || !Number.isSafeInteger(outputTokens) || outputTokens < 0) return null;
+  const tokens = inputTokens + outputTokens;
+  return Number.isSafeInteger(tokens) ? checkedProviderUsage(tokens, cost_micros) : null;
+}
+
 function capabilityAttestation(providerPath, tuple, capability, adapterVersion) {
   if (!plain(capability) || !plain(capability.effective) || !plain(capability.evidence)
     || Object.keys(capability).some((key) => ![
@@ -135,10 +149,15 @@ export function createStrictRuntime({
         || !exactTuple(attestation.requested, inspected.effective)) {
         return { ok: false, code: inspected?.code ?? "provider-response-identity-mismatch" };
       }
+      if (!plain(inspected.usage) || Object.keys(inspected.usage).length !== 2
+        || !Object.hasOwn(inspected.usage, "tokens") || !Object.hasOwn(inspected.usage, "cost_micros")
+        || checkedProviderUsage(inspected.usage.tokens, inspected.usage.cost_micros) == null) {
+        return { ok: false, code: "provider-response-usage-invalid" };
+      }
       return {
         ok: true,
         value: structuredClone(inspected.value),
-        usage: structuredClone(inspected.usage ?? { tokens: 0, cost_micros: 0 }),
+        usage: structuredClone(inspected.usage),
         effective: structuredClone(inspected.effective),
         attestation_ref: attestation.certification_key,
       };

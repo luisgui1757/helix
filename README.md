@@ -74,6 +74,16 @@ identity and private before-state under the same writer lock, and stale crash
 snapshots are retaken before they can become rollback material. Aggregate
 result admission preserves a compact-failure reserve in both the checkpoint
 and journal envelopes, so a valid fan-out cannot brick continuation storage.
+Effect identities include node visits, and resumed completions are accepted
+only when their exact journal evidence is present. Immutable lifetime ceilings
+and checked usage arithmetic apply to successful, failed, and structured-repair
+calls. The validated prompt contract, output schema, tool allowlist, mutation
+mode, artifact, attempt, and run namespace reach the runtime unchanged.
+
+Deterministic mock runs use the same counted candidate boundary: any synthetic
+artifact mutation happens inside that adapter call, while artifact verification
+and the final objective gate only observe evidence. They cannot manufacture a
+successful result outside the workflow graph.
 
 Run records contain structural events and hashes. Raw tasks remain in memory;
 private scheduler checkpoints and bounded workspace snapshots live below
