@@ -113,6 +113,13 @@ function validateCompletedJournalState(active, records) {
   if (active == null) return { ok: true };
   if (typeof active !== "object" || Array.isArray(active)) return { ok: false };
   const byIdentity = new Map(records.map((record) => [record.identity, record]));
+  for (const [instanceId, intent] of Object.entries(active.inflight ?? {})) {
+    const record = byIdentity.get(intent.identity);
+    if (record && (record.node_id !== active.node_id || record.instance_id !== instanceId
+      || record.base_identity !== intent.base_identity || record.mutating !== intent.mutating)) {
+      return { ok: false };
+    }
+  }
   for (const [instanceId, completed] of Object.entries(active.completed ?? {})) {
     let clean;
     try { clean = journalResult(completed); } catch { return { ok: false }; }

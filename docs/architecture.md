@@ -150,7 +150,9 @@ profile/toggles/presets, cast, runtime ref, repository, owner ref, event prefix,
 journal prefix, and snapshot. A journal suffix newer than the checkpoint is
 preserved and accepted only when every suffix identity maps to durable pending
 or in-flight state in the complete parent/child checkpoint tree; extra or
-conflicting evidence is terminal drift. Every loaded result is re-hashed and
+conflicting evidence is terminal drift. An in-flight suffix record must match
+its checkpointed node, instance, base identity, and mutation mode; an identity
+cannot move between parallel or map instances. Every loaded result is re-hashed and
 its status must match its journal record. Every `active.completed` entry must
 map to that exact journal identity; active visit state, visit counters, budget
 totals, and nested child scheduler state are recursively validated before any

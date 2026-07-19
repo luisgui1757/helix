@@ -358,6 +358,8 @@ The single source for test rules.
   current node visit. A resumed completion is reusable only when its exact
   journal identity exists in the reconciled parent/child journal; visit counts,
   active state, nested child state, and budget totals are recursively validated.
+  A journal-ahead in-flight result must also match its checkpointed node,
+  instance, base identity, and mutation mode before it can be reconciled.
 - Agent execution binds the validated `tracked-step-v1` prompt contract,
   output schema, exact tool allowlist, mutation mode, artifact contract, visit,
   attempt, and run namespace through the product and runtime boundaries.

@@ -144,6 +144,14 @@ The canonical replacement is a **Helix Workflow Kernel (HWK)** built around a cl
 > below that evidence refuse before execution, closing coordinated nested
 > resets without rejecting journal-ahead recovery.
 
+> **Journal-ahead instance binding (2026-07-19):** final review then swapped
+> two in-flight identities while leaving their durable records unchanged. The
+> suffix identity set still matched, but continuation assigned each result to
+> the other parallel instance. Reconciliation now verifies every found
+> in-flight record's node, instance, base identity, and mutation mode before
+> suffix admission; the two-result crash-window regression proves refusal with
+> zero replay.
+
 Every model invocation is an explicit effect handled through an `AgentRuntime` adapter. Pi remains the default broad-provider adapter, but it is not treated as proof of entitlement, account selection, effective model, or policy legitimacy. Provider-specific adapters may be used where their official surface is required for correct request shaping or subscription use. Multiple adapters under one scheduler are not multiple workflow engines.
 
 The other load-bearing changes are:

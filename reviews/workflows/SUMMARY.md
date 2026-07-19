@@ -581,3 +581,22 @@ provider contracts 35/35. Documentation truth, resources, both deterministic
 smokes, static checks, `git diff --check`, the extracted 99-file package with
 Pi RPC/default-factory proof, and active Docker 5/5 all pass. Exact-head CI and
 a fresh final review remain pending until this closure is committed and pushed.
+
+The following exact-head review reproduced one adjacent reconciliation defect:
+two journal-ahead in-flight identities could be swapped while their durable
+records retained distinct node-instance bindings. Suffix set membership still
+passed, and resume assigned each result and usage to the other parallel member.
+`validateCompletedJournalState` now validates every found in-flight record's
+node, instance, base identity, and mutation mode before suffix admission. A
+two-member deterministic result-checkpoint failure leaves both records ahead,
+swaps only checkpoint identities, and proves `kernel-checkpoint-journal-invalid`
+with zero additional calls.
+
+Post-fix local evidence: `npm test` passes the 729/729 Node baseline with zero
+failures, worktree 12/12, and objective loop 8/8; workflow conformance passes
+99/99 and provider contracts 35/35. Documentation truth, resources, static
+checks, both deterministic smokes, `git diff --check`, the extracted 99-file
+package with Pi RPC/default-factory proof, and active Docker 5/5 all pass. The
+focused kernel suite and the journal-ahead parent/child recovery paths also pass.
+Exact-head CI and a fresh final review remain pending until this closure is
+committed and pushed.

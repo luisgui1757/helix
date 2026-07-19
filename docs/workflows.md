@@ -271,6 +271,10 @@ every normalized parent input; incompatible closed schemas refuse before
 import, consent, or run creation. Gate-only parents and parents whose model
 work exists only in a child are valid deployments.
 
+Journal-ahead in-flight results retain their exact node, instance, base
+invocation, and mutation bindings. Moving a result identity between parallel or
+map members refuses before any continuation call.
+
 The 256 KiB definition ceiling applies to canonical JSON. Helix saves v4 files
 in that canonical form plus one trailing newline. Readers allow a separate
 bounded 512 KiB transport envelope so historical or imported pretty-printed

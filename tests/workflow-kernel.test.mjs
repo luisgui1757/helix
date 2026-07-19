@@ -828,6 +828,67 @@ test("a read-only result survives failure of its first result checkpoint", async
   assert.equal(resumed.budget.cost_micros, 4);
 });
 
+test("journal-ahead inflight results retain their exact instance bindings", async () => {
+  const graph = definition({
+    work: parallel([reviewer(), reviewer()], "objective", { max_concurrency: 2 }),
+    objective: objectiveGate("success", "failed"),
+    success: terminal("succeeded"),
+    failed: terminal("failed", "objective-failed"),
+  }, "work", { max_total_effects: 2 });
+  const workspaceRef = journalRef("inflight-binding-workspace");
+  const journal = createEffectJournal({ verify_workspace: () => true });
+  let checkpoint = null;
+  let calls = 0;
+  let releaseCalls;
+  const callsStarted = new Promise((resolve) => { releaseCalls = resolve; });
+  const deps = readOnlyDeps({
+    task_ref: journalRef("inflight-binding-task"),
+    runtime_ref: journalRef("inflight-binding-runtime"),
+    workspace: { cwd: "/tmp/mock", currentRef: () => workspaceRef, verifyRef: () => true },
+    journal,
+    async executeAgent(_agent, context) {
+      calls += 1;
+      if (calls === 2) releaseCalls();
+      await callsStarted;
+      const index = context.instance_id.includes(":0:") ? 0 : 1;
+      return {
+        ok: true,
+        value: { recommendation: "approve", instance_id: context.instance_id },
+        usage: { tokens: index === 0 ? 10 : 20, cost_micros: index === 0 ? 1 : 2 },
+      };
+    },
+    async onCheckpoint(state) {
+      const inflight = Object.keys(state.active?.inflight ?? {});
+      const completed = Object.values(state.active?.completed ?? {});
+      if (inflight.length === 2 && completed.length === 0 && state.journal_entries === 0) {
+        checkpoint = structuredClone(state);
+      }
+      return completed.some((entry) => entry._journal_pending)
+        ? { ok: false, code: "kernel-checkpoint-write-failed" }
+        : { ok: true };
+    },
+  });
+  const interrupted = await runWorkflowKernel(graph, { task: "bind inflight results" }, deps);
+  assert.equal(interrupted.code, "kernel-checkpoint-write-failed");
+  assert.equal(calls, 2);
+  assert.equal(journal.records().length, 2);
+  assert.equal(Object.keys(checkpoint.active.inflight).length, 2);
+
+  const swapped = structuredClone(checkpoint);
+  const [first, second] = Object.keys(swapped.active.inflight).sort();
+  const firstIdentity = swapped.active.inflight[first].identity;
+  swapped.active.inflight[first].identity = swapped.active.inflight[second].identity;
+  swapped.active.inflight[second].identity = firstIdentity;
+  const refused = await runWorkflowKernel(graph, { task: "bind inflight results" }, {
+    ...deps,
+    resume: swapped,
+    async onCheckpoint() { return { ok: true }; },
+  });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.code, "kernel-checkpoint-journal-invalid");
+  assert.equal(calls, 2);
+});
+
 test("a transient journal write interruption heals on resume without another invocation", async () => {
   const graph = definition({
     work: pipeline([reviewer()], "objective", { max_visits: 1 }),
