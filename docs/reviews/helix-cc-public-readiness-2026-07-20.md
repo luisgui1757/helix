@@ -230,3 +230,34 @@ lands through the protected pull-request workflow. After visibility changes,
 secret scanning, push protection, CodeQL default setup, private vulnerability
 reporting, the active CodeQL ruleset, and zero open security alerts must all be
 read back before declaring **PUBLICATION READY**.
+
+## Renovate first-run failure and OSV feed correction
+
+After the Mend Renovate App received repository access, its first job reported a
+failure without creating a GitHub issue, pull request, commit status, or check.
+Renovate 43.272.0 reproduced the failure in a full dry run against exact remote
+`main` at `5c437a278a13ef65a25d3863b3a442c2f150a895`:
+
+- npm and GitHub Actions extraction and update lookup completed, including the
+  pending Copilot adapter update and lockfile maintenance branch;
+- Dashboard generation then terminated with `Repository has unknown error`
+  because `dependencyDashboardOSVVulnerabilitySummary: "all"` requested
+  `https://github.com/renovatebot/osv-offline/releases/latest/download/osv-offline.zip`,
+  which returned `404`; and
+- the upstream repository's releases API returned an empty list at the same
+  checkpoint, so retrying the unchanged configuration could not remove the
+  dependency on the missing asset.
+
+The OSV summary is an optional Dashboard display feed and defaults to disabled.
+It is not Helix CC's advisory-remediation owner: `vulnerabilityAlerts.enabled`
+already prevents Renovate security PRs, while GitHub Dependabot alerts and
+automated security fixes are enabled and have zero open alerts. The repository
+therefore removed only `dependencyDashboardOSVVulnerabilitySummary`, matching
+the existing dotfiles and Helix Renovate configurations while preserving the
+Dashboard, weekly npm and Actions updates, action digest pinning, lockfile
+maintenance, and manual review. The governance test now prevents that redundant
+advisory feed from being restored accidentally.
+
+Publication remains **HOLD** until the corrected bot run succeeds and creates
+the `Renovate dashboard`; the hosted operational result is not inferred from
+local schema validation alone.

@@ -21,8 +21,11 @@ remote advertised only rewritten `main` and both former pull-request APIs
 returned `404`. GitHub subsequently reused number #1 for the clean post-rewrite
 documentation PR; its head and synthetic merge refs descend only from rewritten
 history and are included in the fresh zero-finding Gitleaks scans. The maintainer
-reports that Renovate repository access is granted; operational activation still
-requires a bot-authored `Renovate dashboard` readback.
+reports that Renovate repository access is granted. Its first job exposed an
+optional OSV Dashboard feed that failed on Renovate's unavailable upstream
+release asset; that feed is removed because Dependabot already owns advisory-led
+security fixes. Operational activation still requires a successful bot-authored
+`Renovate dashboard` readback.
 
 After the repository becomes public, GitHub CodeQL, secret scanning, push
 protection, and private vulnerability reporting must be enabled immediately.

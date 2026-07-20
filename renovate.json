@@ -12,7 +12,6 @@
   "enabledManagers": ["npm", "github-actions"],
   "dependencyDashboard": true,
   "dependencyDashboardTitle": "Renovate dashboard",
-  "dependencyDashboardOSVVulnerabilitySummary": "all",
   "schedule": ["before 06:00 on monday"],
   "prConcurrentLimit": 4,
   "prHourlyLimit": 2,
