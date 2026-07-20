@@ -1,7 +1,29 @@
 # Status
 
-Snapshot: 2026-07-19. Version: 0.4.0 development branch
-`feat/helix-workflow-parity-20260719`; canonical release branch remains `main`.
+Snapshot: 2026-07-20. Version: 0.4.0 on `main`.
+
+## Public repository readiness
+
+Repository-backed public-release safeguards are prepared: least-privilege CI
+with a stable aggregate `test` check, SHA-pinned GitHub Actions, checked-in
+integrity/review/CodeQL ruleset definitions, CODEOWNERS, a pull-request
+template, security and contribution policies, and conservative Renovate
+coverage for npm and GitHub Actions. Live private-repository settings are
+tracked in the dated
+[public-readiness review](docs/reviews/helix-cc-public-readiness-2026-07-20.md).
+
+Publication remains **HOLD**. The current tree and reachable history contain an
+absolute maintainer home path in an append-only prior review, and reachable
+commit metadata contains non-noreply email addresses while the GitHub profile
+email is hidden. Removing those historical disclosures requires an explicitly
+authorized history rewrite. GitHub CodeQL, secret scanning, push protection,
+and private vulnerability reporting are also visibility-gated and must be
+enabled and read back immediately after the repository becomes public.
+
+The public setup path is fail-closed against mutable remote installer execution:
+Claude Code must already be installed at the supported minimum, while the
+CLIProxyAPI archive and optional Copilot adapter retain their existing exact
+version and integrity checks.
 
 ## User-test readiness
 

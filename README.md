@@ -55,7 +55,9 @@ namespaces.
 ## Install and run
 
 You need macOS or Linux/WSL, Git, Node.js `22.19.0` or newer, and a supported
-Claude Code installation.
+Claude Code installation. Install and verify Claude Code separately using
+Anthropic's official guidance; Helix CC setup never downloads or executes a
+mutable remote installer.
 
 ```bash
 git clone https://github.com/luisgui1757/helix-cc.git
@@ -102,8 +104,24 @@ That runs plugin structure validation, all deterministic tests, and Claude
 Code's strict plugin validator. Provider proof commands and full live Workflow
 runs are separate because they contact the selected provider.
 
+Pull requests run the structure validator, dependency audit and registry
+signature verification, and the deterministic test suite on the minimum and
+current Node.js lines. The matrix feeds one stable required check named `test`.
+GitHub Actions are digest-pinned and run with read-only repository permissions.
+
 Current automated results, dated live receipts, and deliberate gaps are kept in
 [STATUS.md](STATUS.md).
+
+## Security and contributions
+
+Report suspected vulnerabilities through GitHub's private vulnerability
+reporting flow; do not open a public issue or include credentials, prompts,
+responses, or account identifiers. See [SECURITY.md](SECURITY.md).
+
+Contribution requirements, local gates, and the protected-branch contract are
+in [CONTRIBUTING.md](CONTRIBUTING.md). Automated npm and GitHub Actions updates
+are managed by Renovate without automerge; GitHub Dependabot owns advisory-led
+security fixes so the two systems do not create duplicate security PRs.
 
 ## Documentation
 

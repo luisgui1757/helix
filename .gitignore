@@ -21,5 +21,18 @@ review-prompts/**
 # Installed optional provider gateways are reproducible from package-lock.json.
 node_modules/
 
+# Local credentials and package-manager authentication never belong in Git.
+/.env
+/.env.*
+!/.env.example
+/.npmrc
+*.key
+*.pem
+*.p12
+
+# Test and tool output is reproducible and may contain machine-local paths.
+coverage/
+*.log
+
 # Finder metadata is never repository state.
 .DS_Store

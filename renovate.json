@@ -1,0 +1,57 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Renovate owns routine npm and GitHub Actions updates. GitHub Dependabot owns advisory-led security fixes.",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":timezone(Europe/Berlin)",
+    "security:minimumReleaseAgeNpm"
+  ],
+  "enabledManagers": ["npm", "github-actions"],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate dashboard",
+  "dependencyDashboardOSVVulnerabilitySummary": "all",
+  "schedule": ["before 06:00 on monday"],
+  "prConcurrentLimit": 4,
+  "prHourlyLimit": 2,
+  "labels": ["dependencies"],
+  "automerge": false,
+  "rebaseWhen": "behind-base-branch",
+  "constraintsFiltering": "strict",
+  "vulnerabilityAlerts": {
+    "enabled": false
+  },
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "coverage/**"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "addLabels": ["github-actions"],
+      "pinDigests": true,
+      "automerge": false
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "npm non-major updates",
+      "addLabels": ["npm"],
+      "automerge": false
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "addLabels": ["npm", "major"],
+      "automerge": false
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, lstat, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -132,35 +132,47 @@ test('setup reports the exact PATH handoff when the launcher directory is not di
   assert.match(discoverable.stdout, /claudex is ready at/)
 })
 
-test('setup uses the official stable installer without a curl-to-shell pipeline', async () => {
+test('setup requires supported Claude Code without executing a remote installer', async () => {
   const source = await readFile(setup, 'utf8')
-  assert.match(source, /https:\/\/claude\.ai\/install\.sh/)
-  assert.match(source, /curl -fsSL [^\n]+ -o/)
-  assert.match(source, /bash "\$temporary_dir\/claude-install\.sh" stable/)
-  assert.doesNotMatch(source, /curl[^\n|]*\|\s*bash/)
+  assert.doesNotMatch(source, /claude\.ai\/install\.sh/)
+  assert.doesNotMatch(source, /curl|wget/)
+  assert.match(source, /https:\/\/code\.claude\.com\/docs\/en\/installation/)
   const syntax = spawnSync('bash', ['-n', setup, launcher], { encoding: 'utf8' })
   assert.equal(syntax.status, 0, syntax.stderr)
   const directory = await mkdtemp(join(tmpdir(), 'claudex-dry-run-'))
   try {
-    const dryRun = spawnSync(setup, ['--dry-run', '--bin-dir', directory], { encoding: 'utf8' })
+    const fakeBin = join(directory, 'commands')
+    await mkdir(fakeBin)
+    await writeFile(join(fakeBin, 'claude'), '#!/usr/bin/env bash\necho "2.1.154"\n')
+    await writeFile(join(fakeBin, 'node'), '#!/usr/bin/env bash\necho "26.0.0"\n')
+    await writeFile(join(fakeBin, 'npm'), '#!/usr/bin/env bash\nexit 0\n')
+    await Promise.all(['claude', 'node', 'npm'].map(name => chmod(join(fakeBin, name), 0o755)))
+    const env = {
+      ...process.env,
+      HOME: join(directory, 'home'),
+      PATH: `${fakeBin}:/usr/bin:/bin`,
+    }
+    const dryRun = spawnSync(setup, ['--dry-run', '--bin-dir', directory], { env, encoding: 'utf8' })
     assert.equal(dryRun.status, 0, dryRun.stderr)
     assert.match(dryRun.stdout, /Dry run complete; no changes were made/)
     await assert.rejects(lstat(join(directory, 'claudex')), /ENOENT/)
 
-    const fakeBin = directory
-    await fakeCommand(fakeBin, 'claude')
     await writeFile(join(fakeBin, 'claude'), '#!/usr/bin/env bash\necho "2.1.100"\n')
     await chmod(join(fakeBin, 'claude'), 0o755)
     const oldClaude = spawnSync(setup, ['--dry-run', '--bin-dir', directory], {
-      env: {
-        ...process.env,
-        HOME: join(directory, 'home'),
-        PATH: `${fakeBin}:${process.env.PATH}`,
-      },
+      env,
       encoding: 'utf8',
     })
-    assert.equal(oldClaude.status, 0, oldClaude.stderr)
-    assert.match(oldClaude.stdout, /Would install Claude Code from Anthropic's official stable installer/)
+    assert.equal(oldClaude.status, 1)
+    assert.match(oldClaude.stderr, /Claude Code 2\.1\.154 or newer is required/)
+
+    const missingClaude = spawnSync(setup, ['--dry-run', '--bin-dir', directory], {
+      env: { ...env, PATH: '/usr/bin:/bin' },
+      encoding: 'utf8',
+    })
+    assert.equal(missingClaude.status, 1)
+    assert.match(missingClaude.stderr, /must be installed before setup/)
+    assert.match(missingClaude.stderr, /code\.claude\.com\/docs\/en\/installation/)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

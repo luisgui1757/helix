@@ -7,29 +7,22 @@ minimum_node="22.19.0"
 minimum_claude="2.1.154"
 bin_dir="${CLAUDEX_BIN_DIR:-$HOME/.local/bin}"
 caller_path="$PATH"
-skip_claude=false
 launcher_only=false
 login_codex=false
 login_copilot=false
 dry_run=false
-temporary_dir=""
-
-cleanup() {
-  [[ -z "$temporary_dir" ]] || rm -rf -- "$temporary_dir"
-}
-trap cleanup EXIT INT TERM
 
 usage() {
   cat <<'EOF'
 Usage: ./setup.sh [options]
 
-Install or verify Claude Code, install pinned Helix CC dependencies, prepare the
-pinned CLIProxyAPI binary, validate the plugin, and publish `claudex` on PATH.
+Verify an existing Claude Code installation, install pinned Helix CC
+dependencies, prepare the pinned CLIProxyAPI binary, validate the plugin, and
+publish `claudex` on PATH.
 
 Options:
   --login-codex       Run the interactive OpenAI/Codex subscription login
   --login-copilot     Run the interactive GitHub Copilot device login
-  --skip-claude       Do not install or update Claude Code
   --launcher-only     Only install the claudex command
   --bin-dir <path>    Install claudex here (default: ~/.local/bin)
   --dry-run           Print mutating commands without running them
@@ -41,7 +34,6 @@ while (($#)); do
   case "$1" in
     --login-codex) login_codex=true ;;
     --login-copilot) login_copilot=true ;;
-    --skip-claude) skip_claude=true ;;
     --launcher-only) launcher_only=true ;;
     --dry-run) dry_run=true ;;
     --bin-dir)
@@ -154,46 +146,20 @@ if [[ "$launcher_only" == true ]]; then
 fi
 
 export PATH="$HOME/.local/bin:$PATH"
-install_claude=false
 if ! command -v claude >/dev/null 2>&1; then
-  if [[ "$skip_claude" == true ]]; then
-    echo "setup.sh: Claude Code is missing and --skip-claude was requested" >&2
-    exit 1
-  fi
-  install_claude=true
-else
-  installed_claude_version="$(claude --version | awk 'NR == 1 { print $1 }')"
-  if ! version_at_least "$installed_claude_version" "$minimum_claude"; then
-    if [[ "$skip_claude" == true ]]; then
-      echo "setup.sh: Claude Code $minimum_claude or newer is required; found $installed_claude_version" >&2
-      exit 1
-    fi
-    install_claude=true
-  fi
+  cat >&2 <<EOF
+setup.sh: Claude Code $minimum_claude or newer must be installed before setup.
+Use Anthropic's official installation and integrity-verification guide:
+  https://code.claude.com/docs/en/installation
+EOF
+  exit 1
 fi
 
-if [[ "$install_claude" == true ]]; then
-  command -v curl >/dev/null 2>&1 || { echo "setup.sh: curl is required to install Claude Code" >&2; exit 1; }
-  if [[ "$dry_run" == true ]]; then
-    echo "Would install Claude Code from Anthropic's official stable installer."
-    print_command curl -fsSL https://claude.ai/install.sh -o '<temporary>/claude-install.sh'
-    print_command bash '<temporary>/claude-install.sh' stable
-  else
-    temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/helix-cc-setup.XXXXXX")"
-    curl -fsSL https://claude.ai/install.sh -o "$temporary_dir/claude-install.sh"
-    bash "$temporary_dir/claude-install.sh" stable
-    hash -r
-  fi
-fi
-
-if [[ "$dry_run" == false ]]; then
-  command -v claude >/dev/null 2>&1 || { echo 'setup.sh: Claude Code installation did not publish claude on PATH' >&2; exit 1; }
-  claude_version="$(claude --version | awk 'NR == 1 { print $1 }')"
-  version_at_least "$claude_version" "$minimum_claude" || {
-    echo "setup.sh: Claude Code $minimum_claude or newer is required; found $claude_version" >&2
-    exit 1
-  }
-fi
+claude_version="$(claude --version | awk 'NR == 1 { print $1 }')"
+version_at_least "$claude_version" "$minimum_claude" || {
+  echo "setup.sh: Claude Code $minimum_claude or newer is required; found $claude_version" >&2
+  exit 1
+}
 
 command -v node >/dev/null 2>&1 || { echo "setup.sh: Node.js $minimum_node or newer is required" >&2; exit 1; }
 command -v npm >/dev/null 2>&1 || { echo "setup.sh: npm is required" >&2; exit 1; }

@@ -9,8 +9,8 @@ Supported hosts are macOS and Linux/WSL environments that can run:
 
 - Git;
 - Node.js `22.19.0` or newer with npm;
-- Claude Code `2.1.154` or newer;
-- `curl` when Claude Code is missing or below the minimum version.
+- Claude Code `2.1.154` or newer, installed using Anthropic's
+  [official installation and integrity-verification guide](https://code.claude.com/docs/en/installation).
 
 Install from a fresh clone:
 
@@ -20,7 +20,9 @@ cd helix-cc
 ./setup.sh
 ```
 
-Setup installs locked dependencies, prepares the pinned local gateway,
+Setup refuses a missing or outdated Claude Code installation. It does not
+download or execute a mutable remote installer. After verifying Claude Code,
+setup installs locked dependencies, prepares the pinned local gateway,
 validates the plugin, and places `claudex` in `~/.local/bin` by default. If that
 directory is not on the invoking shell's `PATH`, setup prints an exact command
 like this:
