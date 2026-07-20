@@ -12,14 +12,20 @@ coverage for npm and GitHub Actions. Live private-repository settings are
 tracked in the dated
 [public-readiness review](docs/reviews/helix-cc-public-readiness-2026-07-20.md).
 
-Publication remains **HOLD**. The authorized privacy rewrite replaced the
-absolute maintainer home path throughout retained branch history, normalized
-non-noreply commit metadata, and removed the obsolete remote feature branch.
-GitHub's read-only pull-request refs for PRs #1 and #2 still retain pre-rewrite
-objects; GitHub Support must dereference them before publication. GitHub CodeQL,
-secret scanning, push protection, and private vulnerability reporting are also
-visibility-gated and must be enabled and read back immediately after the
-repository becomes public.
+Publication remains **HOLD** pending the controlled visibility cutover. The
+authorized privacy rewrite replaced the absolute maintainer home path throughout
+retained branch history, normalized non-noreply commit metadata, and removed the
+obsolete remote feature branch. GitHub Support has now dereferenced PRs #1 and
+#2: the remote advertises only rewritten `main`, both pull-request APIs return
+`404`, and fresh whole-history and tracked-tree Gitleaks scans report zero
+findings. The maintainer reports that Renovate repository access is granted;
+operational activation still requires a bot-authored `Renovate dashboard`
+readback.
+
+After the repository becomes public, GitHub CodeQL, secret scanning, push
+protection, and private vulnerability reporting must be enabled immediately.
+Their first analyses and zero-open-alert state, plus the active post-public
+CodeQL ruleset, must be read back before the final **PUBLICATION READY** verdict.
 
 The public setup path is fail-closed against mutable remote installer execution:
 Claude Code must already be installed at the supported minimum, while the
@@ -123,7 +129,7 @@ Update only from final-code evidence.
 |---|---|---|
 | Focused 0.3.2 regressions | Passed | Launcher, setup handoff, entrypoint, route/model, scrubbed preflight, lifecycle, and docs contracts included in the full suite |
 | `npm run check` | Passed | `validated helix-cc: 9 workflows, 13 agents, 7 skills` |
-| `npm test` | Passed | 137 passed; 0 failed, skipped, or TODO; includes marker-first, partial-line, staggered-matrix, timeout, interruption, and exact-set Workflow-transcript convergence; the packaged six-tool MCP process; production-controller ownership across four provider-readiness and two active-execution stages; isolated red/green ignored/Git/HOME/sibling effects; inherited-process redirect isolation; ignored/no-delta test-path refusal; five-class TDD command-mutation discard; normalized input grammar; four-stop research convergence/equality distance; expected-miss blocker semantics; complete tracked mode/type coverage; rename/index rollback; post-writer remeasurement; v2 final-checkout evidence; fixed RSA signature chunks; and every loop source |
+| `npm test` | Passed | 140 passed; 0 failed, skipped, or TODO; includes marker-first, partial-line, staggered-matrix, timeout, interruption, and exact-set Workflow-transcript convergence; the packaged six-tool MCP process; production-controller ownership across four provider-readiness and two active-execution stages; isolated red/green ignored/Git/HOME/sibling effects; inherited-process redirect isolation; ignored/no-delta test-path refusal; five-class TDD command-mutation discard; normalized input grammar; four-stop research convergence/equality distance; expected-miss blocker semantics; complete tracked mode/type coverage; rename/index rollback; post-writer remeasurement; v2 final-checkout evidence; fixed RSA signature chunks; and every loop source |
 | `claude plugin validate --strict .` | Passed | Claude Code 2.1.214 strict validation |
 | Documentation link/command contract | Passed | Current links resolve locally; every provider launch example supplies an explicit model |
 | Interrupted provider startup acceptance | Passed | Production revision `c5016f6`: SIGTERM after the first Copilot child spawn and before gateway readiness produced exit 143; every observed PID died, all allocated ports were released, and idle status returned `unreachable` |
