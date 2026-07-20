@@ -15,12 +15,14 @@ tracked in the dated
 Publication remains **HOLD** pending the controlled visibility cutover. The
 authorized privacy rewrite replaced the absolute maintainer home path throughout
 retained branch history, normalized non-noreply commit metadata, and removed the
-obsolete remote feature branch. GitHub Support has now dereferenced PRs #1 and
-#2: the remote advertises only rewritten `main`, both pull-request APIs return
-`404`, and fresh whole-history and tracked-tree Gitleaks scans report zero
-findings. The maintainer reports that Renovate repository access is granted;
-operational activation still requires a bot-authored `Renovate dashboard`
-readback.
+obsolete remote feature branch. GitHub Support has now dereferenced the former
+pre-rewrite PRs #1 and #2: before the current documentation PR was opened, the
+remote advertised only rewritten `main` and both former pull-request APIs
+returned `404`. GitHub subsequently reused number #1 for the clean post-rewrite
+documentation PR; its head and synthetic merge refs descend only from rewritten
+history and are included in the fresh zero-finding Gitleaks scans. The maintainer
+reports that Renovate repository access is granted; operational activation still
+requires a bot-authored `Renovate dashboard` readback.
 
 After the repository becomes public, GitHub CodeQL, secret scanning, push
 protection, and private vulnerability reporting must be enabled immediately.

@@ -169,10 +169,12 @@ against rewritten `main` at
 
 ### Remote privacy closure
 
-- `git ls-remote origin refs/heads/main 'refs/pull/*'` advertised only rewritten
-  `main`; no pull-request or tag refs remained.
-- `gh pr list --state all` returned no pull requests. The pull-request, commit,
-  file, diff, and patch API surfaces for former PRs #1 and #2 returned `404`.
+- Before the current documentation PR was opened, `git ls-remote origin
+  refs/heads/main 'refs/pull/*'` advertised only rewritten `main`; no
+  pull-request or tag refs remained.
+- At that same pre-PR checkpoint, `gh pr list --state all` returned no pull
+  requests. The pull-request, commit, file, diff, and patch API surfaces for the
+  former pre-rewrite PRs #1 and #2 returned `404`.
 - A fresh remote mirror contained one branch, three commits, zero tags, and zero
   pull-request refs; `git fsck --full --no-dangling` was clean.
 - Gitleaks 8.30.1 reported zero findings across the complete advertised history
@@ -187,6 +189,12 @@ against rewritten `main` at
 This conclusion covers every ref and pull-request surface GitHub advertises to
 repository clients and administrators. GitHub does not expose unreachable
 server-side garbage objects for independent enumeration.
+
+After this documentation follow-up was first committed, GitHub assigned its new
+clean pull request number #1, reusing the number removed with the former PR
+record. The new `refs/pull/1/head` resolves to the post-rewrite documentation
+commit and its synthetic merge ref combines only that commit with rewritten
+`main`; both new refs are included in the final remote scan.
 
 ### CI, dependencies, and live governance
 
