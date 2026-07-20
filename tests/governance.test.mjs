@@ -59,7 +59,7 @@ test('checked-in branch governance preserves integrity and pull-request-only own
   }])
 })
 
-test('Renovate owns routine updates without automerge or duplicate advisory PRs', async () => {
+test('Renovate owns routine updates without automerge or advisory security feeds', async () => {
   const config = JSON.parse(await read('renovate.json'))
 
   assert.deepEqual(config.enabledManagers, ['npm', 'github-actions'])
@@ -67,7 +67,7 @@ test('Renovate owns routine updates without automerge or duplicate advisory PRs'
   assert.equal(config.rebaseWhen, 'behind-base-branch')
   assert.equal(config.vulnerabilityAlerts.enabled, false)
   assert.equal(config.lockFileMaintenance.enabled, true)
-  assert.equal(config.dependencyDashboardOSVVulnerabilitySummary, 'all')
+  assert.equal(config.dependencyDashboardOSVVulnerabilitySummary, undefined)
   assert.ok(config.extends.includes('helpers:pinGitHubActionDigests'))
   assert.ok(config.extends.includes('security:minimumReleaseAgeNpm'))
 
