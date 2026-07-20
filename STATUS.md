@@ -12,13 +12,14 @@ coverage for npm and GitHub Actions. Live private-repository settings are
 tracked in the dated
 [public-readiness review](docs/reviews/helix-cc-public-readiness-2026-07-20.md).
 
-Publication remains **HOLD**. The current tree and reachable history contain an
-absolute maintainer home path in an append-only prior review, and reachable
-commit metadata contains non-noreply email addresses while the GitHub profile
-email is hidden. Removing those historical disclosures requires an explicitly
-authorized history rewrite. GitHub CodeQL, secret scanning, push protection,
-and private vulnerability reporting are also visibility-gated and must be
-enabled and read back immediately after the repository becomes public.
+Publication remains **HOLD**. The authorized privacy rewrite replaced the
+absolute maintainer home path throughout retained branch history, normalized
+non-noreply commit metadata, and removed the obsolete remote feature branch.
+GitHub's read-only pull-request refs for PRs #1 and #2 still retain pre-rewrite
+objects; GitHub Support must dereference them before publication. GitHub CodeQL,
+secret scanning, push protection, and private vulnerability reporting are also
+visibility-gated and must be enabled and read back immediately after the
+repository becomes public.
 
 The public setup path is fail-closed against mutable remote installer execution:
 Claude Code must already be installed at the supported minimum, while the

@@ -130,3 +130,33 @@ an immutable digest contract for the moving installer URL; native installs may
 also auto-update. Helix CC therefore no longer downloads or executes that
 installer. Setup now fails closed when Claude Code is missing or below the
 minimum and points to Anthropic's official installation and integrity guide.
+
+## Authorized privacy history rewrite
+
+The maintainer explicitly authorized the destructive history rewrite on
+2026-07-20 after PR #2 had been merged externally. A verified, mode-`0600`
+recovery bundle was created outside the repository before any object changed.
+`git-filter-repo` 2.47.0 then rewrote 34 of 38 locally fetched commits:
+
+- every occurrence of the absolute maintainer repository path was replaced by
+  `/path/to/helix-cc` in text blobs and commit messages;
+- non-noreply author and committer addresses were replaced by the maintainer's
+  GitHub noreply identity without changing author or committer names; and
+- normal remote `main` was force-updated while obsolete remote branch
+  `feat/helix-workflow-parity-20260719` was deleted.
+
+The first changed commits reported by the rewrite were
+`decba9d2517b7149ab2b608fdfa6f929e2ac4297` and
+`e1dae33372552efdce0683d33785c19d747a909e`. All locally fetched refs now have
+zero maintainer-home-path hits and zero non-noreply commit identities. The
+functional gate, strict plugin validation, dependency audit, registry-signature
+audit, object-integrity check, and whole-history and working-tree Gitleaks scans
+passed on the rewritten tree.
+
+Both fetched pull-request heads changed during the rewrite. GitHub makes
+`refs/pull/1/head` and `refs/pull/2/head` read-only, so their old objects cannot
+be force-updated by a repository push. Publication remains **HOLD** until GitHub
+Support dereferences those two affected pull requests and removes cached views,
+the exact remote object graph is rescanned, Renovate App access is confirmed,
+and the visibility-gated security controls in the publication gate are enabled
+and read back.

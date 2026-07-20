@@ -622,3 +622,10 @@ observed the terminal structured result. The normal deterministic suite does
 not contact provider endpoints; its new subprocess coverage exercises the
 launcher, runtime entrypoint, active-session doctor composition, and process
 lifecycle at their actual local boundaries.
+
+## Privacy redaction — 2026-07-20
+
+The three absolute repository-root values in this review were replaced with
+`/path/to/helix-cc` throughout Git history during the explicitly authorized
+privacy rewrite. This is an intentional personal-data redaction; it does not
+change the review's findings, evidence conclusions, or dispositions.
