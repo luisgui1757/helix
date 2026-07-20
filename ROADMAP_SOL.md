@@ -5,7 +5,7 @@
 - **Reviewer:** consolidated principal-architecture review (Fable 5 evidence review reconciled with an independent fresh-context adversarial review)
 - **Repository:** `luisgui1757/helix` (public; default branch `main`; not a fork at evaluation time)
 - **Exact target SHA:** `bb1c37f62ee1808a5c24bac06d975023f73dcb3b`
-- **Relationship to the Fable review:** this file preserves its verified evidence and correct findings while superseding its implementation recommendation.
+- **Relationship to the Fable review:** the [original Fable review](reviews/workflows/FABLE_ARCHITECTURE_ROADMAP_2026-07-16.md) is preserved as historical evidence; this file preserves its verified evidence and correct findings while superseding its implementation recommendation.
 - **Authority:** this is the decision-complete specification for the eventual implementation branch. If current primary-source evidence or repository state contradicts it, the implementation agent must stop and report the drift rather than improvise.
 
 ## 2. Executive verdict
@@ -249,7 +249,7 @@ guided builder   JSON/YAML import   programmatic IR builder
 
 ## 4. Scope, permissions, constraints, and limitations
 
-- The original evaluation was review-only with one permitted `ROADMAP.md` write. This consolidated document is a separately authorized documentation artifact. No code, configuration, provider account, branch, remote, issue, pull request, tag, or release was changed while producing it.
+- The original evaluation was review-only with one permitted `reviews/workflows/FABLE_ARCHITECTURE_ROADMAP_2026-07-16.md` write. This consolidated document is a separately authorized documentation artifact. No code, configuration, provider account, branch, remote, issue, pull request, tag, or release was changed while producing it.
 - The target remains commit `bb1c37f62ee1808a5c24bac06d975023f73dcb3b`. The implementation must re-verify current `origin/main`, remote identity, visibility, rulesets, CI triggers, and branch collision before editing and again before push.
 - No paid/live provider call was made by the consolidation review. The earlier Helix workflow work did execute one real OpenRouter workflow, but that was an ad-hoc proof using an injected session boundary, not repeatable proof of the default production factory.
 - Claims about current providers and policies must be re-fetched from primary sources during implementation. A dated policy registry is data, not timeless truth.
@@ -619,7 +619,7 @@ Attestation and certification freshness rules:
 
 ### F-3 — P0: mutating replay would restore text without effects
 
-- **Location:** proposed call-identity/prefix replay in original `ROADMAP.md` §§14/16; mutating roles in `dispatch/lib/pi-agent-adapter.mjs`.
+- **Location:** proposed call-identity/prefix replay in original `reviews/workflows/FABLE_ARCHITECTURE_ROADMAP_2026-07-16.md` §§14/16; mutating roles in `dispatch/lib/pi-agent-adapter.mjs`.
 - **Wrong behavior:** a cached builder/documenter envelope could be returned after crash while its file/git effects are absent.
 - **Evidence/source:** output identity did not bind before/after workspace state or a committed mutation artifact.
 - **Multi-location check:** downstream tester, documenter, verifier, and objective gate all depend on the canonical filesystem state.
@@ -1370,7 +1370,8 @@ consolidated, all-or-nothing branch delivery. Read ROADMAP_SOL.md, AGENTS.md,
 the current README/manual/architecture/workflow docs, and the reviews ledgers
 before changing anything.
 
-ROADMAP_SOL.md is the controlling architecture. ROADMAP.md is historical input,
+ROADMAP_SOL.md is the controlling architecture. The archived
+reviews/workflows/FABLE_ARCHITECTURE_ROADMAP_2026-07-16.md is historical input,
 not an alternative specification. If they disagree, ROADMAP_SOL.md wins.
 
 Preconditions — verify before editing and again before push:

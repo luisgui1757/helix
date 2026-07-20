@@ -626,3 +626,14 @@ provider contracts 35/35. Documentation truth, resources, both deterministic
 smokes, static checks, `git diff --check`, the extracted 99-file package with Pi
 RPC/default-factory proof, and active Docker 5/5 all pass. Exact-head CI and a
 fresh-context review remain pending until this closure is committed and pushed.
+
+## 2026-07-20 — Original Fable architecture review preservation
+
+The original review-only architecture roadmap was recovered from the retired
+Documents checkout and archived byte-for-byte as
+`reviews/workflows/FABLE_ARCHITECTURE_ROADMAP_2026-07-16.md`. Its SHA-256 is
+`31fbbf714c920310a7c58bd43d623e7981900e246cf683123bb2ab4fa2ed7f79`.
+`ROADMAP_SOL.md` remains the controlling architecture and supersedes the
+historical review wherever their recommendations differ. This preservation
+changes documentation provenance only; it does not change implementation or
+release status.
