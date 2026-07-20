@@ -1,0 +1,14 @@
+# Optional Probot Settings synchronization: https://probot.github.io/apps/settings/
+# The transactional safeguard tool is authoritative for live state. Rulesets are
+# deliberately absent here so branch policy has one checked-in source of truth.
+
+repository:
+  description: "Native multi-model team workflows for the Pi coding agent."
+  homepage: "https://github.com/luisgui1757/helix#readme"
+  allow_merge_commit: false
+  allow_squash_merge: true
+  allow_rebase_merge: false
+  allow_auto_merge: false
+  delete_branch_on_merge: true
+  enable_automated_security_fixes: true
+  enable_vulnerability_alerts: true

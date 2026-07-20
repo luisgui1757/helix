@@ -11,22 +11,29 @@ manual coverage, and a narrow-terminal rendering test.
 Run the full local gate before opening a pull request:
 
 ```sh
+npm run check:repository-policy
 npm run check:resources
 npm run check:docs-truth
 npm run check:no-live-egress
 npm test
 ```
 
-GitHub protects `main` with separate checked-in
+GitHub protects `main` with three separate checked-in
 [`integrity`](.github/rulesets/main-integrity.json) and
-[`review`](.github/rulesets/main-review.json) rulesets. The two Node.js matrix
-jobs feed one stable required check named `test`; do not require the matrix job
-names directly or add overlapping classic branch protection. Integrity rules
-have no bypass actors. Normal merges require one independent approval and
-resolved conversations, while the repository owner is the sole
-pull-request-only bypass actor for the review ruleset. An owner merge therefore
-still requires a pull request and a successful exact-head `test` check but does
-not require self-approval.
+[`review`](.github/rulesets/main-review.json) rulesets plus an
+[`owner updates`](.github/rulesets/main-owner-updates.json) restriction. The
+Node/Pi matrix and dependency review feed one stable required check named
+`test`; do not require the component job names directly or add overlapping
+classic branch protection. Integrity rules have no bypass actors. Normal
+merges require one fresh code-owner approval and resolved conversations, while
+the repository owner is the sole pull-request-only bypass actor for review and
+updates. An owner merge therefore still requires a pull request, successful
+exact-head `test` and CodeQL evidence, but does not require self-approval.
+
+Routine dependency updates have one owner: Renovate. GitHub-native Dependabot
+remains enabled for vulnerability alerts and security updates. Repository
+policy and the safe live apply/recovery process are documented in
+[`docs/GOVERNANCE.md`](docs/GOVERNANCE.md).
 
 Code, behavior, and architecture changes must update the relevant Markdown in
 the same change. Do not weaken checks, hide unsupported behavior behind a mock,

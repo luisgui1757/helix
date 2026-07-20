@@ -1,6 +1,65 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Single version-update bot. GitHub-native Dependabot remains responsible for vulnerability alerts and security updates.",
   "extends": [
-    "config:recommended"
+    "config:best-practices",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":timezone(Europe/Berlin)"
+  ],
+  "enabledManagers": ["npm", "github-actions", "custom.regex"],
+  "schedule": ["before 06:00 on monday"],
+  "prConcurrentLimit": 4,
+  "prHourlyLimit": 2,
+  "labels": ["dependencies"],
+  "automerge": false,
+  "rebaseWhen": "behind-base-branch",
+  "constraintsFiltering": "strict",
+  "vulnerabilityAlerts": {
+    "enabled": false
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 04:00 on monday"]
+  },
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "coverage/**"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track the newest Pi release inside Helix's supported 0.80.x line while preserving the compatibility-floor matrix entry.",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=npm depName=@earendil-works/pi-coding-agent versioning=semver\\s+- (?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "@earendil-works/pi-coding-agent",
+      "datasourceTemplate": "npm",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "addLabels": ["github-actions"],
+      "pinDigests": true,
+      "separateMajorMinor": false,
+      "automerge": false
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepNames": ["@earendil-works/pi-coding-agent"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["@earendil-works/pi-coding-agent"],
+      "allowedVersions": ">=0.80.7 <0.81.0",
+      "addLabels": ["pi-compatibility"],
+      "automerge": false
+    }
   ]
 }
