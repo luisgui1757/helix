@@ -233,10 +233,12 @@ read back before declaring **PUBLICATION READY**.
 
 ## Renovate first-run failure and OSV feed correction
 
-After the Mend Renovate App received repository access, its first job reported a
-failure without creating a GitHub issue, pull request, commit status, or check.
-Renovate 43.272.0 reproduced the failure in a full dry run against exact remote
-`main` at `5c437a278a13ef65a25d3863b3a442c2f150a895`:
+After the Mend Renovate App received repository access, the maintainer reported
+that its first job failed without creating a GitHub issue, pull request, commit
+status, or check. The private hosted error log was not available through GitHub.
+Renovate 43.272.0 nevertheless reproduced the same failed-run condition in a
+full dry run against exact remote `main` at
+`5c437a278a13ef65a25d3863b3a442c2f150a895`:
 
 - npm and GitHub Actions extraction and update lookup completed, including the
   pending Copilot adapter update and lockfile maintenance branch;
@@ -257,6 +259,18 @@ the existing dotfiles and Helix Renovate configurations while preserving the
 Dashboard, weekly npm and Actions updates, action digest pinning, lockfile
 maintenance, and manual review. The governance test now prevents that redundant
 advisory feed from being restored accidentally.
+
+The plausible transient-outage alternative was then checked explicitly. At
+`2026-07-20T05:12:50Z`, the upstream project published release
+`1-2026072005`; the formerly failing URL began redirecting to its
+`osv-offline.zip` asset, and an unchanged-main dry run then completed. This
+confirms that the 404 window was upstream release availability, not a schema or
+dependency-extraction defect. Separately, a full dry run loaded the corrected
+file as the effective configuration while ignoring stale `main` repository
+configuration: it exited zero with repository result `done`, planned the
+Dashboard and routine updates, and made no OSV database request. The durable
+correction therefore removes a redundant external failure dependency rather
+than masking a repository update error.
 
 Publication remains **HOLD** until the corrected bot run succeeds and creates
 the `Renovate dashboard`; the hosted operational result is not inferred from
