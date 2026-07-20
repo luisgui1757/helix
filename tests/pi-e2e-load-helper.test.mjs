@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_RUNTIME_RPC_TIMEOUT_MS,
   EXPECTED_HELIX_COMMANDS,
+  resolvePiBinary,
   runPiE2ELoad,
 } from "../tools/smoke/pi-e2e-load.mjs";
 
@@ -16,7 +17,11 @@ const extensionPaths = [
 ];
 const required = [
   "README.md",
+  "NOTICE",
+  "SECURITY.md",
+  "docs/architecture.md",
   "docs/manual.md",
+  "docs/providers.md",
   "docs/workflows.md",
   "extensions/helix-fence.ts",
   "extensions/helix-answer.ts",
@@ -31,6 +36,12 @@ const required = [
   "dispatch/lib/runner.mjs",
   "dispatch/lib/stage-schedule.mjs",
   "dispatch/lib/workflows.mjs",
+  "dispatch/kernel/scheduler.mjs",
+  "dispatch/kernel/state.mjs",
+  "dispatch/runtime/contract.mjs",
+  "dispatch/runtime/openrouter-audit-proxy.mjs",
+  "dispatch/runtime/openrouter-runtime.mjs",
+  "dispatch/workflow/schema.mjs",
   "tools/loop/helix-task-loop.mjs",
 ];
 
@@ -79,4 +90,8 @@ test("static Pi load helper rejects skill drift and missing runtime files", () =
 
 test("runtime RPC helper allows a cold Pi startup", () => {
   assert.equal(DEFAULT_RUNTIME_RPC_TIMEOUT_MS, 60_000);
+  assert.equal(resolvePiBinary("/workspace", "node_modules/.bin/pi"), "/workspace/node_modules/.bin/pi");
+  assert.equal(resolvePiBinary("/workspace", "/opt/pi/bin/pi"), "/opt/pi/bin/pi");
+  assert.equal(resolvePiBinary("/workspace", "pi"), "pi");
+  assert.throws(() => resolvePiBinary("/workspace", ""), /pi-bin-invalid/);
 });

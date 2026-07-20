@@ -1,0 +1,10 @@
+Helix Workflow Kernel
+
+The workflow kernel, schemas, scheduler, runtime adapters, tests, and examples
+in this package were independently authored for Helix.
+
+The architecture review considered Claude Code workflows, the Claude Agent
+SDK, pi-dynamic-workflows implementations, and CLIProxyAPI as behavioral and
+architectural references. No source or fixtures from the unlicensed
+Michaelliv/pi-dynamic-workflows repository are included. No third-party
+workflow package or proxy is bundled.

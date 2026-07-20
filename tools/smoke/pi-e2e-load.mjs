@@ -3,7 +3,7 @@
 
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -38,7 +38,11 @@ const EXPECTED_EXTENSIONS = Object.freeze([
 ]);
 const REQUIRED_PACKAGE_FILES = Object.freeze([
   "README.md",
+  "NOTICE",
+  "SECURITY.md",
+  "docs/architecture.md",
   "docs/manual.md",
+  "docs/providers.md",
   "docs/workflows.md",
   "extensions/helix-fence.ts",
   "extensions/helix-answer.ts",
@@ -53,6 +57,12 @@ const REQUIRED_PACKAGE_FILES = Object.freeze([
   "dispatch/lib/runner.mjs",
   "dispatch/lib/stage-schedule.mjs",
   "dispatch/lib/workflows.mjs",
+  "dispatch/kernel/scheduler.mjs",
+  "dispatch/kernel/state.mjs",
+  "dispatch/runtime/contract.mjs",
+  "dispatch/runtime/openrouter-audit-proxy.mjs",
+  "dispatch/runtime/openrouter-runtime.mjs",
+  "dispatch/workflow/schema.mjs",
   "tools/loop/helix-task-loop.mjs",
 ]);
 
@@ -97,6 +107,11 @@ function sanitizeCommand(command) {
   };
 }
 
+export function resolvePiBinary(root, piBin) {
+  if (typeof piBin !== "string" || piBin.length < 1) throw new Error("pi-bin-invalid");
+  return isAbsolute(piBin) || !/[\\/]/.test(piBin) ? piBin : resolve(root, piBin);
+}
+
 function runRpcInventory(root, { piBin = "pi", timeoutMs = DEFAULT_RUNTIME_RPC_TIMEOUT_MS } = {}) {
   const temp = mkdtempSync(join(tmpdir(), "helix-pi-load-"));
   try {
@@ -109,7 +124,7 @@ function runRpcInventory(root, { piBin = "pi", timeoutMs = DEFAULT_RUNTIME_RPC_T
       PI_SKIP_VERSION_CHECK: "1",
     };
     const proc = spawnSync(
-      piBin,
+      resolvePiBinary(root, piBin),
       ["--offline", "--approve", "-e", root, "--mode", "rpc", "--no-session"],
       {
         cwd: temp,

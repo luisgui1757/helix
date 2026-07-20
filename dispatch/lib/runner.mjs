@@ -33,6 +33,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   readdirSync,
   readlinkSync,
   realpathSync,
@@ -77,6 +78,7 @@ import { isHelixProvider } from "./providers.mjs";
 import { ROLES } from "./role-envelope.mjs";
 import { EFFORTS } from "./routes.mjs";
 import { isExecutorRef, isModelId, isPublicCode } from "./public-values.mjs";
+import { WORKSPACE_COPY_LIMITS } from "../kernel/limits.mjs";
 import {
   ensureConfinedDirectory,
   installConfinedDirectory,
@@ -86,6 +88,8 @@ import {
 } from "./persistence.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+export const PRIVATE_CHECKPOINT_LIMITS = WORKSPACE_COPY_LIMITS;
 
 export const RUNNER_CODES = Object.freeze({
   INVALID_CONFIG: "invalid-run-config",
@@ -222,7 +226,7 @@ function processIsAlive(pid) {
   }
 }
 
-function acquireResumeLease(cwd, runId) {
+export function acquireRunLease(cwd, runId) {
   const identity = gitIdentity(cwd);
   if (!identity) return { ok: false, code: RUNNER_CODES.REPOSITORY_INVALID };
   let dir;
@@ -258,7 +262,7 @@ function acquireResumeLease(cwd, runId) {
   return { ok: false, code: RUNNER_CODES.RESUME_IN_PROGRESS };
 }
 
-function releaseResumeLease(lease) {
+export function releaseRunLease(lease) {
   if (!lease?.ok) return false;
   let valid = true;
   try { closeSync(lease.fd); } catch { valid = false; }
@@ -351,11 +355,40 @@ function checkpointExclusions(root, paths = []) {
 }
 
 function scanCheckout(root, copyRoot = null, excludedPaths = []) {
+  const MAX_CHECKPOINT_FILES = PRIVATE_CHECKPOINT_LIMITS.max_files;
+  const MAX_CHECKPOINT_FILE_BYTES = PRIVATE_CHECKPOINT_LIMITS.max_file_bytes;
+  const MAX_CHECKPOINT_TOTAL_BYTES = PRIVATE_CHECKPOINT_LIMITS.max_total_bytes;
   const entries = [];
   const exclusions = checkpointExclusions(root, excludedPaths);
   const hardlinks = new Map();
   const copiedHardlinks = new Map();
   let nextHardlink = 1;
+  let fileCount = 0;
+  let totalBytes = 0;
+  const hashFile = (path, size) => {
+    if (size > MAX_CHECKPOINT_FILE_BYTES) throw new Error("private-checkpoint-file-too-large");
+    totalBytes += size;
+    fileCount += 1;
+    if (fileCount > MAX_CHECKPOINT_FILES || totalBytes > MAX_CHECKPOINT_TOTAL_BYTES) {
+      throw new Error("private-checkpoint-size-limit");
+    }
+    const digest = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      let offset = 0;
+      while (offset < size) {
+        const bytes = readSync(fd, buffer, 0, Math.min(buffer.length, size - offset), offset);
+        if (bytes <= 0) throw new Error("private-checkpoint-read-short");
+        digest.update(buffer.subarray(0, bytes));
+        offset += bytes;
+      }
+      if (fstatSync(fd).size !== size) throw new Error("private-checkpoint-file-changed");
+      return `sha256:${digest.digest("hex")}`;
+    } finally {
+      closeSync(fd);
+    }
+  };
   const walk = (dir, prefix) => {
     const names = readdirSync(dir).sort();
     for (const name of names) {
@@ -391,13 +424,12 @@ function scanCheckout(root, copyRoot = null, excludedPaths = []) {
           hardlinks.set(inode, linkGroup);
         }
       }
-      const content = readFileSync(source);
       entries.push({
         path: rel,
         type: "file",
         mode,
         size: stat.size,
-        content_ref: hashBytes(content),
+        content_ref: hashFile(source, stat.size),
         ...(linkGroup ? { link_group: linkGroup } : {}),
       });
       if (destination) {
@@ -514,6 +546,19 @@ export function makePrivateCheckpointEffect(repoRoot) {
     }
   };
   return {
+    inspect(runId, generation, treeRef = null) {
+      const relativePath = generationRelative(runId, generation);
+      if (!relativePath) return { ok: false, code: RUNNER_CODES.CHECKPOINT_INVALID };
+      try {
+        resolveConfinedDirectory(identity.common, relativePath);
+      } catch {
+        return { ok: true, exists: false };
+      }
+      const checked = inspect(runId, generation, treeRef);
+      return checked
+        ? { ok: true, exists: true, tree_ref: checked.tree_ref }
+        : { ok: false, code: RUNNER_CODES.CHECKPOINT_INVALID };
+    },
     snapshot(runId, generation, cwd, excludedPaths = []) {
       const relativePath = generationRelative(runId, generation);
       if (!relativePath || !gitIdentity(cwd) || gitIdentity(cwd).repository_ref !== identity.repository_ref) {
@@ -608,6 +653,11 @@ export function makePrivateCheckpointEffect(repoRoot) {
         rmSync(path, { recursive: true, force: true });
         return { ok: true };
       } catch {
+        try {
+          lstatSync(join(identity.common, relativePath));
+        } catch (error) {
+          if (error?.code === "ENOENT") return { ok: true, missing: true };
+        }
         return { ok: false, code: RUNNER_CODES.CHECKPOINT_FAILED };
       }
     },
@@ -1168,7 +1218,7 @@ export function makeGitWorktreeEffect(repoRoot, { baseDir } = {}) {
 export function createStagedMockAdapter({ verdicts = {} } = {}) {
   const remaining = Object.fromEntries(Object.entries(verdicts).map(([k, v]) => [k, [...v]]));
   const calls = { candidates: 0, judges: 0, synthesis: 0, verifiers: 0, revisions: 0 };
-  const envelope = ({ run_id, stage = "candidate", role, provider, model, recommendation, risks = [], open_questions = [] }) => ({
+  const envelope = ({ run_id, stage = "candidate", role, provider, model, recommendation, risks = [], open_questions = [], attempt = 1, iteration = 1 }) => ({
     schema_version: 2,
     run_id,
     stage,
@@ -1176,11 +1226,11 @@ export function createStagedMockAdapter({ verdicts = {} } = {}) {
     provider,
     model,
     usage: { input_tokens: 10, output_tokens: 5 },
-    attempt: 1,
-    iteration: 1,
-    input_ref: { kind: "local-ref", value: `local-ref:input/${run_id}`, algorithm: null },
-    claims_ref: `local-ref:claims/${run_id}`,
-    evidence_ref: `local-ref:evidence/${run_id}`,
+    attempt,
+    iteration,
+    input_ref: { kind: "sha256", value: hashRef(`input:${run_id}`).slice("sha256:".length), algorithm: "sha256" },
+    claims_ref: hashRef(`claims:${run_id}`),
+    evidence_ref: hashRef(`evidence:${run_id}`),
     uncertainty: [],
     risks,
     recommendation,
@@ -1188,19 +1238,40 @@ export function createStagedMockAdapter({ verdicts = {} } = {}) {
     open_questions,
     status: "ok",
   });
+  const applyCandidateEffect = (ctx) => {
+    const effect = ctx.mock_effect;
+    if (effect == null || effect.mutation === "read-only") return false;
+    if (effect == null || typeof effect !== "object" || Array.isArray(effect)
+      || !["shared-serialized", "isolated-proposal"].includes(effect.mutation)
+      || !Number.isSafeInteger(effect.visit) || effect.visit < 1
+      || !Number.isSafeInteger(effect.max_visits) || effect.max_visits < 1
+      || (effect.artifact != null && (typeof effect.artifact.path !== "string"
+        || typeof effect.artifact.kind !== "string"))) throw new Error("mock-agent-effect-invalid");
+    if (effect.artifact == null) return false;
+    const gate = effect.objective_gate;
+    const satisfies = effect.visit > 1 || effect.max_visits === 1;
+    const marker = gate?.type === "file-contains" && gate.path === effect.artifact.path && satisfies
+      ? `\n${gate.contains}\n` : "\n";
+    writeTextAtomic(ctx.cwd, effect.artifact.path, `Deterministic no-egress ${effect.artifact.kind} artifact.${marker}`);
+    return effect.visit > 1;
+  };
   return {
     calls,
     dispatchAdapter: {
       kind: "helix-staged-mock",
       runCandidate(spec, ctx) {
         calls.candidates += 1;
+        if (applyCandidateEffect(ctx)) calls.revisions += 1;
         let recommendation = `${spec.role}-ok`;
         if (ctx.stage_id != null && remaining[ctx.stage_id]?.length && spec.role === ctx.verdict_role) {
           recommendation = remaining[ctx.stage_id].shift();
         } else if (spec.role === ctx.verdict_role) {
           recommendation = "approve";
         }
-        return envelope({ run_id: ctx.run_id, role: spec.role, provider: spec.provider, model: spec.model, recommendation });
+        return envelope({
+          run_id: ctx.run_id, role: spec.role, provider: spec.provider, model: spec.model, recommendation,
+          attempt: ctx.attempt, iteration: ctx.pass,
+        });
       },
       runJudge(_input, ctx) {
         calls.judges += 1;
@@ -2392,7 +2463,7 @@ export async function runStagedTaskLoop(config, registries, deps = {}) {
   if (typeof runId !== "string" || !/^[A-Za-z0-9._-]+$/.test(runId) || runId === "." || runId === "..") {
     return fail("unsafe-run-id");
   }
-  const lease = acquireResumeLease(deps.cwd, runId);
+  const lease = acquireRunLease(deps.cwd, runId);
   if (!lease.ok) return fail(deps.resume_state == null ? RUNNER_CODES.RUN_IN_PROGRESS : lease.code);
   const runController = new AbortController();
   let runAbortCode = null;
@@ -2446,7 +2517,7 @@ export async function runStagedTaskLoop(config, registries, deps = {}) {
   } finally {
     if (runTimer) clearTimeout(runTimer);
     deps.signal?.removeEventListener?.("abort", cancelRun);
-    cleanupOk = releaseResumeLease(lease);
+    cleanupOk = releaseRunLease(lease);
   }
   if (runAbortCode && result) {
     result = {

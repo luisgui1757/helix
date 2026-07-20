@@ -248,6 +248,19 @@ test("setup stores inventory-validated real composite members and run preflight 
   }
 });
 
+test("setup member counts accept only canonical positive integers", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-setup-count-token-"));
+  const inventory = [{ provider: "openai-codex", model: "gpt-5x", efforts: ["medium"] }];
+  for (const token of ["+2", "02", "0x2", "2e0", "0"]) {
+    const out = executeHelixCommand(
+      `setup count-token daily.reviewer=openai-codex/gpt-5x:medium*${token}`,
+      { mode: "tui", confirm: true },
+      { stateRoot, modelInventory: inventory },
+    );
+    assert.equal(out.ok, false, token);
+  }
+});
+
 test("setup restores the prior profile when active-pointer persistence fails", () => {
   const { root, options } = tempOptions();
   try {

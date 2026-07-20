@@ -1,42 +1,144 @@
-// Provider-free runtime smoke test for one user workflow. The definition runs
-// through the real staged runner in a temporary detached Git worktree. Model
-// calls and the task-specific objective check are simulated explicitly; stage
-// effects, artifacts, transitions, checkpoints, and cleanup are real.
+// Provider-free runtime smoke test for one user workflow. Every accepted shape
+// is normalized to WorkflowDefinition v4 and executed by the real workflow
+// kernel in a temporary detached Git worktree. Model and objective effects are
+// deterministic test boundaries; routing, limits, events, and cleanup are real.
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { workflowToExecution } from "../../dispatch/lib/workflows.mjs";
-import { loadPresetRegistry } from "../../dispatch/lib/presets.mjs";
-import { defaultSettings, toggleVector } from "../../dispatch/lib/settings.mjs";
-import { runStagedTaskLoop } from "../../dispatch/lib/runner.mjs";
+import { journalRef } from "../../dispatch/kernel/journal.mjs";
+import { runWorkflowKernel } from "../../dispatch/kernel/scheduler.mjs";
+import { normalizeWorkflowDefinition } from "../../dispatch/workflow/schema.mjs";
 
 function git(cwd, args) {
   return spawnSync("git", args, { cwd, encoding: "utf8" });
 }
 
-function simulatedGate(workflow) {
-  return async (ctx) => {
-    let result = "pass";
-    if (ctx.phase === "stage-expectation") {
-      const stage = workflow.stages.find((candidate) => candidate.id === ctx.stage_id);
-      result = stage?.transitions.find((transition) =>
-        transition.action === "advance" && transition.when.type === "gate")?.when.is ?? "pass";
-    }
-    return { command_names: ["workflow-runtime-smoke"], result, source: "deterministic-checker" };
-  };
+function targets(node) {
+  if (["agent", "parallel", "map", "pipeline", "reduce", "checkpoint", "subworkflow"].includes(node.kind)) return [node.next];
+  if (node.kind === "decision") return [...node.transitions.map((entry) => entry.target), node.default.target, ...(node.loops_off ? [node.loops_off] : [])];
+  if (node.kind === "gate") return [node.on_pass, node.on_fail, ...(node.loops_off ? [node.loops_off] : [])];
+  return [];
 }
 
-export async function smokeTestWorkflowRuntime({ workflow, cwd, package_root, signal = null, onEvent = null } = {}) {
-  const execution = workflowToExecution(workflow);
-  if (!execution.ok) return { ok: false, code: execution.code ?? "workflow-runtime-smoke-invalid" };
+function distanceTo(definition, start, target) {
+  const queue = [[start, 0]];
+  const seen = new Set();
+  while (queue.length > 0) {
+    const [id, distance] = queue.shift();
+    if (id === target) return distance;
+    if (seen.has(id) || !definition.nodes[id]) continue;
+    seen.add(id);
+    for (const next of targets(definition.nodes[id])) queue.push([next, distance + 1]);
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function preferredGateResult(definition, nodeId, finalGateId) {
+  if (nodeId === finalGateId) return "pass";
+  const node = definition.nodes[nodeId];
+  return distanceTo(definition, node.on_pass, finalGateId) <= distanceTo(definition, node.on_fail, finalGateId)
+    ? "pass"
+    : "fail";
+}
+
+function preferredOutputs(definition, finalGateId) {
+  const preferred = new Map();
+  for (const node of Object.values(definition.nodes)) {
+    if (node.kind !== "decision") continue;
+    const ordered = [...node.transitions].sort((left, right) =>
+      distanceTo(definition, left.target, finalGateId) - distanceTo(definition, right.target, finalGateId));
+    for (const transition of ordered) {
+      if (transition.when?.op !== "eq" || typeof transition.when.path !== "string") continue;
+      const byRole = transition.when.path.match(/^\/outputs\/([^/]+)\/by_role\/([^/]+)\/([^/]+)$/);
+      if (byRole) {
+        preferred.set(`${byRole[1]}:${byRole[2]}:${byRole[3]}`, transition.when.value);
+        break;
+      }
+      const direct = transition.when.path.match(/^\/outputs\/([^/]+)\/value\/([^/]+)$/);
+      if (direct) {
+        preferred.set(`${direct[1]}:*:${direct[2]}`, transition.when.value);
+        break;
+      }
+    }
+  }
+  return preferred;
+}
+
+function smokeValue(preferred, nodeId, role) {
+  const value = {
+    recommendation: preferred.get(`${nodeId}:${role}:recommendation`)
+      ?? preferred.get(`${nodeId}:*:recommendation`)
+      ?? "approve",
+    summary: "deterministic workflow-kernel smoke output",
+    risks: [],
+    evidence: [],
+  };
+  for (const [key, selected] of preferred) {
+    const [candidateNode, candidateRole, field] = key.split(":");
+    if (candidateNode === nodeId && (candidateRole === role || candidateRole === "*")) value[field] = selected;
+  }
+  return value;
+}
+
+function smokeValueForSchema(schema) {
+  if (Object.hasOwn(schema, "default")) return structuredClone(schema.default);
+  if (schema.type === "object") {
+    return Object.fromEntries((schema.required ?? []).map((key) => [key, smokeValueForSchema(schema.properties[key])]));
+  }
+  if (schema.type === "array") {
+    return Array.from({ length: schema.minItems ?? 0 }, () => smokeValueForSchema(schema.items));
+  }
+  if (schema.type === "string") return "s".repeat(Math.max(1, schema.minLength ?? 0)).slice(0, schema.maxLength ?? 65_536);
+  if (schema.type === "boolean") return false;
+  if (schema.type === "integer") {
+    const minimum = schema.minimum == null ? Number.MIN_SAFE_INTEGER : Math.ceil(schema.minimum);
+    const maximum = schema.maximum == null ? Number.MAX_SAFE_INTEGER : Math.floor(schema.maximum);
+    return minimum <= 0 && maximum >= 0 ? 0 : minimum > 0 ? minimum : maximum;
+  }
+  if (schema.type === "number") {
+    const minimum = schema.minimum ?? Number.NEGATIVE_INFINITY;
+    const maximum = schema.maximum ?? Number.POSITIVE_INFINITY;
+    return minimum <= 0 && maximum >= 0 ? 0 : Number.isFinite(minimum) ? minimum : maximum;
+  }
+  return null;
+}
+
+function smokeInput(definition) {
+  return smokeValueForSchema(definition.inputs);
+}
+
+function worktreeRef(cwd) {
+  const head = git(cwd, ["rev-parse", "HEAD"]);
+  const status = git(cwd, ["status", "--porcelain=v1", "-z"]);
+  if (head.status !== 0 || status.status !== 0) return null;
+  return journalRef({ head: head.stdout.trim(), status: status.stdout });
+}
+
+export async function smokeTestWorkflowRuntime({ workflow, subworkflows = [], cwd, signal = null, onEvent = null } = {}) {
+  const normalized = normalizeWorkflowDefinition(workflow);
+  if (!normalized.ok) return { ok: false, code: normalized.code ?? "workflow-runtime-smoke-invalid" };
+  const definition = normalized.definition;
+  const children = new Map();
+  for (const candidate of subworkflows) {
+    const child = normalizeWorkflowDefinition(candidate);
+    if (!child.ok || Object.values(child.definition.nodes).some((node) => node.kind === "subworkflow")) {
+      return { ok: false, code: "kernel-subworkflow-binding-invalid" };
+    }
+    children.set(`${child.definition.id}@${child.definition.version}`, child.definition);
+  }
+  for (const node of Object.values(definition.nodes)) {
+    if (node.kind === "subworkflow" && !children.has(`${node.workflow_id}@${node.version}`)) {
+      return { ok: false, code: "kernel-subworkflow-binding-invalid" };
+    }
+  }
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
   if (top.status !== 0 || !top.stdout.trim()) return { ok: false, code: "workflow-runtime-smoke-git-required" };
   const repoRoot = top.stdout.trim();
   const root = mkdtempSync(join(tmpdir(), "helix-workflow-smoke-"));
   const checkout = join(root, "repo");
-  const stateDir = join(root, "state");
+  const events = [];
   let added = false;
   let result = null;
   let failure = null;
@@ -47,37 +149,43 @@ export async function smokeTestWorkflowRuntime({ workflow, cwd, package_root, si
       failure = "workflow-runtime-smoke-worktree-failed";
     } else {
       added = true;
-      mkdirSync(stateDir, { recursive: true });
-      const presets = loadPresetRegistry(join(package_root, "dispatch", "config", "matrices"));
-      if (!presets.ok) {
-        failure = presets.code;
-      } else {
-        const toggles = { ...toggleVector(defaultSettings()), worktree: false };
-        const smokeConfig = {
-          ...execution.config,
-          assignments: {},
-          default_assignment: { kind: "composite", preset: "daily" },
-        };
-        result = await runStagedTaskLoop(smokeConfig, {
-          chainRegistry: { schema_version: 3, chains: [execution.chain] },
-          presets: presets.presets,
-        }, {
-          cwd: checkout,
-          now: Date.now(),
-          seed: 7,
-          run_id: `smoke-${process.pid}-${Date.now().toString(36)}`,
-          task_instruction: "Exercise this workflow definition without provider calls.",
-          toggles,
-          signal,
-          record_dir: stateDir,
-          state_dir: stateDir,
-          objective_gate_effect: simulatedGate(workflow),
-          events: {
-            dir: stateDir,
-            ...(typeof onEvent === "function" ? { onEvent } : {}),
-          },
-        });
-      }
+      const definitions = [definition, ...children.values()];
+      const finalGates = new Map(definitions.map((entry) => [entry.id, Object.keys(entry.nodes)
+        .find((id) => entry.nodes[id].kind === "gate" && entry.nodes[id].final === true)]));
+      const preferredByDefinition = new Map(definitions.map((entry) => [entry.id, preferredOutputs(entry, finalGates.get(entry.id))]));
+      const workspace = {
+        cwd: checkout,
+        currentRef: () => worktreeRef(checkout),
+        verifyRef: (ref) => ref === worktreeRef(checkout),
+        async begin() { return { ok: true, cwd: checkout, before_ref: worktreeRef(checkout) }; },
+        async commit() { return { ok: true, workspace_ref: worktreeRef(checkout) }; },
+        async rollback() { return { ok: true }; },
+        serialize() { return { cwd: checkout, workspace_ref: worktreeRef(checkout) }; },
+        async finalize() { return { ok: true }; },
+      };
+      result = await runWorkflowKernel(definition, smokeInput(definition), {
+        run_id: `smoke-${process.pid}-${Date.now().toString(36)}`,
+        cwd: checkout,
+        signal,
+        workspace,
+        async executeAgent(agent, ctx) {
+          return { ok: true, value: smokeValue(preferredByDefinition.get(ctx.definition_id), ctx.node_id, agent.role), usage: { tokens: 0, cost_micros: 0 } };
+        },
+        async runGate(_gate, ctx) {
+          const activeDefinition = definitions.find((entry) => entry.id === ctx.definition_id);
+          return { result: preferredGateResult(activeDefinition, ctx.node_id, finalGates.get(ctx.definition_id)), evidence_ref: journalRef({ smoke: ctx.node_id }) };
+        },
+        async verifyArtifact(artifact, ctx) {
+          return { ok: true, ref: journalRef({ definition_id: ctx.definition_id, node_id: ctx.node_id, artifact }) };
+        },
+        async checkpoint() { return { continue: true }; },
+        resolveSubworkflow: (id, version) => children.get(`${id}@${version}`) ?? null,
+        depth: 0,
+        onEvent(event) {
+          events.push(structuredClone(event));
+          onEvent?.(structuredClone(event));
+        },
+      });
     }
   } catch {
     failure = "workflow-runtime-smoke-failed";
@@ -87,14 +195,25 @@ export async function smokeTestWorkflowRuntime({ workflow, cwd, package_root, si
   }
   if (!cleanupOk) return { ok: false, code: "workflow-runtime-smoke-cleanup-failed" };
   if (failure) return { ok: false, code: failure };
-  if (!result?.ok || result.converged !== true) {
-    return { ok: false, code: result?.code ?? result?.stop_reason ?? "workflow-runtime-smoke-failed" };
+  if (!result?.ok || result.status !== "succeeded") {
+    return { ok: false, code: result?.code ?? "workflow-runtime-smoke-failed" };
   }
+  const nodeIds = new Set(events.flatMap((event) => event.kind === "node-start"
+    ? [`${event.run_id}:${event.node_id}`]
+    : event.kind === "subworkflow-event" && event.child_kind === "node-start" && event.child_node_id
+      ? [`${event.child_run_id}:${event.child_node_id}`]
+      : []));
+  const finalGate = events.find((event) => event.kind === "gate" && event.final === true);
   return {
     ok: true,
+    runner: "workflow-kernel-v4",
     provider_calls: 0,
     objective_check: "simulated",
-    total_passes: result.total_passes,
-    stages_exercised: workflow.stages.length,
+    nodes_exercised: nodeIds.size,
+    effects_exercised: events.filter((event) => event.kind === "effect-end"
+      || (event.kind === "subworkflow-event" && event.child_kind === "effect-end")).length,
+    transitions_exercised: events.filter((event) => event.kind === "transition"
+      || (event.kind === "subworkflow-event" && event.child_kind === "transition")).length,
+    objective_gate_exercised: finalGate?.result === "pass",
   };
 }

@@ -311,3 +311,106 @@ The single source for test rules.
 - A recalled memory reflects what was true when written; before acting on one
   that names a file, flag, or value, confirm it still holds.
 <!-- AGENT-RULES:END -->
+
+## Helix workflow-kernel invariants
+
+- Every named workflow executes only after normalization to WorkflowDefinition
+  v4 through `dispatch/kernel/scheduler.mjs`. Legacy stage documents are input
+  adapters and historical readers, never a selectable product engine.
+- A workflow succeeds only through its unique final deterministic objective
+  gate. Its `on_pass` is the successful terminal's only incoming edge, the
+  final node cannot redefine the top-level objective, and resume requires its
+  recorded pass evidence. Model verdicts may route work but cannot declare
+  convergence.
+- Every invocation consumes its effect and checkpoints an in-flight intent
+  before the provider call. A result is reusable only after its identity and
+  journal evidence reconcile; an unknown outcome refuses rather than replaying.
+  A mutating effect is incomplete until workspace apply, journal append,
+  scheduler checkpoint, and bounded private workspace snapshot are durable.
+  Recovery/proposal material remains until idempotent finalization; a failed
+  restore preserves it. Resume restores and verifies that exact prefix before
+  reusing completed effects, and a missing expected journal refuses. A newer
+  journal suffix is preserved and reconciled only against durable scheduler
+  state; it is never destructively truncated. A
+  workspace/journal/checkpoint failure is advertised as resumable only when a
+  durable private checkpoint actually exists.
+- Read-only effects may overlap. Shared mutations serialize. Isolated proposals
+  promote only from an unchanged canonical fingerprint; conflicts refuse.
+- A shared writer computes its effect identity and takes its before-state
+  snapshot while holding the writer mutex. A reused private snapshot must
+  match that locked fingerprint; stale crash residue is removed and retaken,
+  never accepted as the rollback target.
+- Every actual model invocation, including panel members and retries, is one
+  independently budgeted and journaled effect. Panel reservations are atomic,
+  token/cost arithmetic uses checked safe-integer addition, and malformed
+  usage fails closed. Usage from a completed failed call is still lifetime
+  usage and must be durably accounted. Workflow ceilings are immutable across
+  continuation; neither injected budget state nor a checkpoint may raise them.
+  A subworkflow retains its own declared effect ceiling while consuming from
+  the shared parent lifetime ledger; neither ceiling may raise the other.
+  A resumed nested child checkpoint is accepted only when every consumed and
+  reserved child total is contained by the enclosing parent lifetime totals.
+  The root checkpoint totals must also cover its exact durable journal prefix
+  and every checkpointed invocation not yet represented in that prefix.
+  Abort-policy fan-out stops dequeuing after the first decisive failure and
+  releases reservations for work that never started. Its terminal result is
+  the exact failure that triggered the stop; a synthetic stopped-sibling result
+  never replaces that failure or becomes operator cancellation.
+- Agent, pipeline, parallel, map, and child effect identities include the
+  current node visit. A resumed completion is reusable only when its exact
+  journal identity exists in the reconciled parent/child journal; visit counts,
+  active state, nested child state, and budget totals are recursively validated.
+  A journal-ahead in-flight result must also match its checkpointed node,
+  instance, base identity, mutation mode, and executing run namespace before it
+  can be reconciled. Current journal records persist that namespace and effect
+  base identities include it, so parent and child nodes with colliding names
+  cannot exchange results. Older journal records remain readable history but
+  cannot prove an active continuation.
+- Agent execution binds the validated `tracked-step-v1` prompt contract,
+  output schema, exact tool allowlist, mutation mode, artifact contract, visit,
+  attempt, and run namespace through the product and runtime boundaries.
+  Runtime status or identity drift cannot be converted into a model success.
+  Structured-output repair is a separately budgeted, journaled invocation and
+  is capped by the definition's `structured_repair_attempts`.
+- Result, output, journal, and checkpoint admission preserve enough headroom
+  for a compact durable failure. Aggregate growth may stop a workflow with a
+  stable capacity result, but may never create an oversized checkpoint or a
+  journal that its own reader rejects.
+- Authored allowlists may settle only explicitly typed agent failures. Kernel
+  integrity, identity, budget, cancellation, workspace, and gate failures are
+  structurally non-maskable.
+- Declared typed inputs validate before run creation and are bound to resume.
+  Named workflows require the canonical per-run worktree and refuse before
+  consent when that feature is disabled.
+- `dispatch/runtime/pi-runtime.mjs` is the only Pi SDK import seam and supports
+  `>=0.80.7 <0.81.0`. Provider runtimes require structural branding and a
+  short-lived exact CapabilityAttestation; requested-only values never count as
+  effective identity.
+  The seam selects the SDK's actual session-runtime contract: Pi 0.80.7 uses
+  its in-memory AuthStorage/ModelRegistry pair, while newer compatible builds
+  use ModelRuntime. Callers never guess from a version string.
+- Provider/model/effort/route/account fallback is forbidden unless modeled as
+  an explicit workflow transition. OpenRouter exact mode always disables
+  fallback and binds the provider-issued creator account, the unique endpoint
+  tag and quantization, the streamed response model and any optional route
+  metadata, and the generation
+  model/provider observation.
+- Exact real Pi sessions are one read-only, tool-free provider turn with Pi
+  transport retries disabled. A tool-bearing or mutating real definition is
+  exact-disabled before provider preflight until Helix owns and journals every
+  internal provider-turn boundary; deterministic mock execution retains the
+  complete workflow tool/mutation contract.
+- The extracted-package Pi gate must exercise both command discovery and the
+  shipped adapter's real default session factory through its localhost audit
+  proxy. An injected session factory or raw Pi-only mock is not production-path
+  evidence.
+- Deterministic mock workflows may mutate only inside their counted candidate
+  adapter effect. Host verifiers and gates observe artifacts and objective
+  evidence; they never manufacture convergence or unjournaled workspace state.
+- Kernel public events contain structural ids, hashes, counts, status, and
+  stable codes only. Tasks, prompts, responses, provider bodies, account
+  handles, credentials, and workspace content stay out of public projections.
+- Role transitions consume one complete closed JSON object. Do not reintroduce
+  prose, fenced-JSON, or trailing-object scans.
+- Helix adds no threshold-based compaction policy; the selected runtime keeps
+  its native default.

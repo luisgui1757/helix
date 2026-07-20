@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkDocsTruth, HELIX_COMMANDS, MAX_README_LINES } from "../tools/ci/docs-truth-check.mjs";
+import {
+  checkDocsTruth,
+  DOCS_WORKFLOW_LIMIT_ROWS,
+  DOCS_WORKSPACE_LIMIT_SNIPPETS,
+  HELIX_COMMANDS,
+  MAX_README_LINES,
+} from "../tools/ci/docs-truth-check.mjs";
 
 function write(root, rel, text) {
   mkdirSync(join(root, rel, ".."), { recursive: true });
@@ -12,7 +18,10 @@ function write(root, rel, text) {
 
 function fixtureRoot() {
   const root = mkdtempSync(join(tmpdir(), "helix-docs-truth-"));
-  write(root, "package.json", JSON.stringify({ pi: { extensions: ["a", "b", "c"] } }));
+  write(root, "package.json", JSON.stringify({
+    pi: { extensions: ["a", "b", "c"] },
+    peerDependencies: { "@earendil-works/pi-coding-agent": ">=0.80.7 <0.81.0" },
+  }));
   write(root, "README.md", [
     "# Helix",
     "npm install -g @earendil-works/pi-coding-agent",
@@ -21,11 +30,16 @@ function fixtureRoot() {
     "/helix-onboarding",
     "/helix-settings",
     "~/.pi/agent/helix",
+    "WorkflowDefinition v4",
+    "/helix-run-resume",
     "",
   ].join("\n"));
-  write(root, "docs/manual.md", HELIX_COMMANDS.join("\n") + "\n");
-  write(root, "docs/workflows.md", "# Workflows\n");
-  write(root, "docs/architecture.md", "# Architecture\n");
+  write(root, "docs/manual.md", [...HELIX_COMMANDS, ...DOCS_WORKSPACE_LIMIT_SNIPPETS].join("\n") + "\n");
+  write(root, "docs/workflows.md", ["# Workflows", ...DOCS_WORKFLOW_LIMIT_ROWS, ""].join("\n"));
+  write(root, "docs/architecture.md", "# Architecture\none product workflow engine\nprivate checkpoint\nCapabilityAttestation\n");
+  write(root, "docs/providers.md", "# Providers\nallow_fallbacks\nuncertified-disabled\nCLIProxyAPI\n");
+  write(root, "SECURITY.md", "# Security\n");
+  write(root, "NOTICE", "Independent implementation\n");
   return root;
 }
 
@@ -58,7 +72,10 @@ test("docs truth rejects missing commands, stale stages, and README bloat", () =
 test("docs truth rejects a skill or theme package surface", () => {
   const root = fixtureRoot();
   try {
-    write(root, "package.json", JSON.stringify({ pi: { extensions: ["a", "b", "c"], skills: ["skill"], themes: ["theme"] } }));
+    write(root, "package.json", JSON.stringify({
+      pi: { extensions: ["a", "b", "c"], skills: ["skill"], themes: ["theme"] },
+      peerDependencies: { "@earendil-works/pi-coding-agent": ">=0.80.7 <0.81.0" },
+    }));
     const result = checkDocsTruth(root);
     assert.equal(result.ok, false);
     assert.match(result.errors.join("\n"), /extension-only/);

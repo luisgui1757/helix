@@ -5,13 +5,16 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-test("CI exposes one stable test check after the complete Node matrix", () => {
+test("CI exposes one stable test check after the complete Node and Pi matrix", () => {
   const workflow = readFileSync(`${ROOT}/.github/workflows/ci.yml`, "utf8");
 
-  assert.match(workflow, /^  test_matrix:\n    name: test \(\$\{\{ matrix\.node-version \}\}\)$/m);
+  assert.match(workflow, /^  test_matrix:\n    name: test \(\$\{\{ matrix\.node-version \}\}, Pi \$\{\{ matrix\.pi-version \}\}\)$/m);
+  assert.match(workflow, /^        node-version:\n          - 22\.19\.0\n          - 26\n        pi-version:\n          - 0\.80\.7\n          - 0\.80\.9$/m);
+  assert.match(workflow, /^      - run: npm install --ignore-scripts --no-save @earendil-works\/pi-coding-agent@\$\{\{ matrix\.pi-version \}\}$/m);
   assert.match(workflow, /^  test:\n    name: test\n    if: \$\{\{ always\(\) \}\}\n    needs: test_matrix$/m);
   assert.match(workflow, /^          MATRIX_RESULT: \$\{\{ needs\.test_matrix\.result \}\}$/m);
   assert.match(workflow, /^        run: test "\$MATRIX_RESULT" = success$/m);
+  assert.match(workflow, /^      - run: npm run check:package -- --pi-bin node_modules\/\.bin\/pi$/m);
 });
 
 test("Protect main keeps integrity unbypassable and review bypass owner-only", () => {

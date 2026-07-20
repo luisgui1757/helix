@@ -1,10 +1,10 @@
 // Helix workflows — canonical user-facing workflow building blocks.
 //
 // A workflow owns its ordered stages, explicit transition conditions, bounded
-// stopping criteria, and deployment defaults. The staged runner remains the
-// hardened effect boundary; `workflowToExecution` is the only compatibility
-// adapter from these blocks to its chain/config inputs. Legacy tracked chains
-// are accepted only as import material and are normalized immediately.
+// stopping criteria, and deployment defaults. WorkflowDefinition v4 and HWK are
+// the product runtime; `workflowToExecution` projects deployment/cast inputs
+// only. Legacy tracked chains are accepted as import material and normalized
+// before named execution.
 
 import { validateRunConfig } from "./run-configs.mjs";
 import { MAX_ITERATIONS } from "./limits.mjs";
@@ -13,6 +13,12 @@ import { ROLES, STAGE_ROLES } from "./role-envelope.mjs";
 import { hashRef, stableStringify } from "./run-record.mjs";
 import { stageStepSchedule } from "./stage-schedule.mjs";
 import { isSafeWorktreeFilePath } from "./persistence.mjs";
+import {
+  WORKFLOW_SCHEMA_VERSION,
+  validateWorkflowDefinition,
+  workflowDefinitionHash,
+} from "../workflow/schema.mjs";
+import { plannedWorkflowGraph } from "../workflow/visualize.mjs";
 
 const ID = /^[a-z0-9][a-z0-9._-]*$/;
 const STAGE_ID = /^[a-z][a-z0-9-]*$/;
@@ -112,7 +118,14 @@ function verdictTransitions(role, backTarget = null) {
 /** Normalize a v2 chain stage into the explicit transition-block shape. */
 export function normalizeWorkflowStage(stage) {
   if (Array.isArray(stage?.transitions)) {
-    return structuredClone(stage);
+    return {
+      id: stage.id,
+      ...(stage.label ? { label: stage.label } : {}),
+      steps: structuredClone(stage.steps ?? []),
+      max_passes: stage.max_passes,
+      transitions: structuredClone(stage.transitions),
+      ...(stage.artifact ? { artifact: structuredClone(stage.artifact) } : {}),
+    };
   }
   let transitions;
   let maxPasses = 1;
@@ -200,6 +213,7 @@ function validateCondition(condition, path, roleSteps, errors) {
 }
 
 export function validateWorkflow(workflow) {
+  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) return validateWorkflowDefinition(workflow);
   const errors = [];
   if (!keysAre(workflow, ["schema_version", "id", "description", "task_class", "source", "stages", "stop", "deployment"])) {
     errors.push(issue("$", "must be a workflow object with no unknown fields"));
@@ -418,12 +432,15 @@ export function validateWorkflow(workflow) {
 }
 
 /** Bind every mutable source that can change the confirmed workflow execution. */
-export function workflowExecutionBindingRef({ workflow, profile = null, toggles, presets } = {}) {
-  if (!isPlainObject(workflow) || !isPlainObject(toggles) || !(presets instanceof Map)) return null;
+export function workflowExecutionBindingRef({ workflow, profile = null, toggles, presets, subworkflows = [] } = {}) {
+  if (!isPlainObject(workflow) || !isPlainObject(toggles) || !(presets instanceof Map)
+    || !Array.isArray(subworkflows) || subworkflows.some((entry) => !isPlainObject(entry))) return null;
   const presetEntries = [...presets.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([id, preset]) => [id, preset]);
-  return hashRef(stableStringify({ workflow, profile, toggles, presets: presetEntries }));
+  const childEntries = [...subworkflows].sort((left, right) =>
+    `${left.id}@${left.version}`.localeCompare(`${right.id}@${right.version}`));
+  return hashRef(stableStringify({ workflow, profile, toggles, presets: presetEntries, subworkflows: childEntries }));
 }
 
 function conditionMatches(condition, signal) {
@@ -459,6 +476,19 @@ export function workflowStageUsesGate(stage) {
 }
 
 export function workflowLifecycleSnapshot(workflow) {
+  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+    const graph = plannedWorkflowGraph(workflow);
+    if (!graph.ok) return null;
+    return {
+      schema_version: 2,
+      workflow_id: workflow.id,
+      workflow_version: workflow.version,
+      definition_ref: workflowDefinitionHash(workflow),
+      start: workflow.start,
+      nodes: graph.nodes.map((node) => ({ id: node.id, kind: node.kind, targets: node.targets })),
+      limits: structuredClone(workflow.limits),
+    };
+  }
   const execution = workflowToExecution(workflow);
   if (!execution.ok) return null;
   return {
@@ -476,6 +506,18 @@ export function workflowLifecycleSnapshot(workflow) {
 }
 
 export function validateWorkflowLifecycleSnapshot(snapshot) {
+  if (snapshot?.schema_version === 2) {
+    return hasExactlyKeys(snapshot, ["schema_version", "workflow_id", "workflow_version", "definition_ref", "start", "nodes", "limits"])
+      && ID.test(String(snapshot.workflow_id ?? ""))
+      && Number.isSafeInteger(snapshot.workflow_version) && snapshot.workflow_version >= 1
+      && /^sha256:[0-9a-f]{64}$/.test(snapshot.definition_ref ?? "")
+      && STAGE_ID.test(String(snapshot.start ?? ""))
+      && Array.isArray(snapshot.nodes) && snapshot.nodes.length >= 1 && snapshot.nodes.length <= 256
+      && snapshot.nodes.every((node) => hasExactlyKeys(node, ["id", "kind", "targets"])
+        && STAGE_ID.test(String(node.id ?? "")) && typeof node.kind === "string"
+        && Array.isArray(node.targets) && node.targets.every((target) => STAGE_ID.test(String(target))))
+      && isPlainObject(snapshot.limits);
+  }
   if (!hasExactlyKeys(snapshot, ["schema_version", "workflow_id", "chain_id", "max_iterations", "stages"])
     || snapshot.schema_version !== 1 || !ID.test(String(snapshot.workflow_id ?? ""))
     || snapshot.workflow_id.length > MAX_WORKFLOW_ID_LENGTH
@@ -548,6 +590,9 @@ export function validateWorkflowLifecycleSnapshot(snapshot) {
 
 /** Host effects required beyond role execution; the Pi workflow runner injects none. */
 export function workflowRequiredHostEffects(workflow) {
+  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+    return [];
+  }
   return [...new Set((workflow?.stages ?? []).flatMap((stage) =>
     (stage.steps ?? []).filter((step) => step.kind !== "role").map((step) => step.kind)))].sort();
 }
@@ -569,8 +614,24 @@ function successSignals(workflow) {
   });
 }
 
-/** Validate and simulate the definition. This performs no deployment or artifact effects. */
+/** Validate the definition. This performs no runtime, deployment, or artifact effects. */
 export function testWorkflow(workflow) {
+  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+    const valid = validateWorkflowDefinition(workflow);
+    if (!valid.valid) return { ok: false, code: "invalid-workflow-v4", errors: valid.errors };
+    const graph = plannedWorkflowGraph(workflow);
+    return {
+      ok: true,
+      workflow_id: workflow.id,
+      transitions_total: graph.nodes.reduce((sum, node) => sum + node.targets.length, 0),
+      transitions_validated: graph.nodes.reduce((sum, node) => sum + node.targets.length, 0),
+      ceilings_validated: graph.nodes.filter((node) => node.max_visits != null || node.max_items != null).length,
+      artifacts_declared: Object.values(workflow.nodes).filter((node) => node.artifact != null).length,
+      definition_tested: true,
+      runtime_tested: false,
+      simulation: { ok: true, converged: false, stop_reason: "structural-v4-validation", planned_nodes: graph.nodes.length, trace: [] },
+    };
+  }
   const valid = validateWorkflow(workflow);
   const totalTransitions = (workflow?.stages ?? []).reduce((sum, stage) => sum + (stage.transitions?.length ?? 0), 0);
   if (!valid.valid) {
@@ -635,6 +696,22 @@ export function testWorkflow(workflow) {
 
 /** Deterministic, provider-free workflow test. Signals are consumed in order. */
 export function simulateWorkflow(workflow, signals = [], { final_gate = "pass", loops = true } = {}) {
+  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+    const valid = validateWorkflowDefinition(workflow);
+    if (!valid.valid) return { ok: false, code: "invalid-workflow-v4", errors: valid.errors };
+    return {
+      ok: true,
+      converged: false,
+      stop_reason: "structural-v4-validation",
+      code: null,
+      trace: [],
+      total_passes: 0,
+      final_gate: null,
+      loops_applied: false,
+      signals_consumed: 0,
+      planned_nodes: plannedWorkflowGraph(workflow).nodes.length,
+    };
+  }
   const valid = validateWorkflow(workflow);
   if (!valid.valid) return { ok: false, code: "invalid-workflow", errors: valid.errors, trace: [] };
   const passCounts = Object.fromEntries(workflow.stages.map((stage) => [stage.id, 0]));
@@ -779,6 +856,56 @@ export function createWorkflowFromTemplate({
 
 /** Convert canonical blocks to the existing hardened staged-runner boundary. */
 export function workflowToExecution(workflow) {
+  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+    const valid = validateWorkflowDefinition(workflow);
+    if (!valid.valid) return { ok: false, code: "invalid-workflow-v4", errors: valid.errors };
+    const stages = [];
+    const byStage = new Map();
+    const collect = (agent, maxPasses = 1) => {
+      if (!byStage.has(agent.stage_id)) {
+        const stage = { id: agent.stage_id, steps: [], max_passes: maxPasses, transitions: [{ when: { type: "always" }, action: "advance" }] };
+        byStage.set(agent.stage_id, stage);
+        stages.push(stage);
+      }
+      const stage = byStage.get(agent.stage_id);
+      if (!stage.steps.some((step) => step.role === agent.role)) {
+        stage.steps.push({ id: `${agent.stage_id}-${agent.role}`, kind: "role", role: agent.role });
+      }
+      stage.max_passes = Math.max(stage.max_passes, maxPasses);
+    };
+    for (const node of Object.values(workflow.nodes)) {
+      if (node.kind === "agent") collect(node, node.max_visits ?? 1);
+      if (node.kind === "pipeline") node.stages.forEach((agent) => collect(agent, node.max_visits));
+      if (node.kind === "parallel") node.branches.forEach((agent) => collect(agent));
+      if (node.kind === "map") collect(node.body);
+    }
+    const chain = {
+      id: workflow.id,
+      description: workflow.description,
+      task_class: "risky-change",
+      stages,
+      requires_objective_gate: true,
+      default_max_iterations: workflow.limits.max_total_effects,
+    };
+    const config = {
+      id: workflow.id,
+      description: workflow.description,
+      chain: workflow.id,
+      role_matrix: "mock-core-loop",
+      assignments: structuredClone(workflow.provider_policy.assignments),
+      default_assignment: structuredClone(workflow.provider_policy.default_assignment),
+      max_iterations: Math.min(MAX_ITERATIONS, workflow.limits.max_total_effects),
+      objective_gate: structuredClone(workflow.objective_gate),
+      parallel: { max_concurrency: workflow.limits.max_concurrency },
+      run_target: { repo: "self" },
+      input_refs: [],
+      claims_ref: `local-ref:claims/${workflow.id}`,
+      evidence_ref: `local-ref:evidence/${workflow.id}`,
+    };
+    const runValid = validateRunConfig(config);
+    return runValid.valid ? { ok: true, chain, config, definition: structuredClone(workflow) }
+      : { ok: false, code: "workflow-deployment-invalid", errors: runValid.errors };
+  }
   const valid = validateWorkflow(workflow);
   if (!valid.valid) return { ok: false, code: "invalid-workflow", errors: valid.errors };
   const stages = [];

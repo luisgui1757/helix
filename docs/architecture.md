@@ -1,156 +1,249 @@
 # Architecture
 
-Helix is an extension-only Pi package with three entrypoints:
+Helix has one product workflow engine: the Helix Workflow Kernel (HWK).
 
-- `helix-command.ts` registers the native slash commands and terminal UI.
-- `helix-fence.ts` guards attended shell and write operations.
-- `helix-answer.ts` captures structured answers without adding another command.
+```text
+guided UI / v1 compatibility / v4 JSON / pure builder
+                         |
+                         v
+             WorkflowDefinition v4 validator
+                         |
+                         v
+ scheduler -> budget -> runtime effect -> workspace transaction -> journal
+                         |
+                         v
+           deterministic final objective gate
+```
 
-The command extension is an outer adapter. It projects Pi context and model
-inventory into the Pi-independent policy in `extensions/lib/helix-command-core.mjs`.
-Stable workflow, validation, persistence, and public-safety policy live under
-`dispatch/lib/`; tracked configs and role briefs live under `dispatch/config/`.
+`extensions/helix-command.ts` owns Pi UI, onboarding, attended consent, and
+run/watch/resume commands. `extensions/lib/helix-command-core.mjs` is the
+Pi-runtime-free rendering/preflight boundary. `dispatch/workflow` owns the
+closed IR, migration, pure constructors, conditions, hashing, and graph views.
+`dispatch/kernel` owns scheduling, effect attempts, budgets, cancellation,
+workspace transactions, private checkpoints, and recovery. `dispatch/runtime`
+owns volatile Pi/provider seams, policy, attestation, and protocol-specific
+request/response identity checks.
 
-## Workflow model
+Stable policy imports no UI or provider transport. Runtimes never choose graph
+transitions. UI cannot fabricate readiness. The compatibility stage runner
+remains only for historical records and research; named execution and optional
+workflow runtime smoke both use HWK.
 
-`dispatch/lib/workflows.mjs` is the canonical user-facing model. A version-1
-workflow contains named stages, candidate-role panel steps, finite per-stage
-passes, a declared durable output per user stage, explicit conditions and
-transitions, an objective gate, a global pass and time rail, and deployment
-defaults. Transition actions are `advance`,
-`retry`, `back` to an earlier stage, or `stop`. Verdict stages cover all three
-verdicts from one candidate role; gate stages cover both gate results. The two
-condition families cannot be mixed.
+## Definition and scheduling
 
-User workflows are closed, bounded declarative JSON building blocks, not
-arbitrary executable JavaScript. Stage steps can name only executable role
-blocks; unwired local-check and handoff effects are rejected at validation.
-The one explicitly executable field is an objective check: either a direct,
-argv-only command with a bounded timeout or a contained file-text check. The
-hardened staged runner remains the effect boundary. This authority split makes
-save-time validation, public-safe persistence, and provider-free runtime
-testing possible.
+WorkflowDefinition v4 is closed and byte-bounded. Reachability validation
+requires exactly one successful terminal whose only incoming edge is the
+unique final objective gate's `on_pass`. That node cannot carry a second gate;
+the scheduler executes the top-level `objective_gate`, and terminal success
+also requires recorded final-gate pass evidence. Cycles are explicit and
+bounded. Conditions read safe JSON pointers and cannot execute user code.
 
-Tracked chains use schema version 3 and author the same native transition
-blocks. `workflowToExecution()` is the sole compatibility projection into the
-hardened staged runner. A tracked chain becomes a built-in workflow only when a
-tracked run config supplies its real gate and deployment settings; no defaults
-or missing artifacts are fabricated for view-only chain shapes. User workflows store their original
-runtime `chain_id`, so a config such as `mock-core-loop` remains bound to the
-tracked `full-cycle` chain identity.
+The scheduler uses stable node/instance/attempt ids. Parallel and map output is
+definition-ordered; instance and child-run ids also include the current node
+visit so a later visit cannot collide with an earlier attempt. Every actual
+model invocation is a budgeted, journaled
+effect; multi-member panels reserve the complete first wave atomically before
+dispatch, then journal each member and retry independently. Resume reuses
+completed member attempts before reserving only the unfinished first wave.
+Agent failures carry an explicit scheduler-recognized class; authored allowlists
+can settle only that class, never kernel-owned integrity or recovery failures.
+With abort policy, the first decisive failure stops workers from claiming more
+indices; already-started effects settle, and every unused reservation is
+released. The scheduler retains that first decisive result as the terminal
+failure; a lower-index sibling stopped afterward cannot replace it with a
+synthetic cancellation. Provider usage is a closed pair of nonnegative safe integers, and
+every reservation, provider sum, and lifetime-total addition is checked before
+state changes. Failed provider calls retain and durably account any valid usage;
+malformed usage becomes a stable failure. Definition ceilings are immutable,
+and caller-supplied or resumed budget state may report consumed overshoot but
+cannot raise the original maximums.
+Each child invocation receives a scoped ledger: its declared effect ceiling is
+checkpointed locally while every reservation, consumption, and usage value is
+also committed to the one shared parent lifetime ledger. A larger parent limit
+cannot raise the child, a larger child limit cannot raise the parent, and a
+fresh later child invocation gets a fresh local allowance without resetting
+the parent total. Continuation recursively verifies that the child's effects,
+tokens, cost, and reservations do not exceed the enclosing parent snapshot;
+an inconsistent nested checkpoint refuses before any new invocation. The root
+budget must independently cover the exact durable journal prefix plus every
+checkpointed in-flight or completed invocation not yet present in that prefix,
+so resetting every level together cannot reset lifetime accounting.
+One run abort signal propagates through nodes, provider calls, objective commands, and
+workspaces. Scheduler-owned races bound even a non-cooperative injected gate,
+artifact, checkpoint, or child-resolution promise; child workflows receive the
+parent abort signal. The elapsed run deadline is checkpointed and cumulative
+across pause/interruption continuations. Read-only work may overlap; mutating
+work enters one writer queue. A mutating attempt computes its workspace-bound
+identity only after entering that queue, and `begin` compares the captured
+fingerprint with the snapshot it creates or reuses. A process-restart
+generation collision therefore retakes stale crash residue instead of treating
+it as the current rollback state.
 
-Save-time and runtime step ordering share
-`dispatch/lib/stage-schedule.mjs`. Each stage needs at least one candidate role;
-judge and synthesizer are panel mechanisms rather than ordinary steps; verifier
-is a distinct verification block; typed local checks and handoffs follow the
-one executable ordering. User definitions that request non-role host effects
-are invalid and cannot be persisted. Each user stage needs at least one
-candidate and a contained durable output. Planner and builder make a stage
-writer-bearing; read-only candidate panels are valid and their durable JSON
-aggregate is generated by the runner rather than entrusted to a model. A
-file-text objective path must match a declared output; a command objective check
-is intentionally independent of model-authored artifacts. Named workflows
-currently accept only the confirmed current repository as their run target.
+Every model effect identity binds the workflow hash, node/attempt/invocation,
+canonical inputs/upstream outputs, runtime/cast ref, tool and mutation policy,
+current visit, declared artifact, and current workspace fingerprint. The
+product prompt binds the tracked prompt contract, stage, visit, attempt,
+iteration, exact run namespace, upstream/item/revision context, and artifact
+summary. The RoleEnvelope response must repeat the complete requested and
+effective identity and return a status and value valid for the declared output
+schema. Before a provider call, the scheduler
+consumes one effect and durably checkpoints an in-flight intent. After the call,
+it checkpoints the validated result and any pending workspace finalization,
+appends the matching journal record, then checkpoints that journal position.
+This ordering lets continuation reconcile a journal-ahead read-only result
+without another call. Mutating work may be reused only with its verified
+workspace fingerprint; a rolled-back attempt is a failed invocation and any
+retry consumes a new effect. An in-flight intent with no provable result refuses
+as outcome-unknown instead of guessing or replaying. Recovery material is
+finalized only after the durable result/journal checkpoints; cleanup failure is
+checkpointed and retried idempotently on resume.
 
-Workflow outputs and file-text gates share the persistence layer's canonical
-file-path validator. It rejects empty, dot, traversal, doubled/trailing segments
-and the worktree's protected `.git` metadata before save or execution. Command
-checks accept an executable token or safe `./` repository-relative path plus a
-bounded argv array; they never invoke a shell. All repeated collections,
-identifiers, prose, paths, arguments, markers, timeouts, and serialized workflow
-size have explicit limits.
+Malformed `semantic-v2` or reviewer `verdict-v1` output may be repaired only by
+another explicit invocation. Each repair consumes and journals a new lifetime
+effect, is independently bounded, and stops at the definition's
+`structured_repair_attempts` ceiling. There is no unmetered parser retry.
 
-`testWorkflow()` is deliberately a definition test: it validates the closed
-schema, selects every transition condition, checks action/target/stop code,
-proves retry-at-ceiling refusal, counts declared outputs, validates the runner
-projection, and simulates the success path with runtime transition semantics.
-The command layer separately checks casts, provider availability, repository,
-limits, and objective executable. In attended TUI mode it can then run every
-stage through the real staged runner in a temporary detached worktree with mock
-agents and simulated gate outcomes. Output names those layers and never claims
-that definition simulation or runtime smoke proves a task-specific objective.
-Repository tests execute every stock template through the staged runner and
-lock legacy built-in pass/gate/revision behavior against regression.
+## Workspace model
 
-## Execution boundary
+Each run owns one canonical Git worktree with a deterministic branch and owner
+ref. Named workflows require this policy and refuse before consent when the
+worktree feature is disabled. `shared-serialized` effects checkpoint the exact
+tracked, untracked, index, and file state outside Git objects before mutation.
+Failure restores it and retains the recovery snapshot unless restoration is
+verified.
 
-The TUI command resolves the named workflow and active profile, filters global
-profile assignments to the selected stage ids with explicit warnings for
-ignored overrides, and asks the user to confirm the exact task, cast, stage
-order, repository, worktree toggle, and bounded durations. The default workflow
-rails are ten minutes for the whole run and two minutes for each provider call;
-both are workflow data, shown in preflight, bound into execution identity, and
-stored structurally in run state. A hash of the exact workflow, active profile,
-effective toggles, and effective presets binds consent to execution; drift
-refuses before the run directory or any provider effect. The runner propagates
-one whole-run abort boundary through stages and effects, while the provider
-adapter starts each call deadline before session/resource creation.
+`isolated-proposal` creates a disposable real Git worktree, copies a bounded
+regular-file view of the exact canonical state, and runs the effect there.
+Promotion requires the canonical fingerprint to remain unchanged. Tree copy or
+promotion failure restores the private checkpoint. Proposal and before-state
+material are deleted only after durable journal/checkpoint completion; failed
+restoration preserves both and returns a non-maskable workspace refusal.
+Symlinks, special files, oversized trees, conflicts, and ambiguous cleanup
+refuse. This is Git-state isolation, not an OS sandbox.
 
-Before execution, Helix writes an immutable structural workflow snapshot beside
-the run record and binds its digest into the first event. Watch validates the
-file type, schema, workflow id, and digest before rendering the stage graph.
-This keeps inspection stable if a personal definition is later edited or
-deleted and refuses tampered history. New runs surface pass, gate, and blocked
-events in the TUI while they execute.
+## Recovery
 
-Mock casts use the deterministic staged adapter. Real casts use
-`dispatch/lib/pi-agent-adapter.mjs`, which resolves exact, case-preserving
-provider/model ids from Pi's configured `ModelRegistry`, reuses Pi authentication
-storage, and creates fresh in-memory Pi agent sessions in the run worktree.
-Helix has no provider-selection or credential layer. Mixed casts route each
-mock member to the deterministic adapter and each configured member to Pi.
-The resolved effort travels with candidate, judge, synthesis, verifier, and
-revision-builder assignments. Before confirmation, the command boundary derives
-a closed supported-effort list from each exact ModelRegistry entry and validates
-every non-mock member in the fully resolved cast. Missing capability metadata or
-one unsupported explicit level refuses the whole run before run-directory,
-session, or provider-prompt effects. Explicit `low` through `xhigh` levels are
-also rechecked and passed as Pi `thinkingLevel` at session creation, while Helix
-`max` maps to Pi `xhigh`. `default` and `provider-managed` deliberately omit an
-explicit Pi level; they mean runtime/provider policy rather than an exact effort
-guarantee. The attended preview renders every resolved stage, role, provider,
-model, effort, and instance count rather than only a preset name.
-The separate OpenRouter revision adapter likewise binds the builder/provider/model
-tuple and requires exact ModelRegistry capability metadata before spawning Pi
-with an explicit thinking level; managed modes omit the level intentionally.
-Writer-bearing stages are forced to sequential candidate execution in their
-shared worktree; read-only panels honor the configured concurrency cap. Planner
-and builder workflow sessions receive mutation tools; other workflow candidate
-roles are read-only. Judge, synthesis, and verification receive the exact task
-as well as their structural projections.
+The public state/event projection contains hashes and structural fields. The
+private checkpoint contains scheduler outputs, visit counts, completed and
+in-flight attempt state, cumulative elapsed time, journal length, budget usage,
+event sequence, and the exact workspace snapshot ref—but not the raw task.
+Files and totals are bounded and streamed. Agent results and derived effect
+inputs must also fit bounded canonical journal serialization; values outside
+that boundary return stable kernel failures rather than throwing. Scheduler
+state is admitted against a 15 MiB payload ceiling inside the 16 MiB private
+checkpoint document envelope. The append-only effect journal is bounded to
+8 MiB on both write and read. Both paths reserve 16 KiB for a compact terminal
+failure, so aggregate accepted values become
+`kernel-result-capacity-exceeded` before either durable format is unreadable.
 
-Each role prompt names the declared durable stage output and a structural
-summary of the objective check. File gates include their exact marker in the
-private role prompt; command checks include the exact argv. Mock casts create
-the same declared writer outputs, while the runner owns read-only aggregates,
-so provider-free execution exercises runtime handoff contracts rather than only
-transition signals. Prompt templates use one-pass substitution, so braces
-inside tasks, markers, artifacts, or handoffs remain exact input text.
+The private checkpoint's atomic install is the scheduler commit point.
+Old-snapshot cleanup and public-state projection run afterward as explicit
+maintenance fields in checkpoint document schema 2. Failure in either phase
+leaves conservative durable debt for the next checkpoint; it never rewrites an
+already-published scheduler checkpoint as an undurable failure. Schema-1
+documents remain structurally readable for historical inspection, but kernel
+continuation refuses them with `kernel-checkpoint-elapsed-unknown`: they do not
+contain the cumulative elapsed duration needed to enforce the lifetime
+deadline truthfully.
 
-The worktree is a Git-state boundary, not an OS sandbox; Pi tools retain their
-normal trust model. Session extensions, skills, prompt templates, and themes are
-disabled inside workflow sub-sessions to prevent recursive Helix loading, while
-repository context discovery remains enabled.
+At resume, Helix requires the original task and fresh consent/runtime evidence.
+It verifies task hash, pinned definition/version, subworkflow closure, policy,
+profile/toggles/presets, cast, runtime ref, repository, owner ref, event prefix,
+journal prefix, and snapshot. A journal suffix newer than the checkpoint is
+preserved and accepted only when every suffix identity maps to durable pending
+or in-flight state in the complete parent/child checkpoint tree; extra or
+conflicting evidence is terminal drift. An in-flight suffix record must match
+its checkpointed run namespace, node, instance, base identity, and mutation
+mode; an identity cannot move between parallel/map instances or between parent
+and child schedulers. Journal schema 3 records the executing run namespace and
+the effect base identity includes it. Schema 1/2 journal records remain readable
+history but cannot reconcile active continuation state. Every loaded result is re-hashed and
+its status must match its journal record. Every `active.completed` entry must
+map to that exact journal identity; active visit state, visit counters, budget
+totals, and nested child scheduler state are recursively validated before any
+node runs. Completed attempts and reconciled
+read-only results are not re-executed. Mutating reconciliation additionally
+requires the recorded workspace fingerprint. Corrupt, missing, stale,
+ambiguous, or mismatched state refuses.
 
-Helix installs no threshold-based auto-compaction policy and no compaction
-hooks. Each in-memory Pi `AgentSession` keeps Pi's default compaction policy.
+Checkpoint nodes use the same mechanism: the first encounter pauses; an
+attended resume is a one-shot continue action bound to the recorded visit.
+Revisiting the same node requires fresh consent. Child checkpoint state is
+stored under its parent node and child-run namespace, so one attended resume
+continues exactly that checkpoint. Version-pinned subworkflows share the parent
+lifetime budget, journal, cancellation, and canonical workspace, retain their
+own local effect ceiling, have depth one, and
+project child events into parent structural events. A child receives its own
+definition id and objective at the prompt boundary, and its input schema must
+accept the complete normalized parent input. Import, run preflight,
+inventory checks, exact-runtime preparation, and consent resolve the same closed
+direct-child bundle and complete effective cast.
 
-Package resources are immutable after installation. Mutable state is rooted at
-`~/.pi/agent/helix` (or `HELIX_STATE_DIR`) and contains settings, profiles,
-onboarding status, atomic user workflow JSON, and structural run data. No
-command writes into the installed package directory.
+## Runtime and identity
 
-The command extension listens for Pi's `session_start` event and considers only
-the cold `startup` reason in TUI mode. When no valid onboarding marker exists,
-it offers Start, Later, and Don't show again actions. Later writes nothing;
-completion and dismissal use the same root-confined atomic persistence boundary
-as other user-local Helix state. `/helix-onboarding` bypasses the one-time marker
-so the guide always remains discoverable and rerunnable.
+`dispatch/runtime/pi-runtime.mjs` is the only dynamic import seam for Pi and
+accepts `>=0.80.7 <0.81.0`. AgentRuntime instances use a private WeakSet brand;
+a matching `kind` string cannot forge one. Runtime resolution selects one exact
+provider path and never falls back after refusal.
+The seam selects the exported session-runtime contract by capability: the
+supported 0.80.7 SDK uses an isolated in-memory AuthStorage/ModelRegistry pair,
+while later compatible SDKs use ModelRuntime. Both construct the same exact
+model and credential binding; product code does not branch on a guessed version.
 
-Every command output crosses the public-safety renderer before Pi displays it.
-Mutations validate first, write atomically, and require attended confirmation
-unless they are reversible settings toggles in the checkbox UI. Real execution
-never uses mock as an implicit fallback. The exact task remains in memory; run
-state stores only its hash-bound execution identity and a structural
-`task_bound` marker. Task-bound in-process resume is not yet implemented, so the
-resume surface refuses explicitly and never emits the legacy config-only CLI.
+A short-lived CapabilityAttestation separates requested and effective
+provider/model/effort/route/account fields, per-field evidence grade, credential
+class, policy state, certification state, session binding, and certification
+key. Exact execution refuses requested-only evidence, account mismatch,
+response/deployment substitution, expired policy, stale certification, or
+unobservable fields before egress where possible and after response where only
+the response proves identity. Exact mode always requires an opaque account
+binding. Provider and model may be response-verified; effort is labeled
+session-verified when the session configuration is the strongest available
+evidence and is never promoted to response evidence by association.
+
+Provider-specific adapters independently shape Anthropic Messages, OpenAI
+Responses, Codex app-server, Copilot SDK, OpenRouter Chat Completions, Foundry
+Claude, and Azure OpenAI calls. OpenRouter exact mode pins `only` and `order`,
+sets `allow_fallbacks: false`, `require_parameters: true`,
+`data_collection: "deny"`, and `zdr: true`, then verifies the returned model and
+provider route. Its provider control-plane proof uses `/key`'s
+`creator_user_id` as the account, selects exactly one active endpoint by model,
+endpoint tag, provider name, supported parameters, and quantization, pins the
+tag and quantization on the request, then verifies response and generation
+identity: the streamed response model is mandatory, optional streamed route
+metadata must not drift, and generation model/provider is the route proof.
+
+The Pi AgentSession adapter is the installed broad-provider discovery path, but
+real product execution additionally requires an exact provider certificate.
+OpenRouter currently satisfies that contract by binding Pi's configured API-key
+account, selecting one active ZDR route with the required token/reasoning
+parameters, injecting Pi's native `openRouterRouting` controls, and auditing
+the request and streamed identity through a session-local `127.0.0.1`
+byte-forwarding proxy. Exact real Pi execution is one read-only, tool-free
+provider turn with all Pi transport retries disabled. A real tool-bearing or
+mutating definition refuses before credential/control-plane access until Helix
+can own and journal every internal turn; deterministic mocks still receive the
+validated tools and mutation mode. Consent binds the certificate; drift refuses
+before run-directory creation. The adapter parses only one complete closed JSON
+object. Unsupported provider/account proof remains
+exact-disabled rather than being renamed “connected.”
+
+Deterministic mock execution preserves the same effect boundary. A synthetic
+artifact, when required by a mock candidate, is written inside that counted
+adapter call. Artifact verification and objective gates are read-only evidence
+observers and cannot create a successful artifact or convergence marker.
+
+## Content and privacy
+
+Prompt inputs are classified as trusted policy, operator task, repository data,
+or agent output. Repository and agent content is framed data and cannot alter
+tools, casts, budgets, transitions, or gates. Structured role envelopes drive
+decisions; unstructured verdict extraction is forbidden.
+
+Raw tasks remain in memory. Public run views never render prompts, responses,
+provider bodies, account handles, credentials, or private workspace data.
+Private transcripts are off by default. Package resources are immutable;
+mutable state is root-confined below the Helix state directory.
+
+Helix adds no percentage-triggered compaction. Each selected runtime retains its
+native default compaction behavior.

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import helixFence from "../extensions/helix-fence.ts";
 
 // Minimal fake ExtensionAPI + ctx to drive the real handlers deterministically
-// (no model call, no TUI). Mirrors the Pi 0.80.3 shapes we verified.
+// (no model call, no TUI). Mirrors the supported Pi 0.80.7 shapes we verify.
 //
 // IMPORTANT: the fence fails closed on ctx.mode, NOT ctx.hasUI — hasUI is TRUE in
 // RPC mode (docs/extensions.md:914, docs/rpc.md:1068), so only "tui" may prompt.

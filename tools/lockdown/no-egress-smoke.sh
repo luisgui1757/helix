@@ -29,7 +29,7 @@
 
 set -euo pipefail
 
-PI_VERSION="0.80.3"
+PI_VERSION="0.80.7"
 IMAGE="helix-lockdown-smoke:${PI_VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"

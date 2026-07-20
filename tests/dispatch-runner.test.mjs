@@ -737,6 +737,19 @@ test("private checkpoints refuse a symlinked storage parent without writing outs
   }
 });
 
+test("private checkpoint cleanup is idempotent after authority advances", () => {
+  const repo = tempRepo();
+  try {
+    const effect = makePrivateCheckpointEffect(repo);
+    const snapshot = effect.snapshot("cleanup-run", "generation-1", repo);
+    assert.equal(snapshot.ok, true);
+    assert.equal(effect.remove("cleanup-run", "generation-1").ok, true);
+    assert.deepEqual(effect.remove("cleanup-run", "generation-1"), { ok: true, missing: true });
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("fresh worktree collision is refused before any resumable state is written", async () => {
   const repo = tempRepo();
   try {

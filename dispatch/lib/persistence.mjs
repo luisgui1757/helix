@@ -135,6 +135,14 @@ function assertRegularOrAbsent(path, { replace }) {
   return stat;
 }
 
+/** Resolve a confined regular file through the same path rules used by writers. */
+export function resolveConfinedFile(root, relativePath, { allow_missing = false } = {}) {
+  const target = prepareTarget(root, relativePath);
+  const stat = assertRegularOrAbsent(target.path, { replace: true });
+  if (!stat && !allow_missing) throw persistenceError(PERSISTENCE_CODES.WRITE_FAILED);
+  return { path: target.path, exists: stat !== null };
+}
+
 function sameFile(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.isFile() && right.isFile();
 }

@@ -9,6 +9,11 @@ import {
   validateWorkflow,
   workflowFromExecution,
 } from "../../dispatch/lib/workflows.mjs";
+import {
+  stableWorkflowStringify,
+  validateWorkflowDefinition,
+  WORKFLOW_LIMITS,
+} from "../../dispatch/workflow/schema.mjs";
 
 export const WORKFLOW_CODES = Object.freeze({
   INVALID: "invalid-workflow",
@@ -21,7 +26,7 @@ export const WORKFLOW_CODES = Object.freeze({
 });
 
 const WORKFLOW_ID = /^[a-z0-9][a-z0-9._-]*$/;
-const MAX_WORKFLOW_FILE_BYTES = 256 * 1024;
+const MAX_WORKFLOW_FILE_BYTES = WORKFLOW_LIMITS.max_workflow_read_bytes;
 
 function isWorkflowId(id) {
   return typeof id === "string" && id.length <= 64 && WORKFLOW_ID.test(id);
@@ -50,7 +55,7 @@ export function listUserWorkflows(root) {
         return { ok: false, code: WORKFLOW_CODES.UNREADABLE, detail: name };
       }
       const workflow = JSON.parse(readFileSync(path, "utf8"));
-      const valid = validateWorkflow(workflow);
+      const valid = workflow.schema_version === 4 ? validateWorkflowDefinition(workflow) : validateWorkflow(workflow);
       if (!valid.valid || workflow.source !== "user" || `${workflow.id}.json` !== name) {
         return { ok: false, code: WORKFLOW_CODES.INVALID, detail: name };
       }
@@ -78,6 +83,26 @@ export function saveUserWorkflow(root, workflow, { replace = false, builtInIds =
   return { ok: true, workflow_id: workflow.id, path };
 }
 
+export function saveUserWorkflowV4(root, definition, { replace = false, builtInIds = [] } = {}) {
+  const valid = validateWorkflowDefinition(definition);
+  if (!valid.valid || definition.source !== "user") {
+    return { ok: false, code: WORKFLOW_CODES.INVALID, detail: valid.errors?.map((entry) => entry.path).join(",") ?? "source" };
+  }
+  if (builtInIds.includes(definition.id)) return { ok: false, code: WORKFLOW_CODES.SHADOWS_BUILTIN, detail: definition.id };
+  const serialized = stableWorkflowStringify(definition);
+  if (typeof serialized !== "string" || Buffer.byteLength(serialized, "utf8") > WORKFLOW_LIMITS.max_workflow_bytes) {
+    return { ok: false, code: WORKFLOW_CODES.INVALID, detail: "serialized-definition" };
+  }
+  const path = join(workflowsDir(root), `${definition.id}.json`);
+  try {
+    if (existsSync(path) && !replace) return { ok: false, code: WORKFLOW_CODES.EXISTS, detail: definition.id };
+    writeTextAtomic(root, join("workflows", `${definition.id}.json`), `${serialized}\n`, { replace });
+  } catch {
+    return { ok: false, code: WORKFLOW_CODES.WRITE_FAILED, detail: definition.id };
+  }
+  return { ok: true, workflow_id: definition.id, path };
+}
+
 export function deleteUserWorkflow(root, id) {
   if (!isWorkflowId(id)) return { ok: false, code: WORKFLOW_CODES.UNKNOWN, detail: "workflow-id-invalid" };
   const path = join(workflowsDir(root), `${id}.json`);
@@ -88,7 +113,8 @@ export function deleteUserWorkflow(root, id) {
       return { ok: false, code: WORKFLOW_CODES.UNREADABLE, detail: id };
     }
     const workflow = JSON.parse(readFileSync(path, "utf8"));
-    if (workflow.id !== id || workflow.source !== "user" || !validateWorkflow(workflow).valid) {
+    const valid = workflow.schema_version === 4 ? validateWorkflowDefinition(workflow) : validateWorkflow(workflow);
+    if (workflow.id !== id || workflow.source !== "user" || !valid.valid) {
       return { ok: false, code: WORKFLOW_CODES.INVALID, detail: id };
     }
     unlinkSync(path);

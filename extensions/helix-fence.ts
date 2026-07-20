@@ -2,7 +2,7 @@
  * Helix yolo-fence
  *
  * Keeps Pi's yolo-by-default speed while fencing irreversible / high-blast-radius
- * operations behind an explicit confirm. Source-verified against Pi 0.80.3:
+ * operations behind an explicit confirm. Source-verified against supported Pi 0.80.7:
  * `tool_call` handlers may return `{ block: true, reason }` (see
  * examples/extensions/permission-gate.ts, protected-paths.ts).
  *

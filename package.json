@@ -26,14 +26,21 @@
     "LICENSE",
     "extensions",
     "dispatch/config",
+    "dispatch/kernel",
     "dispatch/lib",
+    "dispatch/runtime",
+    "dispatch/workflow",
+    "NOTICE",
+    "SECURITY.md",
+    "docs/architecture.md",
     "docs/manual.md",
+    "docs/providers.md",
     "docs/workflows.md",
     "tools/loop/helix-task-loop.mjs",
     "tools/research/helix-research.mjs"
   ],
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.80.7 <0.81.0"
   },
   "publishConfig": {
     "access": "public"
@@ -43,6 +50,10 @@
     "check:docs-truth": "node tools/ci/docs-truth-check.mjs",
     "check:public-safety-diff": "node tools/ci/public-safety-diff-scan.mjs --mode diff",
     "check:no-live-egress": "node tools/ci/no-live-egress-check.mjs",
+    "check:workflow-conformance": "node --test tests/workflow-v4-schema.test.mjs tests/workflow-kernel.test.mjs tests/helix-workflow-execution.test.mjs",
+    "check:provider-contracts": "node --test tests/runtime-contract.test.mjs tests/provider-runtime-contract.test.mjs tests/dispatch-pi-agent-adapter.test.mjs tests/openrouter-audit-proxy.test.mjs",
+    "check:package": "node tools/ci/package-check.mjs",
+    "test:live:provider-certification": "node tools/providers/helix-provider-certify.mjs",
     "test": "node --test tests/*.test.mjs && bash tools/worktree/selftest.sh && bash tools/loop/selftest.sh"
   },
   "pi": {
