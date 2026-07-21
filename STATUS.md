@@ -1,36 +1,40 @@
 # Status
 
-Snapshot: 2026-07-20. Version: 0.4.0 on `main`.
+Snapshot: 2026-07-21. Version: 0.4.0 on `main`.
 
 ## Public repository readiness
 
-Repository-backed public-release safeguards are prepared: least-privilege CI
-with a stable aggregate `test` check, SHA-pinned GitHub Actions, checked-in
-integrity/review/CodeQL ruleset definitions, CODEOWNERS, a pull-request
-template, security and contribution policies, and conservative Renovate
-coverage for npm and GitHub Actions. Live private-repository settings are
-tracked in the dated
+The controlled visibility cutover is complete and the live repository is
+**PUBLICATION READY**. Immediately before publication, a fresh mirror of every
+advertised branch, tag, and pull-request head passed strict object integrity and
+Gitleaks across eight reachable commits; it contained zero exact maintainer-home
+paths and only GitHub noreply identities. The repository was then changed from
+private to public and that state was read back from GitHub.
+
+Public-only controls are live: secret scanning, push protection, private
+vulnerability reporting, and CodeQL default setup for Actions and
+JavaScript/TypeScript. CodeQL run `29797378509` succeeded on exact `main` at
+`07046119c8ee966892cb9039e934839a91bca0e0`; both analyses reported zero results
+and the active no-bypass CodeQL ruleset `19321579` enforces the checked-in
+correctness and security thresholds. Code-scanning, secret-scanning, Dependabot,
+and published repository-advisory alert counts are all zero.
+
+The live repository also retains separate active integrity and review rulesets,
+no overlapping classic branch protection, squash-only merges, immutable
+releases, GitHub-owned Actions only, full-SHA enforcement, read-only workflow
+tokens, the dependency graph, Dependabot security updates, and the bot-authored
+open [Renovate dashboard](https://github.com/luisgui1757/helix-cc/issues/2).
+The gold-standard policy change adds dependency review to the stable aggregate
+`test`, bounded CI runtimes, cancellation of superseded runs, an active
+checked-in CodeQL definition, and a durable
+[security and governance baseline](docs/security-governance.md). It must still
+land through the protected pull-request workflow; this status does not authorize
+a merge.
+
+The authorized privacy rewrite, former pull-request dereference, Renovate first
+run, cutover evidence, and deliberate policy exclusions remain append-only in
+the dated
 [public-readiness review](docs/reviews/helix-cc-public-readiness-2026-07-20.md).
-
-Publication remains **HOLD** pending the controlled visibility cutover. The
-authorized privacy rewrite replaced the absolute maintainer home path throughout
-retained branch history, normalized non-noreply commit metadata, and removed the
-obsolete remote feature branch. GitHub Support has now dereferenced the former
-pre-rewrite PRs #1 and #2: before the current documentation PR was opened, the
-remote advertised only rewritten `main` and both former pull-request APIs
-returned `404`. GitHub subsequently reused number #1 for the clean post-rewrite
-documentation PR; its head and synthetic merge refs descend only from rewritten
-history and are included in the fresh zero-finding Gitleaks scans. The maintainer
-reports that Renovate repository access is granted. Its first job exposed an
-optional OSV Dashboard feed that coincided with a locally reproduced upstream
-release-asset outage; that redundant feed is removed because Dependabot already
-owns advisory-led security fixes. Operational activation still requires a
-successful bot-authored `Renovate dashboard` readback.
-
-After the repository becomes public, GitHub CodeQL, secret scanning, push
-protection, and private vulnerability reporting must be enabled immediately.
-Their first analyses and zero-open-alert state, plus the active post-public
-CodeQL ruleset, must be read back before the final **PUBLICATION READY** verdict.
 
 The public setup path is fail-closed against mutable remote installer execution:
 Claude Code must already be installed at the supported minimum, while the

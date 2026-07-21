@@ -9,10 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test_matrix:
     name: test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -31,13 +36,31 @@ jobs:
       - run: npm run ci
       - run: git diff --check
 
+  dependency_review:
+    name: dependency-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reject vulnerable dependency changes
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
+      - name: Preserve the aggregate gate on main pushes
+        if: github.event_name != 'pull_request'
+        run: ':'
+
   test:
     name: test
     if: ${{ always() }}
-    needs: test_matrix
+    needs: [test_matrix, dependency_review]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Require the complete test matrix
+      - name: Require every merge gate
         env:
           MATRIX_RESULT: ${{ needs.test_matrix.result }}
-        run: test "$MATRIX_RESULT" = success
+          DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency_review.result }}
+        run: |
+          if [ "$MATRIX_RESULT" != success ] || [ "$DEPENDENCY_REVIEW_RESULT" != success ]; then
+            printf 'test_matrix=%s dependency_review=%s\n' "$MATRIX_RESULT" "$DEPENDENCY_REVIEW_RESULT" >&2
+            exit 1
+          fi

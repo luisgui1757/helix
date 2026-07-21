@@ -30,18 +30,17 @@ the selected external provider and local account state.
 GitHub protects `main` with separate checked-in
 [`integrity`](.github/rulesets/main-integrity.json) and
 [`review`](.github/rulesets/main-review.json) rulesets. The Node.js matrix feeds
-one stable required check named `test`; do not require matrix job names or add
-overlapping classic branch protection. Integrity rules have no bypass. Normal
-merges require an independent approval, CODEOWNER review, last-push approval,
-and resolved conversations. The repository owner is the sole
-pull-request-only bypass actor for the review ruleset, so owner updates still
-require a pull request and a successful exact-head `test` check.
+GitHub dependency review into one stable required check named `test`; do not
+require matrix job names or add overlapping classic branch protection.
+Integrity rules have no bypass. Normal merges require an independent approval,
+CODEOWNER review, last-push approval, resolved conversations, and the active
+[`CodeQL ruleset`](.github/rulesets/main-codeql-public.json). The repository
+owner is the sole pull-request-only bypass actor for the review ruleset, so
+owner updates still require a pull request and successful exact-head integrity
+and CodeQL gates.
 
-The disabled
-[`CodeQL ruleset`](.github/rulesets/main-codeql-public.json) is activated only
-after publication, CodeQL default setup succeeds, and its live check identity is
-confirmed. Do not enable it while the repository is private and CodeQL is
-unavailable.
+The complete rationale, control ownership, and change protocol are in the
+[security and governance baseline](docs/security-governance.md).
 
 Do not weaken checks, add unpinned GitHub Actions, enable workflow write
 permissions, hide unsupported behavior behind a mock, or commit credentials,

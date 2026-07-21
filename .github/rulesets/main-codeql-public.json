@@ -1,7 +1,7 @@
 {
   "name": "Protect main: CodeQL after publication",
   "target": "branch",
-  "enforcement": "disabled",
+  "enforcement": "active",
   "bypass_actors": [],
   "conditions": {
     "ref_name": {

@@ -5,20 +5,29 @@ import test from 'node:test'
 const root = new URL('../', import.meta.url)
 const read = path => readFile(new URL(path, root), 'utf8')
 
-test('CI is least-privilege, digest-pinned, and emits one stable required check', async () => {
+test('CI is least-privilege, bounded, digest-pinned, and emits one stable required check', async () => {
   const workflow = await read('.github/workflows/ci.yml')
-  const actionRefs = [...workflow.matchAll(/^\s*- uses:\s*([^\s]+).*$/gm)].map(match => match[1])
+  const actionRefs = [...workflow.matchAll(/^\s*(?:-\s*)?uses:\s*([^\s]+).*$/gm)].map(match => match[1])
 
   assert.deepEqual(actionRefs, [
     'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0',
     'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e',
+    'actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294',
   ])
   assert.match(workflow, /^permissions:\n  contents: read$/m)
+  assert.match(workflow, /^concurrency:\n  group: .*github\.workflow.*github\.event\.pull_request\.number \|\| github\.ref.*\n  cancel-in-progress: true$/m)
   assert.doesNotMatch(workflow, /pull_request_target/)
   assert.match(workflow, /^  push:\n    branches:\n      - main$/m)
   assert.match(workflow, /npm ci --ignore-scripts --include=optional/)
+  assert.deepEqual([...workflow.matchAll(/^\s+timeout-minutes: (\d+)$/gm)].map(match => Number(match[1])), [15, 5, 5])
+  assert.match(workflow, /^  dependency_review:\n    name: dependency-review$/m)
+  assert.match(workflow, /github\.event_name == 'pull_request'.*actions\/dependency-review-action@/s)
+  assert.match(workflow, /github\.event_name != 'pull_request'.*run: ':'/s)
   assert.match(workflow, /^  test:\n    name: test$/m)
+  assert.match(workflow, /needs: \[test_matrix, dependency_review\]/)
   assert.match(workflow, /MATRIX_RESULT.*needs\.test_matrix\.result/s)
+  assert.match(workflow, /DEPENDENCY_REVIEW_RESULT.*needs\.dependency_review\.result/s)
+  assert.match(workflow, /MATRIX_RESULT.*!= success.*DEPENDENCY_REVIEW_RESULT.*!= success/s)
 })
 
 test('checked-in branch governance preserves integrity and pull-request-only owner bypass', async () => {
@@ -50,7 +59,7 @@ test('checked-in branch governance preserves integrity and pull-request-only own
   assert.equal(pullRequest.required_review_thread_resolution, true)
   assert.deepEqual(pullRequest.allowed_merge_methods, ['squash'])
 
-  assert.equal(codeql.enforcement, 'disabled')
+  assert.equal(codeql.enforcement, 'active')
   assert.deepEqual(codeql.bypass_actors, [])
   assert.deepEqual(codeql.rules[0].parameters.code_scanning_tools, [{
     tool: 'CodeQL',

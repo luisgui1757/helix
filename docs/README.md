@@ -9,6 +9,8 @@ Start with the current operating documents:
 - [Workflow catalog](workflows.md) — every Helix loop mapping, exact inputs,
   signed-evidence boundary, stage invariants, and terminal result.
 - [Status ledger](../STATUS.md) — current implementation state and evidence.
+- [Security and governance baseline](security-governance.md) — first-principles
+  controls, ownership boundaries, live settings, and deliberate non-controls.
 - [Public-readiness review](reviews/helix-cc-public-readiness-2026-07-20.md) —
   current leak, dependency, CI, governance, and publication-gate evidence.
 
