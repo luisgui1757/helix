@@ -1,0 +1,11 @@
+title = "Helix Gitleaks policy"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public CLIProxyAPI upstream commit recorded in the historical roadmap"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexes = ['''^09da52ad509e2c18e7b9540db3b98c2214c280aa$''']
+paths = ['''^ROADMAP_SOL\.md$''']

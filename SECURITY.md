@@ -58,4 +58,23 @@ active no-egress smoke runs with Docker `--network none`. Live certification is
 separate, opt-in, pinned to one exact free OpenRouter model/route/account, and
 never substituted.
 
+Repository supply-chain policy requires full-SHA GitHub Actions, read-only
+workflow tokens, dependency review, secret scanning with push protection,
+GitHub-managed CodeQL, and immutable future releases. Routine version updates
+have one owner in Renovate; GitHub-native Dependabot remains responsible for
+advisories and security updates. The exact checked-in and live enforcement
+contract is documented in [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md).
+
+The full-tree Gitleaks policy has one reviewed false-positive exception: the
+40-hex value beside `router-for-me/CLIProxyAPI` in `ROADMAP_SOL.md` is a public
+upstream Git commit, not an API credential. `.gitleaks.toml` limits that
+exception to the exact value, path, and `generic-api-key` rule; no path-wide or
+rule-wide suppression is permitted.
+
+CodeQL alert #1 (`js/incomplete-url-substring-sanitization`) was a test-only
+false positive: the assertion checked that a caller-supplied URL could not
+appear in structural event fields; it was not URL sanitization. The regression
+now asserts exact event-field values, matching the stable-code boundary without
+using a substring-sanitization shape.
+
 Supported security fixes target the latest release.

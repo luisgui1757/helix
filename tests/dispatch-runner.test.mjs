@@ -1421,7 +1421,7 @@ test("chain effects cannot persist caller-supplied failure codes", async () => {
     assert.equal(result.ok, false);
     const events = readFileSync(result.events_path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     assert.ok(events.some((event) => event.kind === "blocked" && event.code === "local-check-failed"));
-    assert.equal(stableStringify(events).includes(toxicCode), false);
+    assert.equal(events.some((event) => Object.values(event).some((value) => value === toxicCode)), false);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

@@ -414,3 +414,8 @@ The single source for test rules.
   prose, fenced-JSON, or trailing-object scans.
 - Helix adds no threshold-based compaction policy; the selected runtime keeps
   its native default.
+- Repository governance has one checked-in source per boundary: rulesets own
+  branch policy, Renovate owns routine version updates, GitHub-native Dependabot
+  owns security advisories and fixes, and `scripts/apply-repo-safeguards.mjs`
+  owns transactional live apply and recovery. Classic branch protection and
+  overlapping version-update bots are forbidden.
