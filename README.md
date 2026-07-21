@@ -105,9 +105,11 @@ Code's strict plugin validator. Provider proof commands and full live Workflow
 runs are separate because they contact the selected provider.
 
 Pull requests run the structure validator, dependency audit and registry
-signature verification, and the deterministic test suite on the minimum and
-current Node.js lines. The matrix feeds one stable required check named `test`.
-GitHub Actions are digest-pinned and run with read-only repository permissions.
+signature verification, deterministic tests on the minimum and current Node.js
+lines, and dependency review for newly introduced vulnerable packages. Those
+jobs feed one stable required check named `test`; CodeQL separately analyzes
+Actions and JavaScript/TypeScript. GitHub Actions are digest-pinned, bounded,
+cancel superseded runs, and use read-only repository permissions.
 
 Current automated results, dated live receipts, and deliberate gaps are kept in
 [STATUS.md](STATUS.md).
@@ -119,9 +121,12 @@ reporting flow; do not open a public issue or include credentials, prompts,
 responses, or account identifiers. See [SECURITY.md](SECURITY.md).
 
 Contribution requirements, local gates, and the protected-branch contract are
-in [CONTRIBUTING.md](CONTRIBUTING.md). Automated npm and GitHub Actions updates
-are managed by Renovate without automerge; GitHub Dependabot owns advisory-led
-security fixes so the two systems do not create duplicate security PRs.
+in [CONTRIBUTING.md](CONTRIBUTING.md). The implemented control model and its
+first-principles rationale are in the
+[security and governance baseline](docs/security-governance.md). Automated npm
+and GitHub Actions updates are managed by Renovate without automerge; GitHub
+Dependabot owns advisory-led security fixes so the two systems do not create
+duplicate security PRs.
 
 ## Documentation
 

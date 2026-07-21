@@ -275,3 +275,77 @@ than masking a repository update error.
 Publication remains **HOLD** until the corrected bot run succeeds and creates
 the `Renovate dashboard`; the hosted operational result is not inferred from
 local schema validation alone.
+
+## Public cutover and gold-standard convergence — 2026-07-21
+
+The remaining publication gates were revalidated and closed against remote
+`main` at `07046119c8ee966892cb9039e934839a91bca0e0` before visibility changed.
+The prior **HOLD** verdict is superseded: the live repository is
+**PUBLICATION READY**, while the tracked convergence change remains subject to
+its normal pull-request review and merge authority.
+
+### Final pre-publication privacy gate
+
+- A new remote mirror fetched every advertised branch, tag, and pull-request
+  head. It contained eight reachable commits: rewritten `main` plus the clean
+  post-rewrite PR #1 head, with no tags or unexpected branches.
+- `git fsck --full --strict` passed and Gitleaks scanned all eight commits with
+  zero findings.
+- Exact `/Users/luisribeiro` and `/home/luisribeiro` history searches returned
+  zero hits. The only author and committer identities were the maintainer's
+  GitHub noreply identity and GitHub's own noreply identity.
+- The repository was then changed from private to public. The immediate API
+  readback returned `visibility: public` and `private: false`.
+
+### Public-only controls and analyses
+
+- Secret scanning and push protection are enabled; private vulnerability
+  reporting returns `enabled: true`.
+- CodeQL default setup is configured with the default query suite and weekly
+  schedule. Run `29797378509` succeeded on exact `main`: `Analyze (actions)` and
+  `Analyze (javascript-typescript)` both completed successfully.
+- The two main-branch CodeQL analyses reported zero results and no errors. Only
+  after that proof, active ruleset `19321579` was created from the checked-in
+  definition. It has no bypass and blocks CodeQL correctness alerts at `errors`
+  and security alerts at `high_or_higher`.
+- Open code-scanning, secret-scanning, and Dependabot alert counts are zero;
+  published repository security advisories are also zero.
+- Secret-scanning validity checks and non-provider patterns remain disabled.
+  They require GitHub Secret Protection or an eligible organization-owned Team
+  repository and are not available to this user-owned GitHub Pro repository.
+
+### Live governance and automation readback
+
+- Active rulesets are integrity `19189587`, review `19189588`, and CodeQL
+  `19321579`. Classic `main` branch protection returns `404`, so there is no
+  duplicate policy layer.
+- Actions allow only GitHub-owned actions, reject mutable action references,
+  use read-only default tokens, and cannot approve pull-request reviews.
+- Squash remains the only merge method; automatic merge and merged-branch
+  deletion are enabled. Immutable releases remain enabled.
+- The dependency graph exports 151 SBOM packages. Dependabot security updates
+  are enabled and the open alert count is zero.
+- Issue #2 is an open `Renovate dashboard` authored by `app/renovate`, closing
+  the remaining bot-operational proof.
+
+### First-principles policy shipped in the convergence change
+
+- Dependency review rejects vulnerable packages introduced by a pull request
+  and feeds the existing stable `test` gate alongside the complete Node.js
+  matrix. Main pushes preserve the same aggregate identity without pretending
+  to have a pull-request dependency delta.
+- Every CI job has a bounded timeout and superseded branch/PR runs are cancelled.
+  All actions remain GitHub-owned and pinned to full release-tag commit digests.
+- The checked-in CodeQL ruleset is active and governance tests bind its live
+  thresholds, action inventory, dependency-review wiring, concurrency, timeouts,
+  and fail-closed aggregate results.
+- `docs/security-governance.md` records the durable control ownership and change
+  protocol. `package.json` deliberately remains `private: true`: GitHub source
+  visibility does not grant or imply npm registry publication.
+
+The comparison repositories informed the control selection but were not copied
+blindly. Helix CC does not add dotfiles' overlapping classic branch protection
+or broad `allowed_actions: all`; it does not add duplicate Dependabot routine
+version updates beside Renovate; and it does not add Scorecard, a license
+denylist, a custom CodeQL workflow, or another third-party security action
+without a repository-specific policy or finding for that control to enforce.
