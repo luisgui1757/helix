@@ -1,0 +1,334 @@
+{
+  "version": 1,
+  "id": "helix-delivery",
+  "operations": [
+    {
+      "name": "plan-candidates",
+      "kind": "fork",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "plannerModels",
+        "plannerCount"
+      ],
+      "writes": [
+        "candidatePlans"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "plan-judge",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "candidatePlans",
+        "stageModels"
+      ],
+      "writes": [
+        "plan"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "implement",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "plan",
+        "stageModels"
+      ],
+      "writes": [
+        "work"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "verification-pass",
+      "kind": "operation",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "pass",
+        "maxPasses"
+      ],
+      "writes": [
+        "pass"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "test",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "plan",
+        "pass",
+        "stageModels"
+      ],
+      "writes": [
+        "lastTest"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "document",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "plan",
+        "work",
+        "lastTest",
+        "pass",
+        "stageModels"
+      ],
+      "writes": [
+        "lastDocumentation"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "trusted-evidence",
+      "kind": "operation",
+      "effect": "evidence",
+      "mutatesCheckout": false,
+      "reads": [
+        "evidenceSession",
+        "verificationArgv",
+        "pass"
+      ],
+      "writes": [
+        "lastTrustedEvidence"
+      ],
+      "tags": [
+        "trusted-evidence"
+      ],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "review-panel",
+      "kind": "fork",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "plan",
+        "lastTest",
+        "lastTrustedEvidence",
+        "pass",
+        "stageModels"
+      ],
+      "writes": [
+        "lastReviews"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "verifier",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "plan",
+        "lastTest",
+        "lastTrustedEvidence",
+        "lastDocumentation",
+        "lastReviews",
+        "pass",
+        "stageModels"
+      ],
+      "writes": [
+        "gate"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "pass-decision",
+      "kind": "decision",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "lastTest",
+        "lastDocumentation",
+        "lastReviews",
+        "gate",
+        "lastTrustedEvidence",
+        "pass",
+        "maxPasses"
+      ],
+      "writes": [
+        "problems"
+      ],
+      "tags": [
+        "deterministic-gate"
+      ],
+      "outcomes": [
+        "approved",
+        "exhausted",
+        "remediate",
+        "replan"
+      ]
+    },
+    {
+      "name": "replan-candidates",
+      "kind": "fork",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "plan",
+        "lastTest",
+        "lastDocumentation",
+        "lastReviews",
+        "gate",
+        "pass",
+        "plannerModels",
+        "plannerCount"
+      ],
+      "writes": [
+        "revisedCandidates"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "replan-judge",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "revisedCandidates",
+        "lastReviews",
+        "pass",
+        "stageModels"
+      ],
+      "writes": [
+        "plan"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "reimplement",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "plan",
+        "lastTest",
+        "lastDocumentation",
+        "lastReviews",
+        "gate",
+        "pass",
+        "stageModels"
+      ],
+      "writes": [
+        "work"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "remediate",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "plan",
+        "lastTest",
+        "lastDocumentation",
+        "lastReviews",
+        "gate",
+        "pass",
+        "stageModels"
+      ],
+      "writes": [
+        "work"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "approved",
+      "kind": "terminal",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "pass",
+        "plan",
+        "work",
+        "lastTest",
+        "lastTrustedEvidence",
+        "lastDocumentation",
+        "lastReviews",
+        "gate"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": []
+    },
+    {
+      "name": "exhausted",
+      "kind": "terminal",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "maxPasses",
+        "problems",
+        "gate",
+        "lastTest",
+        "lastDocumentation",
+        "lastReviews"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": []
+    }
+  ]
+}

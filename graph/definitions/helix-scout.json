@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "id": "helix-scout",
+  "title": "Helix scout",
+  "description": "Read-only reconnaissance followed by a decision-ready implementation brief.",
+  "entry": "reconnaissance",
+  "initialContext": ["task", "modelInput"],
+  "nodes": [
+    { "id": "reconnaissance", "label": "Repository reconnaissance", "kind": "operation", "operation": "reconnaissance", "effect": "read", "mutatesCheckout": false, "reads": ["task", "modelInput"], "writes": ["recon"], "tags": [], "transitions": { "next": "brief" } },
+    { "id": "brief", "label": "Decision-ready brief", "kind": "terminal", "operation": "brief", "effect": "read", "mutatesCheckout": false, "reads": ["task", "modelInput", "recon"], "writes": [], "tags": [], "transitions": {} }
+  ],
+  "cycles": [],
+  "approvalTerminals": ["brief"],
+  "approvalRequirements": []
+}

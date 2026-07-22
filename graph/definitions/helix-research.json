@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "id": "helix-research",
+  "title": "Helix research",
+  "description": "Bounded hypotheses and experiments with signed final measurement, tests, and deterministic convergence outcomes.",
+  "entry": "initialize",
+  "initialContext": ["task", "metric", "target", "measurementArgv", "testArgv", "evidenceSession", "maxPasses", "plateauAfter", "models", "pass"],
+  "nodes": [
+    { "id": "initialize", "label": "Initialize research state", "kind": "operation", "operation": "initialize", "effect": "control", "mutatesCheckout": false, "reads": [], "writes": ["priorEvidence", "bestMeasurement", "plateauCount"], "tags": [], "transitions": { "next": "research-pass" } },
+    { "id": "research-pass", "label": "Begin research pass", "kind": "operation", "operation": "research-pass", "effect": "control", "mutatesCheckout": false, "reads": ["pass", "maxPasses"], "writes": ["pass"], "tags": [], "transitions": { "next": "hypothesis" } },
+    { "id": "hypothesis", "label": "Falsifiable hypothesis", "kind": "operation", "operation": "hypothesis", "effect": "read", "mutatesCheckout": false, "reads": ["task", "metric", "target", "priorEvidence", "pass", "models"], "writes": ["hypothesisResult"], "tags": [], "transitions": { "next": "experiment" } },
+    { "id": "experiment", "label": "Bounded experiment", "kind": "operation", "operation": "experiment", "effect": "write", "mutatesCheckout": true, "reads": ["task", "hypothesisResult", "pass", "models"], "writes": ["experimentResult"], "tags": [], "transitions": { "next": "preliminary-measurement" } },
+    { "id": "preliminary-measurement", "label": "Preliminary signed measurement", "kind": "operation", "operation": "preliminary-measurement", "effect": "evidence", "mutatesCheckout": false, "reads": ["metric", "target", "measurementArgv", "evidenceSession", "pass", "models"], "writes": ["preliminaryMeasurement"], "tags": [], "transitions": { "next": "document" } },
+    { "id": "document", "label": "Research ledger", "kind": "operation", "operation": "document", "effect": "write", "mutatesCheckout": true, "reads": ["task", "hypothesisResult", "preliminaryMeasurement", "pass", "models"], "writes": ["documentation"], "tags": [], "transitions": { "next": "final-measurement" } },
+    { "id": "final-measurement", "label": "Final signed measurement", "kind": "operation", "operation": "final-measurement", "effect": "evidence", "mutatesCheckout": false, "reads": ["metric", "target", "measurementArgv", "evidenceSession", "pass", "models"], "writes": ["measurement"], "tags": ["metric-evidence"], "transitions": { "next": "final-tests" } },
+    { "id": "final-tests", "label": "Final signed tests", "kind": "operation", "operation": "final-tests", "effect": "evidence", "mutatesCheckout": false, "reads": ["testArgv", "evidenceSession", "pass", "models"], "writes": ["testEvidence"], "tags": ["test-evidence"], "transitions": { "next": "review" } },
+    { "id": "review", "label": "Research review", "kind": "operation", "operation": "review", "effect": "read", "mutatesCheckout": false, "reads": ["task", "metric", "target", "hypothesisResult", "measurement", "testEvidence", "documentation", "pass", "models"], "writes": ["reviewResult"], "tags": [], "transitions": { "next": "verifier" } },
+    { "id": "verifier", "label": "Research verification gate", "kind": "operation", "operation": "verifier", "effect": "read", "mutatesCheckout": false, "reads": ["task", "measurement", "testEvidence", "documentation", "reviewResult", "pass", "models"], "writes": ["gate"], "tags": [], "transitions": { "next": "convergence-decision" } },
+    { "id": "convergence-decision", "label": "Deterministic convergence decision", "kind": "decision", "operation": "convergence-decision", "effect": "control", "mutatesCheckout": false, "reads": ["metric", "target", "hypothesisResult", "experimentResult", "preliminaryMeasurement", "measurement", "testEvidence", "documentation", "reviewResult", "gate", "bestMeasurement", "plateauCount", "priorEvidence", "plateauAfter", "pass", "maxPasses"], "writes": ["problems", "targetMet", "bestMeasurement", "plateauCount", "priorEvidence", "stopReason"], "tags": ["deterministic-gate"], "transitions": { "approved": "approved", "continue": "research-pass", "stopped": "stopped" } },
+    { "id": "approved", "label": "Target or valuable dead-end", "kind": "terminal", "operation": "approved", "effect": "control", "mutatesCheckout": false, "reads": ["targetMet", "pass", "hypothesisResult", "experimentResult", "measurement", "testEvidence", "documentation", "reviewResult", "gate"], "writes": [], "tags": [], "transitions": {} },
+    { "id": "stopped", "label": "Diminishing returns or iteration rail", "kind": "terminal", "operation": "stopped", "effect": "control", "mutatesCheckout": false, "reads": ["stopReason", "pass", "hypothesisResult", "experimentResult", "measurement", "testEvidence", "documentation", "reviewResult", "gate", "problems"], "writes": [], "tags": [], "transitions": {} }
+  ],
+  "cycles": [
+    { "id": "research-loop", "entry": "research-pass", "nodes": ["research-pass", "hypothesis", "experiment", "preliminary-measurement", "document", "final-measurement", "final-tests", "review", "verifier", "convergence-decision"], "limit": { "input": "maxPasses", "maximum": 5 } }
+  ],
+  "approvalTerminals": ["approved"],
+  "approvalRequirements": ["metric-evidence", "test-evidence", "deterministic-gate"]
+}

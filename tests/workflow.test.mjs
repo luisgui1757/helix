@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createReceiptSigner } from './evidence-fixtures.mjs'
-import { runWorkflow as executeWorkflow } from './workflow-harness.mjs'
+import { runWorkflow as executeWorkflow, workflowFileForMode } from './workflow-harness.mjs'
 
 const signer = createReceiptSigner()
 const verificationArgv = ['npm', 'run', 'verify']
+const file = workflowFileForMode('helix-delivery.js')
 
 function plan(summary) {
   return {
@@ -46,7 +47,7 @@ async function runWorkflow(args, responder = ({ label }) => defaults(label)) {
   } else if (args && typeof args === 'object' && !Array.isArray(args)) {
     prepared = { verificationArgv, evidenceSession: signer.session, ...args }
   }
-  return executeWorkflow('helix-delivery.js', prepared, responder)
+  return executeWorkflow(file, prepared, responder)
 }
 
 test('happy path runs competing plans, serialized delivery stages, and a fail-closed gate', async () => {

@@ -7,9 +7,16 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { TRUSTED_EVIDENCE_TOOL_NAMES } from '../lib/trusted-evidence.mjs'
+import { workflowFileForMode } from './workflow-harness.mjs'
 
 const root = new URL('../', import.meta.url)
 const rootPath = fileURLToPath(root)
+
+async function workflowPaths() {
+  const original = (await readdir(new URL('workflows/', root))).filter(file => file.endsWith('.js')).map(file => `workflows/${file}`)
+  const graph = (await readdir(new URL('workflows/graph/', root))).filter(file => file.endsWith('.js')).map(file => `workflows/graph/${file}`)
+  return [...original, ...graph].sort()
+}
 
 test('Claude plugin manifest and package versions agree', async () => {
   const manifest = JSON.parse(await readFile(new URL('.claude-plugin/plugin.json', root), 'utf8'))
@@ -48,19 +55,19 @@ test('CLIProxyAPI helper is packaged as an executable and public docs contain no
 })
 
 test('every workflow role resolves to a plugin agent definition', async () => {
-  const workflowFiles = (await readdir(new URL('workflows/', root))).filter(file => file.endsWith('.js'))
-  const workflows = await Promise.all(workflowFiles.map(file => readFile(new URL(`workflows/${file}`, root), 'utf8')))
+  const workflowFiles = await workflowPaths()
+  const workflows = await Promise.all(workflowFiles.map(file => readFile(new URL(file, root), 'utf8')))
   const files = (await readdir(new URL('agents/', root))).filter(file => file.endsWith('.md'))
   const roles = workflows.flatMap(workflow => [...workflow.matchAll(/agentType: 'helix-cc:([^']+)'/g)].map(match => match[1]))
   assert.deepEqual([...new Set(roles)].sort(), files.map(file => file.replace(/\.md$/, '')).sort())
-  assert.equal(workflowFiles.length, 9)
+  assert.equal(workflowFiles.length, 15)
   assert.equal(files.length, 13)
 })
 
 test('writer roles are serialized and every read-only role has a non-mutating tool allowlist', async () => {
-  const workflowFiles = (await readdir(new URL('workflows/', root))).filter(file => file.endsWith('.js'))
+  const workflowFiles = await workflowPaths()
   for (const file of workflowFiles) {
-    const workflow = await readFile(new URL(`workflows/${file}`, root), 'utf8')
+    const workflow = await readFile(new URL(file, root), 'utf8')
     const parallelBlocks = [...workflow.matchAll(/await parallel\(([\s\S]*?)\n\s*\)/g)].map(match => match[1])
     assert.equal(parallelBlocks.some(block => /helix-cc:(?:builder|documenter|reproducer|shipper|tester)/.test(block)), false, file)
   }
@@ -92,14 +99,14 @@ test('writer roles are serialized and every read-only role has a non-mutating to
   assert.doesNotMatch(reproducerFrontmatter, /(?:Write|Edit|Bash)/)
 
   for (const workflow of workflowFiles.filter(file => /(?:delivery|implement-review|tdd-fix|research|ship-pre-pr)/.test(file))) {
-    const source = await readFile(new URL(`workflows/${workflow}`, root), 'utf8')
+    const source = await readFile(new URL(workflow, root), 'utf8')
     assert.match(source, /workflow\('helix-cc:helix-evidence-verify'/)
     assert.doesNotMatch(source, /workflow\('helix-evidence-verify'/)
     assert.match(source, /const RECEIPT_SEMANTICS =/)
     assert.match(source, /Equal (?:fingerprints|pre\/post state).*do(?:es)? not (?:mean|erase)/)
   }
   for (const workflow of workflowFiles.filter(file => /(?:delivery|implement-review|tdd-fix|research)/.test(file))) {
-    const source = await readFile(new URL(`workflows/${workflow}`, root), 'utf8')
+    const source = await readFile(new URL(workflow, root), 'utf8')
     assert.match(source, /Leave changes in the working checkout; never stage, commit, push, open a pull request, tag, release, or rewrite history/)
   }
 })
@@ -164,7 +171,10 @@ test('the public skill catalog maps every distinct Helix loop to its audited wor
   for (const [skill, workflow] of Object.entries(mapping)) {
     const source = await readFile(new URL(`skills/${skill}/SKILL.md`, root), 'utf8')
     assert.match(source, /disable-model-invocation: true/)
-    assert.ok(source.includes(`scriptPath: "\${CLAUDE_PLUGIN_ROOT}/workflows/${workflow}"`))
+    assert.ok(source.includes(`\${CLAUDE_PLUGIN_ROOT}/workflows/${workflow}`))
+    assert.ok(source.includes(`\${CLAUDE_PLUGIN_ROOT}/workflows/graph/${workflow}`))
+    assert.match(source, /`mode`: `original` by default, or explicit `graph`/)
+    assert.match(source, /neither exact `original` nor exact `graph`/)
     assert.match(source, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/bin\/helix-cc-doctor" --json/)
     if (skill !== 'helix-scout') {
       assert.match(source, /mcp__plugin_helix-cc_helix-cc-evidence__start_session/)
@@ -175,6 +185,10 @@ test('the public skill catalog maps every distinct Helix loop to its audited wor
       assert.match(source, /proof-matrix --providers <comma-separated-provider-set> --models <comma-separated-namespaced-ids>/)
     }
   }
+  assert.equal(workflowFileForMode('helix-scout.js', undefined), 'helix-scout.js')
+  assert.equal(workflowFileForMode('helix-scout.js', 'original'), 'helix-scout.js')
+  assert.equal(workflowFileForMode('helix-scout.js', 'graph'), 'graph/helix-scout.js')
+  assert.throws(() => workflowFileForMode('helix-scout.js', 'invalid'), /must be original or graph/)
   const catalog = await readFile(new URL('docs/workflows.md', root), 'utf8')
   for (const name of ['full-cycle', 'plan-implement', 'implement-review', 'tdd-fix', 'scout', 'research', 'ship-pre-pr']) {
     assert.match(catalog, new RegExp(`\\b${name}\\b`))

@@ -1,6 +1,6 @@
 # Status
 
-Snapshot: 2026-07-21. Version: 0.4.0 on `main`.
+Snapshot: 2026-07-22. Version: 0.5.0 on `feature/graph-mode`.
 
 ## Public repository readiness
 
@@ -58,6 +58,48 @@ exact signed TDD path scope, shipment composition fixes, preventive TDD
 restoration, isolated red execution, four-stop research convergence, and one
 pre-agent input grammar. A new exact-head audit remains
 required; no 0.4.0 `READY` claim is made before that independent result.
+
+Version 0.5.0 retains all six audited standalone workflows as the default
+`original` mode and adds a secondary `graph` mode. The graph implementation is
+compiled from closed, versioned definitions with reachability, transition,
+context read/write capability, independent checkout-mutation capability,
+bounded-cycle, approval-path, compiler-generated registry, catalog, digest,
+drift, and absolute-step-ceiling checks. It does not accept uploaded graphs or
+arbitrary workflow JavaScript.
+
+All existing public workflow behavioral tests run against both modes. A
+separate parity campaign compares complete prompts, schemas, labels, model
+options and responses, parallel groups, child-workflow calls, ordinary logs,
+terminal values, and exact errors against independent equivalent simulated
+boundaries. The current campaign covers 22 workflow scenarios across success,
+remediation, exhaustion, forgery, research terminals, and shipping refusal,
+plus 4 comparison-harness contract tests. Graph mode has
+deterministic evidence only on this branch; no live provider-backed graph-mode
+receipt is claimed.
+
+The 0.5.0 lockfile also resolves `fast-uri` to `3.1.4` and overrides the MCP
+SDK's vulnerable Hono Node adapter range with `@hono/node-server` `2.0.11`.
+The packaged stdio MCP smoke test and complete local gate cover the resolved
+tree; the production audit reports zero known vulnerabilities.
+
+## 0.5.0 graph mode
+
+| Surface | State |
+|---|---|
+| Original workflows | Preserved as default mode |
+| Graph workflows | Six generated import-free secondary scripts |
+| Construction | Closed JSON definitions plus exact same-ID machine-readable operation catalogs and reviewed templates |
+| Static analysis | Reachability, exhaustive outcomes, JavaScript-safe context keys, parsed lexical/dataflow isolation for graph-state sources including nested aggregate/call/constructor aliases and the enclosing Workflow `arguments` binding; identifier/property/object-method/class/built-in/call/apply/bind/construct outer-write analysis; conservative rejection of mutation-bearing helper parameters, operation-local destructuring/classes, sequence callables, dynamic calls/evaluation/source constructors, and constructor-derived callables; accessor-free plain structured copies without custom-prototype reads or functions/symbols and with initial cross-key aliases preserved; non-copyable state capabilities; protected prototypes and inherited methods; revocable per-operation context and alias-preserving boundary snapshots; recursive immutability including descriptors; enforced reads/writes; independent checkout-mutation capability; fork safety; entry-crossing bounded SCCs; fresh approval requirements; exact generated registry; catalog identity; and step ceiling |
+| Visualization | Mermaid generated from the same definitions with SHA-256 digests |
+| Drift control | In-memory regeneration of all scripts and diagrams in the local/CI gate |
+| Cross-mode parity | 22 exact workflow scenarios plus 4 comparison-harness tests and 45 original workflow regressions rerun in graph mode |
+| Independent review | Round 1 fixed 4 medium/2 low; round 2 fixed 4 medium/1 low; round 4 fixed 2 medium; round 7 fixed 2 medium; round 8 fixed 4 medium/1 low; pre-verdict observations from classifier-aborted rounds 3, 5, 6, 9, 10, 11, and 12 were fixed; round 13 returned no concrete candidate before aborting; round 14 exact-scope result: 0 critical/high/medium/low, `READY` |
+| Live graph proof | Not run; remains a separate provider-backed evidence layer |
+
+The controlling implementation, test, and review ledger is
+[`graph-migration.md`](graph-migration.md). The user contract and generated
+diagrams are in [`docs/graph-mode.md`](docs/graph-mode.md) and
+[`docs/workflow-graphs.md`](docs/workflow-graphs.md).
 
 ## 0.4.0 Helix loop parity
 
@@ -137,8 +179,8 @@ Update only from final-code evidence.
 | Check | Status | Evidence |
 |---|---|---|
 | Focused 0.3.2 regressions | Passed | Launcher, setup handoff, entrypoint, route/model, scrubbed preflight, lifecycle, and docs contracts included in the full suite |
-| `npm run check` | Passed | `validated helix-cc: 9 workflows, 13 agents, 7 skills` |
-| `npm test` | Passed | 140 passed; 0 failed, skipped, or TODO; includes marker-first, partial-line, staggered-matrix, timeout, interruption, and exact-set Workflow-transcript convergence; the packaged six-tool MCP process; production-controller ownership across four provider-readiness and two active-execution stages; isolated red/green ignored/Git/HOME/sibling effects; inherited-process redirect isolation; ignored/no-delta test-path refusal; five-class TDD command-mutation discard; normalized input grammar; four-stop research convergence/equality distance; expected-miss blocker semantics; complete tracked mode/type coverage; rename/index rollback; post-writer remeasurement; v2 final-checkout evidence; fixed RSA signature chunks; and every loop source |
+| `npm run check` | Passed | `validated helix-cc: 9 original/internal workflows, 6 graph workflows, 13 agents, 7 skills` |
+| `npm test` | Passed | 182 passed; 0 failed, skipped, or TODO; includes the existing provider, lifecycle, signed-evidence, workflow, packaging, and documentation contracts plus 16 graph IR/compiler/runtime tests and 26 parity tests (22 workflow scenarios and 4 comparison-harness contracts) |
 | `claude plugin validate --strict .` | Passed | Claude Code 2.1.214 strict validation |
 | Documentation link/command contract | Passed | Current links resolve locally; every provider launch example supplies an explicit model |
 | Interrupted provider startup acceptance | Passed | Production revision `c5016f6`: SIGTERM after the first Copilot child spawn and before gateway readiness produced exit 143; every observed PID died, all allocated ports were released, and idle status returned `unreachable` |
@@ -167,7 +209,7 @@ Update only from final-code evidence.
 | Durable cross-process Workflow recovery | Not implemented; Claude `resumeFromRunId` is same-session continuation |
 | Deterministic task/configuration consent | Not implemented; skill confirmation is advisory |
 | Exact effective per-agent Claude model | Requested and observed where possible; active policy can supersede it |
-| Arbitrary Helix workflow compiler | Intentionally not implemented; the plugin ships six audited standalone user loops instead |
+| Arbitrary workflow compiler | Intentionally not implemented; original mode ships six audited scripts and graph mode compiles six reviewed closed definitions without accepting user code or uploaded graphs |
 | Writer worktree merge choreography | Intentionally omitted; writers are serialized in the selected checkout |
 | OpenRouter execution | Deferred and rejected |
 

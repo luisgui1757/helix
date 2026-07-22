@@ -1,6 +1,6 @@
 {
   "name": "helix-cc",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -16,13 +16,17 @@
     "helix-cc-copilot-api": "bin/helix-cc-copilot-api"
   },
   "scripts": {
-    "ci": "npm run check && npm test",
+    "ci": "npm run graph:check && npm run check && npm test && npm run test:graph",
     "check": "node scripts/validate-plugin.mjs",
     "cliproxy:prepare": "node bin/helix-cc-cliproxy prepare",
     "cliproxy:login": "node bin/helix-cc-cliproxy login",
     "cliproxy:status": "node bin/helix-cc-cliproxy status",
     "cliproxy:proof": "node bin/helix-cc-cliproxy proof --model gpt-5.6-luna",
+    "graph:generate": "node scripts/graph-workflows.mjs generate",
+    "graph:check": "node scripts/graph-workflows.mjs check",
+    "graph:compare": "node --test tests/graph-parity.test.mjs",
     "test": "node --test tests/*.test.mjs",
+    "test:graph": "HELIX_CC_WORKFLOW_MODE=graph node --test tests/workflow.test.mjs tests/implement-review-workflow.test.mjs tests/tdd-fix-workflow.test.mjs tests/scout-workflow.test.mjs tests/research-workflow.test.mjs tests/ship-pre-pr-workflow.test.mjs",
     "verify": "npm run ci && claude plugin validate --strict ."
   },
   "dependencies": {
@@ -30,5 +34,12 @@
   },
   "optionalDependencies": {
     "@jeffreycao/copilot-api": "1.14.9"
+  },
+  "overrides": {
+    "@hono/node-server": "2.0.11"
+  },
+  "devDependencies": {
+    "acorn": "8.17.0",
+    "eslint-scope": "9.1.2"
   }
 }

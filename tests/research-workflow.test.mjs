@@ -6,9 +6,9 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { createEvidenceService } from '../lib/trusted-evidence.mjs'
 import { createReceiptSigner } from './evidence-fixtures.mjs'
-import { runWorkflow } from './workflow-harness.mjs'
+import { runWorkflow, workflowFileForMode } from './workflow-harness.mjs'
 
-const file = 'helix-research.js'
+const file = workflowFileForMode('helix-research.js')
 const measurementArgv = ['node', 'scripts/measure.mjs']
 const testArgv = ['npm', 'test']
 

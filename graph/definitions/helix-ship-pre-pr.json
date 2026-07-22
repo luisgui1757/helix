@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "helix-ship-pre-pr",
+  "title": "Helix ship pre-PR",
+  "description": "Exact intent and preflight, documentation, dual review, deterministic gate, then one bounded shipment effect.",
+  "entry": "intent",
+  "initialContext": ["task", "repository", "headBranch", "baseBranch", "taskPaths", "verificationArgv", "releaseCheckArgv", "evidenceSession", "commitMessage", "pullRequestTitle", "pullRequestBody", "models"],
+  "nodes": [
+    { "id": "intent", "label": "Shipping intent", "kind": "operation", "operation": "intent", "effect": "read", "mutatesCheckout": false, "reads": ["task", "headBranch", "baseBranch", "taskPaths", "models"], "writes": ["intentResult"], "tags": [], "transitions": { "next": "document" } },
+    { "id": "document", "label": "Synchronize documentation", "kind": "operation", "operation": "document", "effect": "write", "mutatesCheckout": true, "reads": ["task", "intentResult", "models"], "writes": ["documentation"], "tags": [], "transitions": { "next": "preflight" } },
+    { "id": "preflight", "label": "Signed pre-PR preflight", "kind": "operation", "operation": "preflight", "effect": "evidence", "mutatesCheckout": false, "reads": ["repository", "headBranch", "baseBranch", "taskPaths", "verificationArgv", "releaseCheckArgv", "evidenceSession", "models"], "writes": ["preflightResult"], "tags": ["trusted-evidence"], "transitions": { "next": "review-panel" } },
+    { "id": "review-panel", "label": "Correctness and red-team reviews", "kind": "fork", "operation": "review-panel", "effect": "read", "mutatesCheckout": false, "reads": ["task", "preflightResult", "models"], "writes": ["reviews"], "tags": [], "transitions": { "next": "verifier" } },
+    { "id": "verifier", "label": "Pre-PR verification gate", "kind": "operation", "operation": "verifier", "effect": "read", "mutatesCheckout": false, "reads": ["task", "intentResult", "documentation", "preflightResult", "reviews", "models"], "writes": ["gate"], "tags": [], "transitions": { "next": "ship-decision" } },
+    { "id": "ship-decision", "label": "Deterministic ship decision", "kind": "decision", "operation": "ship-decision", "effect": "control", "mutatesCheckout": false, "reads": ["documentation", "preflightResult", "reviews", "gate"], "writes": ["problems"], "tags": ["deterministic-gate"], "transitions": { "ship": "shipment", "refuse": "refused" } },
+    { "id": "shipment", "label": "Commit, push, and open or reuse PR", "kind": "terminal", "operation": "shipment", "effect": "ship", "mutatesCheckout": true, "reads": ["intentResult", "documentation", "preflightResult", "reviews", "gate", "evidenceSession", "commitMessage", "pullRequestTitle", "pullRequestBody", "repository", "headBranch", "baseBranch", "models"], "writes": [], "tags": [], "transitions": {} },
+    { "id": "refused", "label": "Shipment refused", "kind": "terminal", "operation": "refused", "effect": "control", "mutatesCheckout": false, "reads": ["problems"], "writes": [], "tags": [], "transitions": {} }
+  ],
+  "cycles": [],
+  "approvalTerminals": ["shipment"],
+  "approvalRequirements": ["trusted-evidence", "deterministic-gate"]
+}

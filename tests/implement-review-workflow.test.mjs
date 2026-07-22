@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createReceiptSigner } from './evidence-fixtures.mjs'
-import { runWorkflow } from './workflow-harness.mjs'
+import { runWorkflow, workflowFileForMode } from './workflow-harness.mjs'
 
-const file = 'helix-implement-review.js'
+const file = workflowFileForMode('helix-implement-review.js')
 const verificationArgv = ['npm', 'run', 'verify']
 
 function setup() {

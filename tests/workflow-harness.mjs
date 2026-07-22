@@ -2,6 +2,14 @@ import { readFile } from 'node:fs/promises'
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
 
+export function workflowFileForMode(file, mode = process.env.HELIX_CC_WORKFLOW_MODE) {
+  const selected = mode === undefined ? 'original' : mode
+  if (selected !== 'original' && selected !== 'graph') {
+    throw new Error(`HELIX_CC_WORKFLOW_MODE must be original or graph; received ${JSON.stringify(selected)}`)
+  }
+  return selected === 'graph' ? `graph/${file}` : file
+}
+
 export async function runWorkflow(file, args, responder) {
   const calls = []
   const logs = []
