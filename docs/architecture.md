@@ -397,6 +397,11 @@ and runtime paths must be disjoint in both directions from every physical Git
 metadata path; a read root that contains the candidate also refuses. Linux
 discovers `unshare`, `mount`, `chroot`, and `setpriv` only below fixed trusted
 system/Nix roots and installs the metadata mask after external read binds.
+The Ubuntu 24.04 CI matrix uses
+[Canonical's documented one-boot AppArmor setting](https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890)
+on its ephemeral runner, then proves the exact `unshare` namespace boundary
+before running tests. The matrix fails rather than treating an unavailable
+production sandbox as a skipped test.
 Nix closure discovery uses a private home/configuration and fixed helper path
 against the local daemon store with plugins, substituters, and builders
 disabled; ambient Nix remotes, credentials, configuration, and `PATH` have no
@@ -405,7 +410,10 @@ configuration environment, and disabled replacement refs. Fingerprinting never
 runs Git content conversion: it combines indexed metadata with descriptor-safe,
 byte-bounded physical tracked/untracked entries, so clean/process filters cannot
 execute. Symlinks hash only target text and non-regular entries become
-structural markers. Workspace fingerprints bind the observation, while named/staged execution
+structural markers. Pre-registration filesystem proof includes every
+byte-preserving parent and regular-file `realpath` operation required by that
+fingerprint; a filesystem/runtime pair that cannot preserve it refuses before
+worktree registration. Workspace fingerprints bind the observation, while named/staged execution
 restores from a private guard snapshot if any drift is detected. Timeout or
 cancellation waits for the contained process group to close before cleanup,
 fingerprint, restoration, or evidence finalization. If termination is not

@@ -1048,3 +1048,24 @@ Rejected alternatives:
 - Review completion means no Critical, High, Medium, or Low finding remained
   after Review 24's fixes. It does not convert unavailable exact Node 22.19/26
   execution into evidence; that platform gap remains explicitly disclosed.
+
+## 2026-07-23 — PR #18 CI capability and raw-path invariants
+
+- A required CI environment must provide and prove the production command-gate
+  sandbox boundary before running product tests. Ubuntu 24.04's default
+  AppArmor user-namespace restriction is environment unavailability, not
+  evidence that command-gate behavior may be skipped.
+- Raw-path representability includes every host operation used after admission.
+  Creating and enumerating a byte path is insufficient when the physical
+  fingerprint also requires a byte-preserving parent or regular-file
+  `realpath`; unsupported operations refuse before worktree registration.
+
+Rejected alternatives:
+
+- “Skip command-gate tests on GitHub-hosted Linux”: rejected. It would remove
+  the exact-platform production boundary from the required check.
+- “Treat sandbox-unavailable as an expected product result in E2E fixtures”:
+  rejected. Those fixtures promise executable objective-gate coverage.
+- “The filesystem accepted the raw filename, so later fingerprint refusal is
+  correct”: rejected. Admission owns every downstream representability
+  prerequisite and must fail before registering disposable worktrees.

@@ -1595,3 +1595,28 @@ The review did not rerun tests because it was strictly read-only. Its closing
 `git diff --check` passed, the branch still contained exactly one primary
 worktree at the unchanged base SHA, and the final verdict was
 **SHIP — C0/H0/M0/L0**. The iterative graph-mode review gate is complete.
+
+## 2026-07-23 — PR #18 exact-matrix pre-merge findings
+
+Required PR run `29991995114` tested exact head
+`dcbbda180457ae03c9c1c3c8968652ace54ff03c` under Node 22.19 and 26 with Pi
+0.80.7 and 0.80.10. All four jobs failed before merge. The shared failure was
+not model/runtime behavior: GitHub's Ubuntu 24.04 image enforced AppArmor's
+unprivileged-user-namespace restriction, so the production command sandbox
+correctly returned `objective-gate-sandbox-unavailable`. The matrix had not
+prepared the ephemeral runner for the real boundary it required.
+
+The same run independently reproduced a raw-path admission defect. The
+pre-registration probe created and enumerated an invalid-UTF-8 regular path, but
+Node's Linux `realpathSync(Buffer, { encoding: "buffer" })` could not recover
+that name. Physical fingerprinting therefore returned
+`workflow-runtime-smoke-baseline-invalid` only after worktree registration.
+
+The CI matrix now applies Canonical's documented one-boot AppArmor setting on
+the ephemeral runner and proves the full `unshare` flag set before `npm test`.
+No production sandbox test is skipped, mocked, or downgraded. Raw-tree
+preflight now proves byte-preserving parent and regular-file `realpath`
+operations during the disposable filesystem probe; lack of support returns the
+typed pre-registration baseline-unsupported result. Repository-governance and
+Linux raw-path regressions cover both closures. PR #18 must remain open until
+the replacement exact-head required `test` check succeeds.

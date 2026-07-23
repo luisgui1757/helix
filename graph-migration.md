@@ -1048,6 +1048,21 @@ available independent review while preserving the unverified-model boundary.
   findings: **SHIP — C0/H0/M0/L0**. The review was strictly read-only, so it
   independently traced the supplied verification evidence rather than
   rerunning the suites. The iterative review gate is complete.
+- **PR #18 pre-merge CI finding — 2026-07-23:** required run
+  `29991995114` exercised the exact Node 22.19/26 and Pi 0.80.7/0.80.10 matrix
+  on GitHub's Ubuntu 24.04 image and failed before merge. AppArmor denied the
+  unprivileged user-namespace capabilities required by the real Linux command
+  sandbox, and the raw-tree probe admitted an invalid-UTF-8 regular path after
+  proving creation but before proving the byte-exact `realpath` operation used
+  by physical fingerprinting.
+- **PR #18 CI closure:** the ephemeral matrix applies Canonical's documented
+  one-boot AppArmor setting, proves the exact `unshare` boundary, and continues
+  to run the production sandbox rather than skipping or mocking it.
+  Pre-registration filesystem proof now exercises every parent and regular-file
+  `realpath` operation required by the downstream fingerprint; unsupported raw
+  paths refuse before any worktree registration. The repository-governance and
+  Linux raw-path regressions bind both repairs. The PR remains unmergeable until
+  the replacement exact-head `test` check succeeds.
 
 ## 12. Commit and completion contract
 
@@ -1084,3 +1099,5 @@ merge, tag, release, or rewrite another branch unless separately authorized.
 - [x] Supported-Node 22.19/26 unavailability is explicitly disclosed; no
   installation or substitute runtime was used.
 - [x] Final single commit created and verified.
+- [ ] PR #18 replacement exact-head Node/Pi matrix passes and the squash-only
+  merge is verified on remote and local `main`.

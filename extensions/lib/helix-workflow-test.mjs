@@ -264,6 +264,13 @@ function verifyManifestFilesystem(root, manifest, chmodEffect) {
         writeFileSync(target, Buffer.alloc(0), { flag: "wx", mode });
         chmodEffect(target, mode);
       }
+      const targetParent = Buffer.isBuffer(target)
+        ? target.subarray(0, target.lastIndexOf(Buffer.from(sep)))
+        : dirname(target);
+      realpathSync(targetParent, Buffer.isBuffer(targetParent) ? { encoding: "buffer" } : undefined);
+      if (entry.mode === "100644" || entry.mode === "100755") {
+        realpathSync(target, Buffer.isBuffer(target) ? { encoding: "buffer" } : undefined);
+      }
     }
     const actual = rawTreeListing(probe);
     if (actual.length !== manifest.entries.length) throw new Error("probe-tree-count-invalid");

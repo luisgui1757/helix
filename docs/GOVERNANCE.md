@@ -12,7 +12,11 @@ state.
 - `.github/rulesets/main-owner-updates.json` restricts default-branch updates.
 - `.github/settings.yml` declares non-branch repository settings only.
 - `.github/workflows/ci.yml` emits the single required `test` objective after
-  the Node/Pi matrix and dependency review both succeed.
+  the Node/Pi matrix and dependency review both succeed. Its ephemeral Ubuntu
+  24.04 jobs explicitly enable Canonical's documented one-boot unprivileged
+  user-namespace boundary and prove `unshare` before exercising the real Linux
+  objective-gate sandbox; sandbox unavailability is a failed matrix, not a
+  skip.
 - `renovate.json` owns routine version updates. GitHub-native Dependabot owns
   vulnerability alerts and security updates.
 - `.gitleaks.toml` extends the current built-in detector set and records only

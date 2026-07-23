@@ -532,7 +532,9 @@ The single source for test rules.
   and symlink-target bytes are preserved exactly. Before registration, the
   scratch filesystem must materialize, enumerate byte-for-byte, and remove the
   complete path/type skeleton, every regular-file executable bit, and every
-  symlink payload; Helix never infers arbitrary filesystem equivalence from
+  symlink payload. It must also prove every byte-exact parent and regular-file
+  `realpath` operation used by physical fingerprinting; creation alone is not
+  representability. Helix never infers arbitrary filesystem equivalence from
   Unicode normalization or case conversion. Cleanup derives lexical and
   physical checkout identities from
   the already-created root, reconciles both identities against Git and the
@@ -544,6 +546,10 @@ The single source for test rules.
   the disposable worktree. Command gates require a supported OS sandbox: the
   candidate is mounted read-only, network access and ambient credentials are
   absent, and exact before/after workspace fingerprints bind the observation.
+  Ephemeral Ubuntu 24.04 CI must enable and prove the documented unprivileged
+  user-namespace boundary before the matrix; it may not skip, mock, or
+  downgrade production sandbox tests because the runner's AppArmor default
+  denies namespace capabilities.
   The sandbox exposes a minimal credential-free Git view rather than the host
   Git common directory: a bounded self-contained database contains only the
   admitted current tree/index objects and has no host history or object-store

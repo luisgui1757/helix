@@ -767,7 +767,7 @@ test("runtime smoke preserves raw POSIX paths and symlink targets byte-for-byte"
   assert.equal(outcome.mode_comparison.matched, true);
 });
 
-test("runtime smoke admits invalid UTF-8 Git paths only when the scratch filesystem preserves them", {
+test("runtime smoke admits invalid UTF-8 Git paths only when filesystem and fingerprint boundaries preserve them", {
   skip: process.platform === "win32",
 }, async () => {
   const cwd = repo();
@@ -804,9 +804,10 @@ test("runtime smoke admits invalid UTF-8 Git paths only when the scratch filesys
   let rawPathsSupported = false;
   try {
     writeFileSync(probePath, "");
-    rawPathsSupported = true;
+    const realized = realpathSync(probePath, { encoding: "buffer" });
+    rawPathsSupported = Buffer.isBuffer(realized);
   } catch (error) {
-    assert.ok(["EILSEQ", "EINVAL", "ENOTSUP"].includes(error?.code), error?.code);
+    assert.ok(["EILSEQ", "EINVAL", "ENOTSUP", "ENOENT"].includes(error?.code), error?.code);
   } finally {
     rmSync(probeRoot, { recursive: true, force: true });
   }

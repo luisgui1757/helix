@@ -449,7 +449,15 @@ Everything lands together on one fresh non-default branch. Nothing is presented 
 > over the exact 42-file branch scope, repeated both identity gates, and
 > returned **SHIP — C0/H0/M0/L0**. The graph-mode extension review gate is
 > **DONE**. Exact Node 22.19/26 execution remains explicitly unavailable without
-> installation or substitution and is not claimed.
+> installation or substitution and is not claimed. PR #18's first required
+> exact Node 22.19/26 and Pi 0.80.7/0.80.10 matrix then exposed two pre-merge
+> portability gaps: Ubuntu 24.04 AppArmor denied the real user-namespace
+> sandbox, and invalid-UTF-8 path creation did not prove the byte-exact
+> `realpath` operation required by fingerprinting. The repaired matrix enables
+> and proves Canonical's documented ephemeral user-namespace boundary without
+> skipping production sandbox tests; raw-tree preflight now refuses before
+> registration when any required physical-path operation is unsupported. The
+> required replacement exact-head `test` check remains the merge gate.
 
 ## 3. Direct answers
 
