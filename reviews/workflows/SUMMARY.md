@@ -1620,3 +1620,43 @@ operations during the disposable filesystem probe; lack of support returns the
 typed pre-registration baseline-unsupported result. Repository-governance and
 Linux raw-path regressions cover both closures. PR #18 must remain open until
 the replacement exact-head required `test` check succeeds.
+
+## 2026-07-23 — PR #18 replacement-matrix fixture finding
+
+Run `29993329678` exercised repaired head
+`00d4a4e74d0ba409fd16b755188a02371636a45d`. The AppArmor setup and exact
+namespace proof passed in all four Node/Pi jobs. Each primary suite then
+reported the same single failure: `raw-case-fold` expected one worktree add
+because its platform helper proved only that two raw names could be created.
+Production preflight correctly performed the additional byte-path `realpath`,
+classified the invalid-UTF-8 pair as unsupported on Linux, and made zero
+registrations.
+
+The fixture helper now proves byte-root and both regular-file `realpath`
+operations before returning supported. An unsupported operation retains the
+zero-registration and typed baseline-unsupported assertions; a fully supported
+filesystem retains the registration-path assertion. No product refusal,
+sandbox test, or required matrix leg was weakened or skipped. A new exact-head
+matrix is required before merge.
+
+## 2026-07-23 — Graph-mode Review 26 finding and closure
+
+Exact all-scope session `019f8e31-7dae-7793-8944-054f727f227a` ran under
+host-reported `gpt-5.6-sol` with `xhigh` reasoning against commit
+`00d4a4e74d0ba409fd16b755188a02371636a45d`. It repeated the repository,
+base, branch, scope, and closing identity gates and returned
+**HOLD — C0/H0/M1/L0**. Its sole Medium finding independently matched run
+`29993329678`: the raw-collision fixture proved name creation but not the
+byte-path `realpath` operations required by production admission. No other
+material finding remained, and it confirmed the AppArmor closure itself was
+correct.
+
+The correction requires buffer-returning `realpathSync` for the scratch root
+and both raw regular files before the fixture classifies a pair as supported;
+`EILSEQ`, `EINVAL`, `ENOTSUP`, and `ENOENT` remain typed unsupported-platform
+outcomes. Focused proof passes 2/2 on macOS and 2/2 in a network-disabled Linux
+container, repository-governance passes 5/5, and the complete local suite
+passes 919/919 plus worktree 12/12 and objective loop 8/8. Resources,
+documentation truth, repository policy, static no-live-egress, public-safety
+diff, and `git diff --check` pass. A fresh exact-head review and remote matrix
+remain required.

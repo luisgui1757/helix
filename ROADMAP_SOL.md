@@ -1740,3 +1740,24 @@ Final report:
 - residual risks, which must contain no unresolved P0/P1 and no hidden
   compromise.
 ```
+
+## 2026-07-23 — PR #18 replacement-matrix test-model closure
+
+Exact-head run `29993329678` passed the new production namespace capability
+setup in every Node/Pi job. Its sole primary-suite failure was the
+`raw-case-fold` collision fixture: production correctly refused the
+invalid-UTF-8 pair before worktree registration because Linux cannot complete
+the required byte-path `realpath`, while the fixture's support probe checked
+only file creation and expected registration.
+
+The fixture now admits a collision pair as supported only after both creation
+and the same byte-root and regular-file `realpath` operations used by production
+preflight succeed. This preserves the fail-closed product behavior and tests
+the real platform contract instead of weakening or skipping it. A succeeding
+replacement exact-head required `test` check remains mandatory before merge.
+
+Exact all-scope Review 26 session
+`019f8e31-7dae-7793-8944-054f727f227a` independently confirmed this as the
+only material branch finding and returned **HOLD — C0/H0/M1/L0** on commit
+`00d4a4e`. Its prescribed root-and-file `realpath` repair is the correction
+above. A fresh exact-head review remains mandatory alongside the matrix.

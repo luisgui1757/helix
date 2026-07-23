@@ -832,7 +832,7 @@ test("runtime smoke admits invalid UTF-8 Git paths only when filesystem and fing
   assert.equal(after, before);
 });
 
-function namesAreDistinctOnScratchFilesystem(left, right) {
+function namesAreDistinctAndFingerprintableOnScratchFilesystem(left, right) {
   const root = mkdtempSync(join(tmpdir(), "helix-name-distinction-"));
   const raw = (name) => Buffer.concat([Buffer.from(root), Buffer.from(sep), name]);
   try {
@@ -844,9 +844,19 @@ function namesAreDistinctOnScratchFilesystem(left, right) {
     }
     try {
       writeFileSync(raw(right), "", { flag: "wx" });
-      return true;
     } catch (error) {
       if (error?.code === "EEXIST") return false;
+      throw error;
+    }
+    try {
+      const realized = [
+        realpathSync(Buffer.from(root), { encoding: "buffer" }),
+        realpathSync(raw(left), { encoding: "buffer" }),
+        realpathSync(raw(right), { encoding: "buffer" }),
+      ];
+      return realized.every((path) => Buffer.isBuffer(path)) ? true : "unsupported";
+    } catch (error) {
+      if (["EILSEQ", "EINVAL", "ENOTSUP", "ENOENT"].includes(error?.code)) return "unsupported";
       throw error;
     }
   } finally {
@@ -881,7 +891,10 @@ test("runtime smoke proves raw and Unicode collision classes before worktree reg
   });
   assert.equal(built.ok, true, JSON.stringify(built.errors));
   for (const candidate of cases) {
-    const distinct = namesAreDistinctOnScratchFilesystem(candidate.left, candidate.right);
+    const distinct = namesAreDistinctAndFingerprintableOnScratchFilesystem(
+      candidate.left,
+      candidate.right,
+    );
     const baseGit = rawTreeGit([
       { path: candidate.left, size: 0, bytes: Buffer.alloc(0) },
       { path: candidate.right, size: 0, bytes: Buffer.alloc(0) },

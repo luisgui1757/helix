@@ -1063,6 +1063,22 @@ available independent review while preserving the unverified-model boundary.
   paths refuse before any worktree registration. The repository-governance and
   Linux raw-path regressions bind both repairs. The PR remains unmergeable until
   the replacement exact-head `test` check succeeds.
+- **PR #18 replacement-matrix test correction — 2026-07-23:** exact-head run
+  `29993329678` proved the namespace setup in all four jobs and proved the
+  production invalid-UTF-8 path now refuses before registration. Its collision
+  test helper still classified a raw pair as supported after checking only file
+  creation, then incorrectly expected one worktree add. The helper now proves
+  the same byte-root and regular-file `realpath` operations as production
+  preflight before deciding whether the platform supports the pair. The PR
+  remains unmergeable until the next exact-head `test` check succeeds.
+- **Review 26 — 2026-07-23 — HOLD then fixed:** exact all-scope session
+  `019f8e31-7dae-7793-8944-054f727f227a` independently returned
+  **HOLD — C0/H0/M1/L0** over repaired commit `00d4a4e`. Its sole Medium
+  finding was the same creation-only raw-collision capability helper exposed
+  by run `29993329678`; no other material finding remained. The helper and
+  append-only ledgers are corrected in the next exact head, with local macOS
+  and network-disabled Linux focused proof plus the complete local repository
+  suite. A fresh exact-head review and required matrix remain mandatory.
 
 ## 12. Commit and completion contract
 

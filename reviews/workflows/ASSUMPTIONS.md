@@ -1069,3 +1069,16 @@ Rejected alternatives:
 - “The filesystem accepted the raw filename, so later fingerprint refusal is
   correct”: rejected. Admission owns every downstream representability
   prerequisite and must fail before registering disposable worktrees.
+
+## 2026-07-23 — Raw collision fixture capability invariant
+
+- A platform fixture may classify raw path pairs as supported only after it
+  proves every host operation whose success production admission requires.
+  Filename creation alone cannot predict whether Node can perform the byte-root
+  and regular-file `realpath` operations used by physical fingerprinting.
+
+Rejected alternative:
+
+- “Expect a worktree add whenever both raw names can be created”: rejected. On
+  Linux, invalid-UTF-8 names may be created while byte-path `realpath` refuses;
+  production must then stop before registration.
