@@ -18,6 +18,10 @@ import {
   validateWorkflowDefinition,
   workflowDefinitionHash,
 } from "../workflow/schema.mjs";
+import {
+  DEFAULT_WORKFLOW_EXECUTION_MODE,
+  validateWorkflowExecutionMode,
+} from "../workflow/graph.mjs";
 import { plannedWorkflowGraph } from "../workflow/visualize.mjs";
 
 const ID = /^[a-z0-9][a-z0-9._-]*$/;
@@ -432,15 +436,29 @@ export function validateWorkflow(workflow) {
 }
 
 /** Bind every mutable source that can change the confirmed workflow execution. */
-export function workflowExecutionBindingRef({ workflow, profile = null, toggles, presets, subworkflows = [] } = {}) {
+export function workflowExecutionBindingRef({
+  workflow,
+  profile = null,
+  toggles,
+  presets,
+  subworkflows = [],
+  execution_mode = DEFAULT_WORKFLOW_EXECUTION_MODE,
+} = {}) {
   if (!isPlainObject(workflow) || !isPlainObject(toggles) || !(presets instanceof Map)
-    || !Array.isArray(subworkflows) || subworkflows.some((entry) => !isPlainObject(entry))) return null;
+    || !Array.isArray(subworkflows) || subworkflows.some((entry) => !isPlainObject(entry))
+    || !validateWorkflowExecutionMode(execution_mode).ok) return null;
+  const compare = execution_mode === DEFAULT_WORKFLOW_EXECUTION_MODE
+    ? (left, right) => left.localeCompare(right)
+    : (left, right) => left < right ? -1 : left > right ? 1 : 0;
   const presetEntries = [...presets.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compare(left, right))
     .map(([id, preset]) => [id, preset]);
   const childEntries = [...subworkflows].sort((left, right) =>
-    `${left.id}@${left.version}`.localeCompare(`${right.id}@${right.version}`));
-  return hashRef(stableStringify({ workflow, profile, toggles, presets: presetEntries, subworkflows: childEntries }));
+    compare(`${left.id}@${left.version}`, `${right.id}@${right.version}`));
+  const legacyBinding = { workflow, profile, toggles, presets: presetEntries, subworkflows: childEntries };
+  return hashRef(stableStringify(execution_mode === DEFAULT_WORKFLOW_EXECUTION_MODE
+    ? legacyBinding
+    : { ...legacyBinding, execution_mode }));
 }
 
 function conditionMatches(condition, signal) {

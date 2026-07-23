@@ -161,6 +161,7 @@ const OBJECTIVE_GATE_OUTCOME_SCHEMA = Object.freeze({
     command_names: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
     result: { type: "string", enum: ["pass", "fail"] },
     source: { type: "string", enum: ["exit-status", "deterministic-checker"] },
+    evidence_ref: { type: "string", pattern: REF_PATTERN },
   },
 });
 
@@ -173,6 +174,7 @@ const ADVISORY_GATE_OUTCOME_SCHEMA = Object.freeze({
     command_names: { type: "array", items: { type: "string", minLength: 1 } },
     result: { type: "string", enum: ["pass", "fail", "not-run"] },
     source: { type: "string", enum: ["exit-status", "deterministic-checker", "advisory"] },
+    evidence_ref: { type: "string", pattern: REF_PATTERN },
   },
 });
 
@@ -708,6 +710,10 @@ export async function runDispatch(request, deps = {}) {
     } catch (error) {
       return finish("fail-closed", "gate-execution-failure", SAFE_FAILURE_DETAIL["gate-execution-failure"]);
     }
+    if (outcome?.result === "error" && typeof outcome.code === "string"
+      && PUBLIC_CODE_PATTERN.test(outcome.code) && outcome.code.length <= 160) {
+      return finish("fail-closed", outcome.code, SAFE_FAILURE_DETAIL["gate-execution-failure"]);
+    }
     const gateShape = validate(OBJECTIVE_GATE_OUTCOME_SCHEMA, outcome, "$");
     if (!gateShape.valid) {
       return finish("fail-closed", "invalid-gate-outcome", summarizeErrors(gateShape.errors));
@@ -722,6 +728,10 @@ export async function runDispatch(request, deps = {}) {
         outcome = await deps.runGate(route, ctx);
       } catch (error) {
         return finish("fail-closed", "gate-execution-failure", SAFE_FAILURE_DETAIL["gate-execution-failure"]);
+      }
+      if (outcome?.result === "error" && typeof outcome.code === "string"
+        && PUBLIC_CODE_PATTERN.test(outcome.code) && outcome.code.length <= 160) {
+        return finish("fail-closed", outcome.code, SAFE_FAILURE_DETAIL["gate-execution-failure"]);
       }
       const gateShape = validate(ADVISORY_GATE_OUTCOME_SCHEMA, outcome, "$");
       if (!gateShape.valid) {

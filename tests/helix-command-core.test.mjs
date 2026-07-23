@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  arbitrateHelixRunFailureCode,
   executeHelixCommand,
   getHelixArgumentCompletions,
   isHelixMutationRequest,
@@ -14,10 +15,12 @@ import {
 } from "../extensions/lib/helix-command-core.mjs";
 import { preflightTaskLoopConfig } from "../dispatch/lib/task-loop.mjs";
 import { PUBLIC_SAFETY_PATTERNS } from "../tools/ci/public-safety-diff-scan.mjs";
-import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
+import { createWorkflowFromTemplate, workflowLifecycleSnapshot } from "../dispatch/lib/workflows.mjs";
+import { workflowDefinitionHash } from "../dispatch/workflow/schema.mjs";
 import { saveUserWorkflow } from "../extensions/lib/helix-workflows.mjs";
 import { saveProfile, switchProfile } from "../extensions/lib/helix-local.mjs";
-import { agent, objectiveGate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { agent, objectiveGate, pipeline, subworkflow, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { EMPTY_KERNEL_EVENT_PREFIX_REF } from "../dispatch/kernel/state.mjs";
 
 const root = new URL("..", import.meta.url);
 const testStateRoot = mkdtempSync(join(tmpdir(), "helix-command-state-"));
@@ -74,6 +77,25 @@ function writeDebateRecord(root, runId = "safe-run") {
   return dir;
 }
 
+function writeKernelResumeState(root, runId, schemaVersion, executionMode, overrides = {}) {
+  const dir = join(root, runId);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${runId}.state.json`), JSON.stringify({
+    schema_version: schemaVersion,
+    run_id: runId,
+    workflow_id: "mock-core-loop",
+    workflow_version: 1,
+    definition_ref: `sha256:${"a".repeat(64)}`,
+    completed: false,
+    status: "running",
+    journal_entries: 0,
+    event_count: 0,
+    ...(schemaVersion === 5 ? { event_ref: EMPTY_KERNEL_EVENT_PREFIX_REF } : {}),
+    ...(executionMode === undefined ? {} : { execution_mode: executionMode }),
+    ...overrides,
+  }), "utf8");
+}
+
 function malformedConfigRoot() {
   const malformedRoot = mkdtempSync(join(tmpdir(), "helix-command-malformed-"));
   mkdirSync(join(malformedRoot, "dispatch", "config"), { recursive: true });
@@ -113,6 +135,8 @@ test("helix run preflight renders the resolved installed-package workflow", () =
   assert.equal(out.ok, true);
   assert.equal(out.details.launches_loop, false);
   assert.equal(out.details.config_id, "mock-core-loop");
+  assert.equal(out.details.execution_mode, "original-mode");
+  assert.match(out.text, /Execution mode: original-mode/);
   assert.equal(out.details.cli_invocation, undefined);
   assert.equal(out.text.includes("Providers: mock"), true);
   assert.equal(out.text.includes("Live: no-live (mock providers only)"), true);
@@ -132,6 +156,47 @@ test("helix run preflight renders the resolved installed-package workflow", () =
   assert.equal(rendered.includes("profile"), false);
   assert.equal(rendered.includes("write_allowlist"), false);
   assert.equal(rendered.includes("token_budget"), false);
+});
+
+test("helix run preflight selects graph-mode strictly and binds it separately", () => {
+  const options = { runsRoot: tempRunsRoot() };
+  const original = executeHelixCommand("run mock-core-loop", { mode: "print" }, options);
+  const explicitOriginal = executeHelixCommand(
+    "run mock-core-loop --execution-mode original-mode",
+    { mode: "print" },
+    options,
+  );
+  const graph = executeHelixCommand(
+    "run mock-core-loop --execution-mode graph-mode",
+    { mode: "print" },
+    options,
+  );
+  const defaultGraph = executeHelixCommand(
+    "run --execution-mode graph-mode",
+    { mode: "print" },
+    options,
+  );
+
+  assert.equal(original.ok, true);
+  assert.equal(explicitOriginal.ok, true);
+  assert.equal(graph.ok, true);
+  assert.equal(defaultGraph.ok, true);
+  assert.equal(original.details.execution_binding_ref, explicitOriginal.details.execution_binding_ref);
+  assert.notEqual(graph.details.execution_binding_ref, original.details.execution_binding_ref);
+  assert.equal(graph.details.execution_mode, "graph-mode");
+  assert.equal(defaultGraph.details.execution_mode, "graph-mode");
+  assert.match(graph.text, /Execution mode: graph-mode/);
+
+  for (const args of [
+    "run mock-core-loop --execution-mode",
+    "run mock-core-loop --execution-mode unknown-mode",
+    "run mock-core-loop --execution-mode graph-mode extra",
+    "run mock-core-loop --execution-mode graph-mode --execution-mode original-mode",
+  ]) {
+    const refused = executeHelixCommand(args, { mode: "print" }, options);
+    assert.equal(refused.ok, false, args);
+    assert.equal(refused.code, "workflow-execution-mode-invalid", args);
+  }
 });
 
 test("named workflows ignore irrelevant global profile stages visibly instead of failing cast resolution", () => {
@@ -258,6 +323,8 @@ test("native run completion renders only stable structural fields", () => {
     stopReason: "converged",
   });
   assert.equal(complete.ok, true);
+  assert.equal(complete.details.execution_mode, "original-mode");
+  assert.match(complete.text, /Execution mode: original-mode/);
   assert.match(complete.text, /Inspect: \/helix-run-status native-mock-run/);
 
   const failed = renderHelixRunCompletion({
@@ -293,6 +360,25 @@ test("native run completion renders only stable structural fields", () => {
   });
   assert.equal(paused.ok, true);
   assert.equal(paused.status, "paused");
+
+  const graph = renderHelixRunCompletion({
+    runId: "native-graph-run",
+    configId: "mock-core-loop",
+    executionMode: "graph-mode",
+    exitCode: 0,
+    converged: true,
+    stopReason: "converged",
+  });
+  assert.equal(graph.details.execution_mode, "graph-mode");
+  assert.match(graph.text, /Execution mode: graph-mode/);
+  assert.equal(renderHelixRunCompletion({
+    runId: "native-invalid-mode",
+    configId: "mock-core-loop",
+    executionMode: "unknown-mode",
+    exitCode: 0,
+    converged: true,
+    stopReason: "converged",
+  }).code, "helix-runner-result-invalid");
   assert.match(paused.text, /Continue: \/helix-run-resume native-mock-run/);
   assert.equal(paused.text.includes("failed"), false);
 
@@ -329,6 +415,19 @@ test("native run completion renders only stable structural fields", () => {
   assert.match(interrupted.text, /Continue: \/helix-run-resume native-mock-run/);
   assert.equal(interrupted.text.includes("Helix run failed"), false);
 
+  const cancelledUnknown = renderHelixRunCompletion({
+    runId: "native-mock-run",
+    configId: "mock-core-loop",
+    exitCode: 1,
+    converged: false,
+    stopReason: "cancelled",
+    failureCode: "kernel-effect-outcome-unknown",
+    resumable: true,
+  });
+  assert.equal(cancelledUnknown.status, "interrupted");
+  assert.match(cancelledUnknown.text, /Reason: kernel-effect-outcome-unknown/);
+  assert.match(cancelledUnknown.text, /Continue: \/helix-run-resume native-mock-run/);
+
   const noCheckpoint = renderHelixRunCompletion({
     runId: "native-mock-run",
     configId: "mock-core-loop",
@@ -342,32 +441,110 @@ test("native run completion renders only stable structural fields", () => {
   assert.equal(noCheckpoint.text.includes("/helix-run-resume"), false);
 });
 
+test("fresh-run failure arbitration preserves every authoritative terminal status", () => {
+  for (const [code, runAbortCode] of [
+    ["objective-failed", "workflow-run-timeout"],
+    ["policy-refused", "workflow-run-cancelled"],
+    ["authored-cancelled", "workflow-run-timeout"],
+  ]) {
+    assert.equal(arbitrateHelixRunFailureCode({
+      ok: false,
+      code,
+      terminalAuthoritative: true,
+      runAbortCode,
+      adapterFailureCode: "pi-agent-provider-failed",
+    }), code);
+  }
+  assert.equal(arbitrateHelixRunFailureCode({
+    ok: false,
+    code: "kernel-run-cancelled",
+    runAbortCode: "workflow-run-cancelled",
+  }), "workflow-run-cancelled");
+  assert.equal(arbitrateHelixRunFailureCode({
+    ok: false,
+    code: "kernel-run-deadline-exceeded",
+  }), "workflow-run-timeout");
+  assert.equal(arbitrateHelixRunFailureCode({
+    ok: false,
+    adapterFailureCode: "pi-agent-provider-failed",
+  }), "pi-agent-provider-failed");
+  assert.equal(arbitrateHelixRunFailureCode({
+    ok: false,
+    code: "kernel-checkpoint-write-failed",
+    runAbortCode: "workflow-run-timeout",
+  }), "kernel-checkpoint-write-failed");
+});
+
 test("workflow runtime test renderer accepts only the proved smoke contract", () => {
+  const modeSummary = (executionMode, overrides = {}) => ({
+    execution_mode: executionMode,
+    status: "succeeded",
+    terminal: "success",
+    nodes_exercised: 4,
+    effects_exercised: 2,
+    transitions_exercised: 3,
+    objective_gate_exercised: true,
+    ...overrides,
+  });
+  const modeComparison = {
+    matched: true,
+    original_mode: modeSummary("original-mode"),
+    graph_mode: modeSummary("graph-mode"),
+  };
   const complete = renderWorkflowRuntimeTest({
     workflowId: "my-flow",
     outcome: {
       ok: true,
       runner: "workflow-kernel-v4",
       provider_calls: 0,
-      objective_check: "simulated",
+      objective_check: "real",
       nodes_exercised: 4,
       effects_exercised: 2,
       transitions_exercised: 3,
       objective_gate_exercised: true,
+      mode_comparison: modeComparison,
     },
   });
   assert.equal(complete.ok, true);
   assert.equal(complete.details.provider_calls, 0);
+  assert.equal(complete.details.objective_check_real, true);
+  assert.equal(complete.details.mode_comparison.matched, true);
+  assert.match(complete.text, /Mode comparison: original-mode and graph-mode matched/);
 
   for (const outcome of [
-    { ok: true, runner: "staged-v1", provider_calls: 0, objective_check: "simulated", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
-    { ok: true, runner: "workflow-kernel-v4", provider_calls: 1, objective_check: "simulated", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
-    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "real", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
-    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "simulated", nodes_exercised: 0, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
-    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "simulated", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: Number.NaN, objective_gate_exercised: true },
-    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "simulated", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: false },
+    { ok: true, runner: "staged-v1", provider_calls: 0, objective_check: "real", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 1, objective_check: "real", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "simulated", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "real", nodes_exercised: 0, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "real", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: Number.NaN, objective_gate_exercised: true },
+    { ok: true, runner: "workflow-kernel-v4", provider_calls: 0, objective_check: "real", nodes_exercised: 4, effects_exercised: 2, transitions_exercised: 3, objective_gate_exercised: false },
   ]) {
     assert.equal(renderWorkflowRuntimeTest({ workflowId: "my-flow", outcome }).code, "workflow-runtime-smoke-invalid");
+  }
+
+  const validOutcome = {
+    ok: true,
+    runner: "workflow-kernel-v4",
+    provider_calls: 0,
+    objective_check: "real",
+    nodes_exercised: 4,
+    effects_exercised: 2,
+    transitions_exercised: 3,
+    objective_gate_exercised: true,
+    mode_comparison: modeComparison,
+  };
+  for (const comparison of [
+    { ...modeComparison, matched: false },
+    { ...modeComparison, graph_mode: modeSummary("original-mode") },
+    { ...modeComparison, graph_mode: modeSummary("graph-mode", { effects_exercised: 3 }) },
+    { ...modeComparison, graph_mode: { ...modeSummary("graph-mode"), unexpected: true } },
+    { ...modeComparison, original_mode: modeSummary("original-mode", { status: "failed" }) },
+  ]) {
+    const rendered = renderWorkflowRuntimeTest({
+      workflowId: "my-flow",
+      outcome: { ...validOutcome, mode_comparison: comparison },
+    });
+    assert.equal(rendered.code, "workflow-runtime-smoke-invalid");
   }
 });
 
@@ -583,6 +760,53 @@ test("helix runs list and status use structural run-manager data only", () => {
   assert.equal(JSON.stringify(status.details).includes("transcript"), false);
 });
 
+test("helix resume preflight pins graph-mode and refuses legacy unbound kernel state", () => {
+  const runsRoot = tempRunsRoot();
+  writeKernelResumeState(runsRoot, "legacy-resume", 4);
+  writeKernelResumeState(runsRoot, "graph-resume", 5, "graph-mode");
+  writeKernelResumeState(runsRoot, "missing-mode", 5);
+  writeKernelResumeState(runsRoot, "legacy-extra-mode", 4, "graph-mode");
+
+  const legacy = executeHelixCommand("runs resume legacy-resume", { mode: "print" }, { runsRoot });
+  assert.equal(legacy.ok, false);
+  assert.equal(legacy.code, "invalid-resume-state");
+  assert.equal(legacy.details.detail, "legacy-event-prefix-unbound");
+
+  const graph = executeHelixCommand("runs resume graph-resume", { mode: "print" }, { runsRoot });
+  assert.equal(graph.ok, true);
+  assert.equal(graph.details.execution_mode, "graph-mode");
+  assert.match(graph.text, /Execution mode: graph-mode/);
+
+  const invalid = executeHelixCommand("runs resume missing-mode", { mode: "print" }, { runsRoot });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.code, "invalid-resume-state");
+  const legacyExtra = executeHelixCommand("runs resume legacy-extra-mode", { mode: "print" }, { runsRoot });
+  assert.equal(legacyExtra.ok, false);
+  assert.equal(legacyExtra.code, "invalid-resume-state");
+});
+
+test("kernel watch and resume refuse every invalid public event or journal count", () => {
+  const runsRoot = tempRunsRoot();
+  for (const field of ["event_count", "journal_entries"]) {
+    for (const [label, value] of [
+      ["negative", -1],
+      ["fractional", 0.5],
+      ["unsafe", Number.MAX_SAFE_INTEGER + 1],
+    ]) {
+      const runId = `${field.replace("_", "-")}-${label}`;
+      writeKernelResumeState(runsRoot, runId, 5, "graph-mode", { [field]: value });
+      const watched = executeHelixCommand(`runs watch ${runId}`, { mode: "print" }, { runsRoot });
+      assert.equal(watched.ok, false, `${field}/${label}`);
+      assert.equal(watched.code, "run-record-invalid-or-unsafe", `${field}/${label}`);
+      assert.equal(watched.details.detail, "kernel-state-structure", `${field}/${label}`);
+      const resumed = executeHelixCommand(`runs resume ${runId}`, { mode: "print" }, { runsRoot });
+      assert.equal(resumed.ok, false, `${field}/${label}`);
+      assert.equal(resumed.code, "invalid-resume-state", `${field}/${label}`);
+      assert.equal(resumed.details.detail, "kernel-state-structure", `${field}/${label}`);
+    }
+  }
+});
+
 test("helix run status refuses unsafe run ids through run-manager validation", () => {
   const out = executeHelixCommand("runs status ../escape", { mode: "print" }, { runsRoot: tempRunsRoot() });
   assert.equal(out.ok, false);
@@ -675,6 +899,15 @@ test("helix completions expose only the single-command verb set", () => {
     "workflows import flow.json",
   ]) assert.equal(isHelixMutationRequest(args), true, args);
   assert.equal(isHelixMutationRequest("research why --metric x >= 1 --max 1"), false);
+
+  assert.deepEqual(
+    getHelixArgumentCompletions("run mock-core-loop --execution-mode ").map((item) => item.label),
+    ["original-mode", "graph-mode"],
+  );
+  assert.deepEqual(
+    getHelixArgumentCompletions("run mock-core-loop --execution-mode g").map((item) => item.label),
+    ["graph-mode"],
+  );
 });
 
 test("v4 import is attended, validated, atomic, and immediately graphable", () => {
@@ -703,6 +936,75 @@ test("v4 import is attended, validated, atomic, and immediately graphable", () =
   const shown = executeHelixCommand("workflows show imported-v4", { mode: "print" }, options);
   assert.equal(shown.ok, true, JSON.stringify(shown));
   assert.match(shown.text, /objective \(gate\)/);
+});
+
+test("schema-4 run watch preserves opaque child history and ignores an unauthoritative event suffix", () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-legacy-child-watch-"));
+  const runsRoot = join(stateRoot, "runs");
+  const runId = "legacy-child-watch";
+  const runDir = join(runsRoot, runId);
+  mkdirSync(runDir, { recursive: true });
+  const built = workflow({
+    id: "legacy-watch-parent", name: "Legacy watch parent", description: "Historical watch fixture.",
+    start: "child",
+    nodes: {
+      child: subworkflow("missing-historical-child", 1, "objective"),
+      objective: objectiveGate("succeeded", "failed"),
+      succeeded: terminal("succeeded"),
+      failed: terminal("failed", "legacy-watch-failed"),
+    },
+    objective_gate: { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 },
+  });
+  assert.equal(built.ok, true);
+  const definition = built.definition;
+  const definitionRef = workflowDefinitionHash(definition);
+  const events = [
+    { kind: "run-start", node_id: "child", definition_ref: definitionRef },
+    { kind: "node-start", node_id: "child", visit: 1 },
+    {
+      kind: "subworkflow-event", node_id: "child", child_run_id: `${runId}.child.1`,
+      child_seq: 1, child_kind: "run-start", child_node_id: "work",
+    },
+    {
+      kind: "subworkflow-event", node_id: "child", child_run_id: `${runId}.child.1`,
+      child_seq: 2, child_kind: "run-end", child_node_id: "success", child_status: "succeeded",
+    },
+    { kind: "node-end", node_id: "child", status: "ok" },
+    { kind: "transition", node_id: "child", target: "objective" },
+  ].map((event, index) => ({ schema_version: 1, seq: index + 1, run_id: runId, ...event }));
+  writeFileSync(join(runDir, `${runId}.state.json`), JSON.stringify({
+    schema_version: 4,
+    run_id: runId,
+    workflow_id: definition.id,
+    workflow_version: definition.version,
+    definition_ref: definitionRef,
+    completed: false,
+    status: "running",
+    code: null,
+    terminal: null,
+    event_count: events.length,
+    journal_entries: 0,
+  }));
+  writeFileSync(join(runDir, `${runId}.definition.json`), JSON.stringify(definition));
+  writeFileSync(join(runDir, `${runId}.workflow.json`), JSON.stringify(workflowLifecycleSnapshot(definition)));
+  const unauthorizedSuffix = {
+    schema_version: 1,
+    seq: events.length + 1,
+    run_id: runId,
+    kind: "node-start",
+    node_id: "succeeded",
+    visit: 1,
+  };
+  writeFileSync(
+    join(runDir, `${runId}.kernel.events.jsonl`),
+    `${[...events, unauthorizedSuffix].map((event) => JSON.stringify(event)).join("\n")}\n`,
+  );
+
+  const watched = executeHelixCommand(`runs watch ${runId}`, { mode: "print" }, { stateRoot, runsRoot });
+  assert.equal(watched.ok, true, JSON.stringify(watched));
+  assert.equal(watched.details.execution_mode, "original-mode");
+  assert.equal(watched.details.current_node, "objective");
+  assert.deepEqual(watched.details.child_graphs, []);
 });
 
 test("malformed v4 import returns a stable boundary refusal and writes nothing", () => {

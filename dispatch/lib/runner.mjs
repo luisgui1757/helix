@@ -1868,8 +1868,39 @@ async function runStagedTaskLoopLeased(config, registries, deps = {}) {
     return { ok: true };
   });
 
+  let gateGuardGeneration = 0;
+  const gateWorkspaceGuard = checkpointEffect ? {
+    currentRef() {
+      const fingerprint = checkpointEffect.fingerprint(workPath, checkpointRuntimePaths);
+      if (!fingerprint?.ok) throw new Error(fingerprint?.code ?? RUNNER_CODES.CHECKPOINT_INVALID);
+      return fingerprint.tree_ref;
+    },
+    async begin({ before_ref: beforeRef }) {
+      const current = this.currentRef();
+      if (current !== beforeRef) return { ok: false, code: RUNNER_CODES.CHECKPOINT_INVALID };
+      const generation = `gate-${runGeneration}-${++gateGuardGeneration}`;
+      const snapshot = checkpointEffect.snapshot(runId, generation, workPath, checkpointRuntimePaths);
+      return snapshot?.ok && snapshot.tree_ref === beforeRef
+        ? { ok: true, cwd: workPath, before_ref: beforeRef, generation, tree_ref: snapshot.tree_ref }
+        : { ok: false, code: snapshot?.code ?? RUNNER_CODES.CHECKPOINT_FAILED };
+    },
+    async rollback(transaction) {
+      const current = checkpointEffect.fingerprint(workPath, checkpointRuntimePaths);
+      if (!current?.ok) return { ok: false, code: current?.code ?? RUNNER_CODES.CHECKPOINT_INVALID };
+      if (current.tree_ref !== transaction.before_ref) {
+        const restored = checkpointEffect.restore(
+          runId, transaction.generation, transaction.tree_ref, workPath, checkpointRuntimePaths,
+        );
+        if (!restored?.ok) return { ok: false, code: restored?.code ?? RUNNER_CODES.CHECKPOINT_INVALID };
+      }
+      return checkpointEffect.remove(runId, transaction.generation);
+    },
+  } : null;
   const gate = deps.objective_gate_effect
-    ?? makeObjectiveGate(workPath, config.objective_gate, { signal: deps.signal ?? null });
+    ?? makeObjectiveGate(workPath, config.objective_gate, {
+      signal: deps.signal ?? null,
+      workspaceGuard: gateWorkspaceGuard,
+    });
   let passCounter = 0;
   const seenStages = new Set(
     isResume

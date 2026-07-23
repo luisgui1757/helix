@@ -14,6 +14,7 @@ Helix never executes them as workflow code.
 /helix-workflows show quality-loop
 /helix-workflows test quality-loop
 /helix-run quality-loop -- Implement and verify the change
+/helix-run quality-loop --execution-mode graph-mode -- Implement and verify the change
 /helix-run-watch <run-id>
 ```
 
@@ -36,6 +37,106 @@ reachable non-terminal must be able to reach it. The final gate has no local
 `gate` field: it always executes the one top-level `objective_gate`. Unknown
 targets, unreachable nodes, recursive/nested-depth-two subworkflows, and
 unbounded cycles refuse.
+
+## Graph interpretation and execution modes
+
+WorkflowDefinition v4 already is the definition graph. Helix compiles admitted
+definitions into a canonical graph with locale-independent Unicode code-unit
+node-id order and authored-order outgoing edges. Stable edge ids encode the source and authored
+port: `node:next`, `node:condition:<index>`, `node:default`, `node:pass`,
+`node:fail`, and `node:loops-off`. Forward/reverse reachability, path queries,
+strongly connected components, runtime edges, and loops-disabled edges use this
+single representation. Duplicate endpoints stay distinct because edge identity
+is not just `(from,to)`.
+
+`original-mode` remains the default direct field interpreter. `graph-mode` is a
+secondary resolver that selects the typed edge and refuses missing or ambiguous
+routes. Everything after target selection—including effects, parallel/map
+behavior, budgets, retry, workspace transactions, journals, checkpoints,
+subworkflows, gates, and terminals—is identical shared kernel code. Graph-mode
+does not introduce implicit readiness, fan-out, joins, dataflow, or a second
+workflow language.
+
+Graph-mode consent identity also sorts preset ids and pinned `id@version` child
+keys by Unicode code unit, so the same confirmed inputs hash identically under
+every host locale. Original-mode deliberately retains its legacy locale-aware
+ordering and serialized shape; existing original-mode binding hashes do not
+change.
+
+Planned views include nodes, compatible `targets`, typed edges, final-gate and
+success ids, and cycle analyses without condition values. Observed views join
+graph-mode transition edge ids directly and reject a missing or inconsistent
+edge identity. Endpoint inference is restricted to legacy/original streams; if
+several authored ports share an endpoint, the traversal is explicitly
+ambiguous. Every nonempty parent/child stream starts with an exact definition,
+mode, run, and sequence binding; each event kind has closed required/optional
+fields. Unknown or extra fields, wrong definition hashes, invalid statuses,
+missing start bindings, lifecycle drift, and mode/state drift refuse. Observed
+output includes parent and pinned depth-one child graphs with explicit
+current/last positions; child transition identity is retained in parent events.
+Child run ids are derived from the exact parent run, node, and visit. A gate's
+recorded `final` flag must match the authored node, and its result must agree with
+the next pass/fail/loops-off edge. Effects are admitted only on effect-capable
+nodes. Each completion or ordinary resume closes an exact open reference; a
+retained effect that is already closed emits no second completion.
+Journal-ahead reconciliation emits a distinct recovered-effect event because
+the durable prefix has no public start to close. Instance reuse refuses, while
+repair/retry binds the exact failed agent attempt, failure class, authored retry
+ceiling, and definition repair ceiling. Runtime expansion cannot raise the
+authored retry maximum. Every agent-bearing visit records a structural
+`effect-plan` slot count before invocation evidence. Successful completion then
+requires all agent, pipeline-stage, parallel-branch, or map-item slots; pipeline
+stages settle in order, panel member indices are contiguous, later attempts have
+an explicit controlling retry/repair event, and each final outcome is either
+successful or an authored settled-agent allowlist match. An empty map is the
+only zero-slot executable visit. A successful parent subworkflow visit cannot
+end or transition until its exact child stream ends successfully. That retained
+terminal proof remains authoritative only while resuming the same parent node
+and visit. Node/run completion refuses while an
+effect is open. A succeeded run-end must match the authored succeeded terminal
+after an observed final-gate pass. A complete failed/refused/cancelled result
+instead ends at the current nonterminal node with the exact code; completed
+public state must match either admitted run-end. Closed private checkpoints bind
+the exact terminal status/code and return it idempotently on direct replay.
+Checkpoint-derived continuation exists only after an earlier durable snapshot;
+failure of the first checkpoint leaves the product record incomplete and
+nonresumable with an empty committed prefix. The direct scheduler may return a
+closed failure, but without private checkpoint authority the public record
+cannot claim completion; watch remains available for the initialization state.
+Historical schema-4 child wrappers remain
+watchable only as opaque original-mode progress and never borrow mutable child
+definitions to claim nested authority.
+
+New scheduler checkpoints bind the exact ordered event history, including
+forwarded child wrappers, through a rolling canonical ref: original-mode uses
+schema 4 and graph-mode schema 5. Public schema-5 state carries the same ref.
+The event path must be a regular non-symlink file no larger than 64 MiB before
+watch or resume reads it. An unauthoritative valid suffix is shown only up to
+the recorded committed prefix by both current and legacy active watch, and is
+truncated only after resume authenticates that prefix.
+Schemas 1/2/3 and legacy public schema 4 remain readable history but cannot
+authorize continuation. Active watch renders exactly the checkpointed prefix,
+so a valid-looking suffix left by an interrupted sink cannot become observed
+authority; any alteration inside the retained prefix refuses. Public count/ref
+advances only from a committed private checkpoint. Before any resume effect,
+Helix requires the caller to supply and authenticate that exact parent prefix
+and derives every child prefix from its exact parent wrappers. An omitted
+prefix refuses as firmly as a changed one.
+Public event and journal counts are safe, nonnegative cardinalities across run
+discovery, watch, resume rendering, and actual continuation. They may lag the
+private scheduler only under its durable projection-debt marker, never lead it,
+and are repaired and durably cleared before provider certification. Failure to
+clear that marker refuses the resume without granting adapter access.
+Nonterminal private state requires incomplete public state. A private terminal
+requires schema-2 projection debt; if public state is already complete, its
+terminal status, code, and node must exactly match the private marker. That
+matching case is a maintenance retry which clears debt before certification;
+every other cross-document combination refuses before projection writes.
+Terminal repair also passes the scheduler's canonical resume admission before
+any projection write: task, definition, mode, runtime cast, immutable budgets,
+journal evidence, authored terminal semantics, and the exact final event pair
+must all agree. A forged terminal leaves the event file, public state, and
+private debt byte-for-byte unchanged.
 
 The input schema is a bounded closed subset for object, array, string, number,
 integer, and boolean values. The root is always a closed object and requires a
@@ -226,8 +327,16 @@ parent/direct-child deployment before asking for mutation confirmation:
 ```
 
 The builder also exports non-final `gate`, plus `parallel`, `map`, `reduce`,
-`checkpoint`, and `subworkflow`. All constructors return ordinary JSON and use
-the same defaults as the validator. `decision` emits a typed default edge;
+`checkpoint`, and `subworkflow`. Pure graph construction helpers include
+`fragment`, `sequence`, `conditional`, `evaluatorOptimizerLoop`,
+`fanOutReduce`, and `composeFragments`. They namespace and rewrite supported
+control targets and local output pointers, and refuse collisions, unknown
+ports, dangling targets/pointers, accessors, proxies, cycles, excessive depth,
+executable values, and size limits without invoking author input. Proxy inputs
+are detected before reflection, and canonical UTF-8 input is admitted only
+through the exact `max_canonical_bytes` boundary before structured cloning. All
+constructors return ordinary JSON and use the same validator. `decision` emits
+a typed default edge;
 pass `{ default_loop: true, loops_off: "…" }` when that default is a bounded
 back edge.
 
@@ -290,17 +399,103 @@ watch, and resume accept the exact canonical limit plus that newline.
 ## Objective gates
 
 Prefer `command-exit-zero`: Helix executes a bounded argv vector with
-`shell: false`. `file-contains` is useful when no repository checker exists but
-is weaker because a model can write the marker. Only the one final gate can
-produce success. Every other node field—including final-gate `on_fail` and
-`loops_off`—is structurally forbidden from targeting the successful terminal.
+`shell: false` behind an observation-only OS boundary. macOS uses a deny-by-
+default sandbox profile; Linux uses user, mount, network, and PID namespaces
+plus IPC isolation, a minimal read-only chroot, and dropped capabilities before
+the authored argv starts. macOS admits only explicit candidate, runtime,
+dependency, and fixed system read roots. Both expose a private ephemeral temp
+area and a self-contained sanitized Git database/index containing only the
+admitted current HEAD tree and staged objects. Its 64 MiB pack ceiling fails
+closed; host history, object storage, remotes, credentials, and the candidate's
+physical `.git` metadata are absent. macOS admits top-level candidate entries
+other than `.git`; Linux masks either an in-tree metadata directory or linked-
+worktree pointer file. Admission also denies the linked worktree's per-worktree
+administration and resolved shared common directories. Both
+remove ambient credential variables and deny network access. Unsupported platforms or
+missing boundary tooling refuse command-gate preflight. `file-contains` is
+useful when no repository checker exists but is weaker because a model can
+write the marker. Only the one final gate can produce success. Every other node
+field—including final-gate `on_fail` and `loops_off`—is structurally forbidden
+from targeting the successful terminal. Cancellation and the whole-run
+deadline are checked after every fresh or resumed active node-entry checkpoint
+and before an exact terminal `node-end`/`run-end` status/code pair is published.
+If observed there, interruption wins. Once that pair and its terminal checkpoint are
+durably committed, the terminal status is final; cancellation arriving during
+the successful checkpoint write cannot make the direct result, persisted
+state, or watch view contradict the run. The completed public state is written
+within that checkpoint transaction; projection failure leaves durable debt, and
+resume repairs the exact terminal from its authenticated marker before effects.
+
+The command observation is bound to exact before/after workspace fingerprints.
+Named and staged runs create a private guard snapshot before the command and
+restore any detected drift; restoration or guard cleanup uncertainty fails the
+gate structurally and cannot route through `on_fail`. Unconfirmed termination,
+sandbox, fingerprint, and cleanup uncertainty are likewise non-routable; only a
+real checker exit produces `pass` or `fail`. External checker executables are
+admitted as exact files; no parent-directory grant is inferred, and any read
+root containing the candidate refuses. Linux containment helpers come only from
+fixed trusted system/Nix roots, never authored `PATH`. Nix closure discovery
+uses a fixed helper and private configuration/home against the local daemon
+store with plugins, substituters, and builders disabled; ambient Nix remotes,
+credentials, configuration, and `PATH` cannot run during preparation. Host fingerprint/private-
+view discovery similarly uses fixed Git with closed configuration and
+replacement refs disabled. Fingerprints read indexed metadata and bounded
+physical tracked/untracked bytes without Git content conversion, so local
+clean/process filters cannot execute. Ambient `PATH`, Git repository-targeting
+values, and replacement refs cannot redirect preparation. Symlinks contribute
+their target text without dereference; non-regular entries are structural. The evidence ref covers the command identity, sandbox mode, fingerprints,
+result, and guard status. A checker that needs build output must consume output
+created by a counted candidate effect; the gate itself cannot write the
+candidate or an outside path. Timeout/cancellation sends a process-group kill
+and waits for confirmed close before cleanup, fingerprint, restore, or evidence.
+If confirmation exceeds its bound, Helix preserves the guard/scratch state and
+returns `objective-gate-termination-unconfirmed`; it never samples a possibly
+live process as final evidence. Confirmed pre-abort, timeout, spawn failure, and
+process error remain typed `error` results rather than authored `fail`; staged
+compatibility execution rejects every malformed gate shape before routing.
+Before a command gate launches, the scheduler checkpoints its exact run,
+definition, node, visit, and objective identity; before routing, it checkpoints
+the closed pass/fail/error result. Resume reuses a settled result and returns an
+unknown outcome for an in-flight or unconfirmed result, so it never relaunches
+the command to discover what happened. Cancellation or the run deadline that
+wins first replaces a late pass/fail before it can become durable routing
+evidence.
 
 ## What testing proves
 
 `/helix-workflows test` proves the closed definition, reachability, targets,
 bounds, cast resolution, and objective-gate availability with zero provider
 calls. It reports v4 edges as structurally validated, never as executed. The
-optional smoke normalizes to v4 and executes one deterministic path through the
-real Workflow Kernel in a disposable worktree; it reports the nodes, effects,
-and edges actually observed and does not claim unvisited branches. Only an
-attended real run plus its deterministic gate proves the user's task.
+optional smoke normalizes to v4 and executes the same deterministic path in
+both execution modes through the real Workflow Kernel from independent
+identical disposable worktrees. Complete normalized result, output, visit,
+budget, ordered trace, journal-structure, and final-workspace drift refuses;
+only documented mode/run/time-derived identity differs. It reports the nodes,
+effects, and edges actually observed and does not claim unvisited branches.
+Both disposable worktrees are bound to one exact replacement-disabled commit,
+pre-admit one immutable raw-tree manifest, and only then populate raw indexed
+blobs without checkout filters. The manifest bounds object ids, modes, byte
+paths, prefix collisions, individual and aggregate bytes, and file count before
+worktree registration. POSIX path and symlink-target bytes are preserved
+exactly. A disposable pre-registration tree materializes and byte-enumerates
+the complete path/type skeleton, verifies every regular-file executable bit and
+symlink payload, and must be removed successfully; arbitrary filesystem
+collision behavior is never approximated with Unicode transforms. Physical
+fingerprints use the same bounds and configuration-sterile Git metadata.
+Cleanup independently removes and reconciles every Git registration and every
+derived lexical/physical checkout identity against the filesystem; uncertainty
+preserves the recovery root. Objective-sandbox preparation verifies scratch
+cleanup on every refusal after creation, prioritizes cleanup failure, and rolls
+back an opened workspace guard if preparation throws.
+The deterministic candidate writes required synthetic artifacts inside its
+counted workspace transaction. Artifact verification hashes that real file and
+the authored file/command objective checker executes against the worktree; a
+command checker uses the same read-only sandbox and fingerprint guard as a
+named run. Neither host observer invents a reference, route, or convergence
+marker. The model/task semantics remain simulated even though the authored gate
+check is real.
+The repository gate additionally reruns the complete kernel adversarial suite
+under graph-mode, covering retry/repair, fan-out settlement, budgets, workspace
+rollback/conflict, journal recovery, capacity, nested continuation,
+cancellation, and deadlines through the secondary resolver.
+Only an attended real run plus its deterministic gate proves the user's task.

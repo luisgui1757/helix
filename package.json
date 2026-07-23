@@ -53,11 +53,11 @@
     "check:repository-policy": "node tools/repository-policy-check.mjs",
     "safeguards": "node scripts/apply-repo-safeguards.mjs",
     "safeguards:preflight": "node scripts/apply-repo-safeguards.mjs --preflight-only",
-    "check:workflow-conformance": "node --test tests/workflow-v4-schema.test.mjs tests/workflow-kernel.test.mjs tests/helix-workflow-execution.test.mjs",
+    "check:workflow-conformance": "node --test tests/workflow-v4-schema.test.mjs tests/workflow-graph.test.mjs tests/workflow-graph-construction.test.mjs tests/workflow-kernel.test.mjs tests/workflow-kernel-graph-parity.test.mjs tests/helix-workflow-execution.test.mjs && HELIX_KERNEL_TEST_EXECUTION_MODE=graph-mode node --test tests/workflow-kernel.test.mjs",
     "check:provider-contracts": "node --test tests/runtime-contract.test.mjs tests/provider-runtime-contract.test.mjs tests/dispatch-pi-agent-adapter.test.mjs tests/openrouter-audit-proxy.test.mjs",
     "check:package": "node tools/ci/package-check.mjs",
     "test:live:provider-certification": "node tools/providers/helix-provider-certify.mjs",
-    "test": "node --test tests/*.test.mjs && bash tools/worktree/selftest.sh && bash tools/loop/selftest.sh"
+    "test": "node --test tests/*.test.mjs && HELIX_KERNEL_TEST_EXECUTION_MODE=graph-mode node --test tests/workflow-kernel.test.mjs && bash tools/worktree/selftest.sh && bash tools/loop/selftest.sh"
   },
   "pi": {
     "extensions": [

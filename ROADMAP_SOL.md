@@ -178,6 +178,279 @@ Neither `pi-dynamic-workflows` implementation, Claude Agent SDK, native Claude W
 
 Everything lands together on one fresh non-default branch. Nothing is presented as available until the complete architecture, migrations, tests, documentation, packaging checks, provider-state truthfulness, and verification gate are present.
 
+> **Graph-mode extension status (2026-07-22):** implementation is complete on
+> the dedicated `graph-mode` branch pending its required iterative review gate.
+> WorkflowDefinition v4 now has one canonical typed graph compiler, structural
+> analyses and projection, stable edge identity, and hygienic fragment
+> composition. `original-mode` remains the default direct resolver and retains
+> historical binding/runtime identity; opt-in `graph-mode` swaps only transition
+> resolution inside the same scheduler. Mode is consented, persisted in public
+> state schema 5, inherited by children, and fixed for continuation; schema-4
+> run state remains legacy original-mode. Provider-free smoke and product E2E
+> paths compare both modes, while graph unit/construction/parity suites cover
+> edge identity, cycles, routing, persistence, visualization, and malformed
+> boundaries. `graph-migration.md` is the controlling completion and review
+> ledger for this extension.
+>
+> The first exact GPT-5.6 Sol xhigh branch review returned HOLD with one High,
+> three Medium, and two Low findings. All six are implemented: kernel-owned
+> checkpoint mode binding, closed event admission, pinned nested/current graph
+> projection, full normalized independent-worktree parity, attended graph
+> pause/resume E2E, and append-only ledgers. Full locally available
+> re-verification is green; the supported Node 22.19/26 matrix is unavailable
+> without dependency installation. The second exact-model review returned HOLD
+> with two Medium and two Low findings. All four are implemented: immutable
+> run-owned definitions with detached effect inputs, exact definition-bound
+> event schemas, locale-independent canonical ordering, and total
+> descriptor-safe combinators. Full locally available re-verification is green
+> at 771/771 repository tests, 132/132 workflow conformance, 35/35 provider
+> contracts, extracted-package real Pi proof, and active no-egress 5/5. The
+> third all-scope review returned HOLD with no Critical/High, five Medium, and
+> two Low findings. Its checkpoint, event-correlation, historical-watch,
+> run-companion, fragment-admission, ledger, and parity gaps are now closed with
+> focused regressions. The full 51-test kernel adversarial suite also passes
+> under graph-mode. Complete locally available re-verification is green at
+> 827/827 repository tests, 186/186 workflow conformance, 35/35 provider
+> contracts, extracted-package real Pi proof, and active no-egress 5/5. The fresh
+> fourth all-scope review returned HOLD with no Critical/High, three Medium, and
+> one Low finding. Its observed lifecycle, child-companion grammar, pre-clone
+> fragment admission, and detached artifact callback gaps are closed with
+> 164/164 focused tests. Complete locally available re-verification is green at
+> 829/829 repository tests, 188/188 workflow conformance, 35/35 provider
+> contracts, both extracted-package paths including real Pi proof, and active
+> no-egress 5/5. The fifth all-scope review returned HOLD with no Critical/High,
+> three Medium, and no Low findings. Its orphan-resume, child-success causality,
+> and completed-failure watch gaps are closed with 76/76 focused kernel/schema
+> and product regressions across both modes. Complete locally available
+> re-verification is green again at 829/829 repository tests, 188/188 workflow
+> conformance, 35/35 provider contracts, both extracted-package paths, and active
+> no-egress 5/5. Review 6 was interrupted by the reviewer service after
+> reproducing four additional lifecycle/persistence defects in both modes:
+> terminal replay, journal-ahead observed evidence, first-checkpoint failure
+> evidence, and retry-policy admission. All four are closed with terminal-result
+> checkpoints, explicit recovered-effect events, authored retry/repair bounds,
+> and durable-checkpoint-aware terminalization. Focused evidence passes 79/79
+> kernel/schema, 54/54 graph-mode kernel, and 149/149 graph/product tests. Full
+> locally available re-verification passes 837/837 repository tests, 196/196
+> workflow conformance, 35/35 provider contracts, both 100-file extracted
+> package paths including real Pi proof, and active no-egress 5/5. Exact Node
+> 22.19/26 remains unavailable without dependency installation. Review 7 then
+> returned HOLD with no Critical/High, three Medium, and no Low findings. Its
+> incomplete observed-effect obligations, locale-dependent graph binding, and
+> smoke-manufactured convergence are closed through structural effect plans,
+> slot/final-outcome admission, code-unit graph binding order, and real
+> candidate-owned artifact plus deterministic-gate smoke boundaries. The
+> repository gate now passes 840/840 (786 primary plus 54 graph-mode kernel),
+> worktree 12/12, objective loop 8/8, workflow conformance 198/198, provider
+> contracts 35/35, both 100-file package paths including real Pi proof, and
+> active no-egress 5/5. Static/docs/policy/resource gates also pass. A fresh
+> all-scope review remains required before this status can become DONE.
+> Review 8 then returned HOLD with no Critical, one High, one Medium, and no
+> Low: terminal event-write failure could still be checkpointed as success, and
+> authored command objective gates were not actually read-only. Both are closed
+> through authoritative structural event barriers, terminal-prefix resume,
+> macOS/Linux network-denied read-only command sandboxes, sanitized environment
+> state, exact fingerprint-bound evidence, and private drift restoration for
+> named/staged runs. Kernel matrices pass 60/60 in each mode plus product
+> terminal-resume and macOS/Linux candidate/outside-write denial coverage. Full
+> verification passes 855/855 repository tests, 211/211 workflow conformance,
+> 35/35 provider contracts, both 101-file package paths with real Pi proof, and
+> active no-egress 5/5. Review 9 remains required before this status can become
+> DONE.
+> Review 9 returned HOLD with no Critical, two High, one Medium, and no Low:
+> checkpoints counted but did not authenticate their event prefix; command
+> sandboxes retained ambient host-read, Git-common-dir, and Linux IPC exposure;
+> and cancellation finalized evidence before confirming process termination.
+> All three are closed through rolling canonical event-prefix refs in public and
+> private state, history-only legacy checkpoints, authoritative-prefix watch,
+> explicit macOS read admission, credential-free ephemeral Git metadata, Linux
+> IPC isolation, and bounded process-group termination confirmation. Focused
+> retained-prefix tamper, suffix-watch, nested-child, outside-read, Git-status,
+> namespace, timeout, and unconfirmed-termination regressions pass. Complete
+> verification passes 860/860 repository tests, 213/213 workflow conformance,
+> 35/35 provider contracts, worktree 12/12, objective loop 8/8, both 101-file
+> package paths with real Pi proof, active no-egress 5/5, and the static/docs/
+> policy/resource gates. The corrected capability-enabled Linux sandbox suite
+> passes 20/20 with network disabled. Review 10 remains required before this
+> status can become DONE.
+> Review 10 returned HOLD with no Critical, four High, no Medium, and one Low:
+> public state and nested child refs could outrun/escape the durable checkpoint;
+> cancellation could terminalize live provider/gate work and lose usage;
+> sandbox-integrity failures were routable; the Git view exposed the host object
+> store; and static package proof omitted its sandbox module. All are closed
+> through private-checkpoint-owned public projection, pre-effect recursive
+> prefix authentication, bounded boundary settlement with nonterminal unknown
+> outcomes, typed non-routable gate errors, a self-contained capped current-
+> snapshot Git database, and complete package inventory. Focused coverage passes
+> 130/130. Complete verification passes 866/866 repository tests, 219/219
+> workflow conformance, 35/35 provider contracts, worktree 12/12, objective loop
+> 8/8, both 101-file package paths with real Pi proof, active no-egress 5/5,
+> capability-enabled Linux sandbox/task-loop 20/20, and all static/docs/policy/
+> resource gates. Review 11 remains required before this status can become DONE.
+> Review 11 returned HOLD with no Critical, two High, two Medium, and two Low:
+> gate uncertainty could replay; CLI cancellation could hide continuation;
+> first-checkpoint product state could claim completion without a terminal
+> prefix; resume followed/unboundedly read its event path; fingerprints assumed
+> SHA-1; and discovery admitted negative counts. All six are closed through
+> checkpointed gate intent/results, recoverable-code preservation,
+> private-checkpoint-derived product completion, bounded non-symlink event
+> admission, repository-object-format-aware fingerprints, and nonnegative
+> counts. Focused evidence passes 113/113. Complete verification passes 870/870
+> repository tests, 222/222 workflow conformance, 35/35 provider contracts,
+> worktree 12/12, objective loop 8/8, both 101-file package paths with real Pi
+> proof, active no-egress 5/5, capability-enabled Linux sandbox/task-loop 21/21,
+> and all static/docs/policy/resource gates. Review 12 remains required before
+> this status can become DONE.
+> Review 12 returned HOLD with no Critical/High, one Medium, and no Low: public
+> journal cardinality remained weaker in watch, resume rendering, and actual
+> continuation than in run discovery. The closure centralizes safe nonnegative
+> event/journal count validation across all four readers, binds both counts to
+> private scheduler authority, permits only explicit projection-debt lag, and
+> repairs that lag before provider certification. Hostile negative, fractional,
+> unsafe, and journal-ahead fixtures refuse before adapter access. Focused
+> evidence passes 85/85. Complete verification passes 871/871 repository tests,
+> 222/222 workflow conformance, 35/35 provider contracts, worktree 12/12,
+> objective loop 8/8, both 101-file package paths with real Pi proof, active
+> no-egress 5/5, capability-enabled Linux sandbox/task-loop 21/21, and all
+> static/docs/policy/resource gates. Review 13 remains required before this
+> status can become DONE.
+> Review 13's first exact session was interrupted without a verdict; its
+> replacement returned HOLD with no Critical, two High, no Medium, and one Low:
+> late provider success could outrun cancellation/timeouts and commit mutation;
+> ordinary-checkout Git metadata was still readable inside command sandboxes;
+> and valid projection-debt repair lacked a positive regression. The closures
+> force aborted agent settlement to retain usage but roll back and stop before
+> routing, make physical `.git` unreadable on macOS and Linux for ordinary and
+> linked worktrees, and exercise valid lag repair before the next workflow
+> event. Complete verification passes 874/874 repository tests, 224/224
+> workflow conformance, 35/35 provider contracts, worktree 12/12, objective loop
+> 8/8, both 101-file package paths with real Pi proof, active no-egress 5/5,
+> capability-enabled Linux sandbox/task-loop 22/22, and all static/docs/policy/
+> resource gates. Review 14 remains required before this status can become DONE.
+> Review 14 returned HOLD with no Critical, two High, two Medium, and no Low:
+> bound direct continuation could omit event-prefix authentication; late gate
+> pass could survive cancellation plus terminal persistence failure;
+> projection-debt clearing failure was ignored before provider certification;
+> and legacy schema-4 watch rendered beyond its recorded event count. The
+> closures require an explicit exact prefix for every bound continuation,
+> checkpoint causal gate interruption instead of late pass/fail, refuse until
+> repaired projection debt is durably cleared, and slice both watch schemas to
+> recorded authority. Complete verification passes 878/878 repository tests,
+> 228/228 workflow conformance, 35/35 provider contracts, worktree 12/12,
+> objective loop 8/8, both 101-file package paths with real Pi proof, active
+> no-egress 5/5, capability-enabled Linux sandbox/task-loop 22/22, and all
+> static/docs/policy/resource gates. Review 15 remains required before this
+> status can become DONE.
+> Review 15 returned HOLD with no Critical, three High, one Medium, and no Low:
+> ancestor read admission could bypass physical Git-metadata isolation; Linux
+> containment helpers could fall back to authored `PATH`; non-exit command
+> termination was routable as authored failure; and malformed staged gate
+> results were likewise routed. The closures admit exact external executables,
+> reject candidate-containing roots, trust only fixed Linux helper roots, keep
+> timeout/cancellation/spawn/process causes as typed errors, and close staged
+> gate admission. Complete verification passes 882/882 repository tests,
+> 228/228 workflow conformance, 35/35 provider contracts, worktree 12/12,
+> objective loop 8/8, both 101-file package paths with real Pi proof, active
+> no-egress 5/5, capability-enabled Linux sandbox/task-loop 25/25, and all
+> static/docs/policy/resource gates. Review 16 remains required before this
+> status can become DONE.
+> Review 16 returned HOLD with no Critical, three High, two Medium, and no Low:
+> descendant/symlink grants could expose physical Git metadata; retained effects
+> and child terminals produced invalid combined resume histories; staged gate
+> objects admitted extra fields; and late operator cancellation was labeled
+> failed. The closures reject bidirectional Git-metadata intersections, derive
+> unique effect completion from the authenticated prefix, retain child terminal
+> proof for the same parent visit, close staged gate shapes, and preserve
+> cancellation status. Complete verification passes 888/888 repository tests,
+> 233/233 workflow conformance, 35/35 provider contracts, worktree 12/12,
+> objective loop 8/8, both 101-file package paths with real Pi proof, active
+> no-egress 5/5, capability-enabled Linux sandbox/task-loop 26/26, and all
+> static/docs/policy/resource gates. Review 17 remains required before this
+> status can become DONE.
+> Review 17 returned HOLD with no Critical, two High, one Medium, and no Low:
+> linked-worktree shared common metadata remained admissible; fallback
+> fingerprints ran ambient Git before containment; and untracked symlinks were
+> dereferenced on the host. The closures resolve and deny every common metadata
+> root, use fixed configuration-sterile Git throughout host preparation, and
+> structurally hash bounded untracked entries without following symlinks.
+> Complete verification passes 892/892 repository tests, 233/233 workflow
+> conformance, 35/35 provider contracts, worktree 12/12, objective loop 8/8,
+> both 101-file package paths with real Pi proof, active no-egress 5/5,
+> capability-enabled Linux sandbox/task-loop 30/30, and all static/docs/policy/
+> resource gates. Review 18 repeated the exact scope under GPT-5.6 Sol xhigh
+> but was interrupted by the platform before producing an all-scope verdict.
+> Its partial trace exposed a terminal commit race: cancellation during a
+> successful terminal-checkpoint write could contradict the already-persisted
+> succeeded event/checkpoint. The closure makes the durable terminal marker
+> authoritative and adds a both-mode regression, currently passing in the
+> 69/69 focused kernel suite. Review 19 then returned HOLD with C0/H1/M1/L0:
+> cancellation/deadline after terminal node-entry checkpointing could still
+> lose before terminal publication, and fresh-run rendering could relabel an
+> already durable non-success terminal. The closure re-arbitrates interruption
+> at the pre-commit boundary, emits matching terminal status/code evidence,
+> carries explicit terminal authority through product execution, and prevents
+> outer command aborts from rewriting it. Targeted dual-mode kernel/product/
+> command closure passes 8/8. Complete verification passes 898/898 repository
+> tests, 238/238 workflow conformance, 35/35 provider contracts, worktree 12/12,
+> objective loop 8/8, both 101-file package paths with installed Pi proof,
+> active no-egress 5/5, capability-enabled networkless Linux 30/30, and every
+> static/docs/policy/resource gate. Review 20 returned HOLD with C0/H2/M1/L0:
+> repository clean/process filters could execute during pre-sandbox
+> fingerprinting, replacement refs could import historical trees into the
+> sanitized checker database, and terminal completion projection sat outside
+> the durable debt transaction. The closure fingerprints physical
+> tracked/untracked bytes without Git conversion, disables replacement refs in
+> every preparatory Git environment, and projects or debt-marks exact terminal
+> state inside its checkpoint transaction. Focused security and all-status,
+> both-mode persistence/repair suites pass. Complete verification passes
+> 901/901 repository tests, 239/239 workflow conformance, 35/35 provider
+> contracts, worktree 12/12, objective loop 8/8, both 101-file package paths
+> with installed Pi proof, active no-egress 5/5, capability-enabled networkless
+> Linux 32/32, and every static/docs/policy/resource gate. Review 21 then found
+> two High issues: terminal projection repair had not passed canonical scheduler
+> admission, and smoke fingerprinting could run ambient Git content helpers.
+> The closure routes repair through scheduler admission and uses a fixed,
+> filter-free raw-object materialization/fingerprint path. Review 22 returned
+> HOLD with C0/H3/M3/L0: resumed terminals skipped interruption arbitration,
+> private terminals lacked a closed projection-debt relation, Nix closure
+> discovery inherited ambient host authority, smoke admitted aggregate size too
+> late, raw Git bytes were decoded lossily, and cleanup erased recovery evidence
+> or escaped untyped. The closure re-arbitrates every fresh/resumed active node,
+> enforces the exact public/private debt relation, sterilizes local-daemon Nix
+> discovery, pre-admits one immutable byte-native raw-tree manifest, and
+> reconciles cleanup while preserving uncertain recovery state. Focused
+> kernel/graph 80/80, product execution 49/49, and command/sandbox 33/33 suites
+> pass.
+> Complete verification passes 913/913 repository tests, 250/250 workflow
+> conformance, 35/35 provider contracts, worktree 12/12, objective loop 8/8,
+> both 101-file package paths with installed Pi proof, active no-egress 5/5,
+> capability-enabled networkless Linux 32/32, and every static/docs/policy/
+> resource gate. Review 23 returned HOLD with C0/H0/M2/L0: filesystem
+> preflight approximated collisions and cleanup did not prove physical checkout
+> absence. The closure now round-trips the complete byte-exact path/type
+> skeleton and symlink payloads in disposable scratch before registration,
+> derives physical identities from the created root, and requires every
+> lexical/physical identity to disappear from Git and the filesystem. Focused
+> collision, partial-add, alias, survivor, and product execution coverage passes
+> 52/52. Complete verification passes 916/916 repository tests, 253/253 workflow
+> conformance, 35/35 provider contracts, worktree 12/12, objective loop 8/8,
+> both 101-file package paths with installed Pi proof, active no-egress 5/5,
+> capability-enabled networkless Linux 32/32, and every static/docs/policy/
+> resource gate. Review 24 returned HOLD with C0/H0/M2/L0: the filesystem probe
+> erased executable-mode identity, and sandbox preparation could conceal
+> scratch-cleanup failure or bypass an opened workspace rollback. The closure
+> now round-trips `100644`/`100755` before registration, verifies cleanup on
+> every post-scratch refusal or exception, and rolls back the workspace guard
+> when preparation throws. Complete verification passes 919/919 repository
+> tests, 254/254 workflow conformance, 35/35 provider contracts, both 101-file
+> package paths with installed Pi proof, active no-egress 5/5,
+> capability-enabled networkless Linux 34/34, and every static/docs/policy/
+> resource gate. Review 25 then completed a strict read-only all-scope trace
+> over the exact 42-file branch scope, repeated both identity gates, and
+> returned **SHIP — C0/H0/M0/L0**. The graph-mode extension review gate is
+> **DONE**. Exact Node 22.19/26 execution remains explicitly unavailable without
+> installation or substitution and is not claimed.
+
 ## 3. Direct answers
 
 ### How close is Helix to Claude Code workflows mechanically?

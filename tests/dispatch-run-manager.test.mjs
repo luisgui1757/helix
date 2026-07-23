@@ -12,6 +12,7 @@ import {
 } from "../dispatch/lib/run-manager.mjs";
 import { resolveRunConfig } from "../dispatch/lib/run-configs.mjs";
 import { runTaskLoop } from "../dispatch/lib/task-loop.mjs";
+import { EMPTY_KERNEL_EVENT_PREFIX_REF } from "../dispatch/kernel/state.mjs";
 
 const root = new URL("..", import.meta.url);
 const NOW = 1_751_731_200;
@@ -64,6 +65,30 @@ function debateSummary(runId = "flat-smoke") {
   };
 }
 
+function kernelState(runId, schemaVersion, executionMode) {
+  return {
+    schema_version: schemaVersion,
+    run_id: runId,
+    workflow_id: "mock-core-loop",
+    workflow_version: 1,
+    definition_ref: `sha256:${"a".repeat(64)}`,
+    task_ref: `sha256:${"b".repeat(64)}`,
+    completed: false,
+    terminal: null,
+    status: "running",
+    code: null,
+    journal_entries: 0,
+    event_count: 0,
+    ...(schemaVersion === 5 ? { event_ref: EMPTY_KERNEL_EVENT_PREFIX_REF } : {}),
+    worktree_enabled: true,
+    worktree_ref: `sha256:${"c".repeat(64)}`,
+    worktree_branch: `helix/${runId}`,
+    worktree_owner_ref: `sha256:${"d".repeat(64)}`,
+    baseline_ref: `sha256:${"e".repeat(64)}`,
+    ...(executionMode === undefined ? {} : { execution_mode: executionMode }),
+  };
+}
+
 function reserveInChild(rootDir, runId) {
   const moduleUrl = new URL("../dispatch/lib/run-manager.mjs", import.meta.url).href;
   const source = [
@@ -109,6 +134,64 @@ test("run listing treats an immutable workflow snapshot as managed companion sta
   assert.equal(prepared.ok, true);
   writeFileSync(join(prepared.path, "snapshot-run.workflow.json"), "{}\n", "utf8");
   assert.deepEqual(listRuns(rootDir), []);
+});
+
+test("run listing treats version-pinned child definitions as managed companion state", () => {
+  const rootDir = mkdtempSync(join(tmpdir(), "helix-runs-child-snapshot-"));
+  const prepared = prepareRunDirectory(rootDir, "parent-run");
+  assert.equal(prepared.ok, true);
+  for (const name of [
+    "parent-run.child.child-flow.v12.definition.json",
+    "parent-run.child.child_flow.v1.definition.json",
+    "parent-run.child.child.flow.v1.definition.json",
+    "parent-run.child.1child.v1.definition.json",
+    `parent-run.child.${"a".repeat(64)}.v1000000.definition.json`,
+  ]) writeFileSync(join(prepared.path, name), "{}\n", "utf8");
+  assert.deepEqual(listRuns(rootDir), []);
+
+  for (const name of [
+    "parent-run.child.Child.v1.definition.json",
+    `parent-run.child.${"a".repeat(65)}.v1.definition.json`,
+    "parent-run.child.child-flow.v1000001.definition.json",
+    "parent-run.child.child-flow.v01.definition.json",
+  ]) writeFileSync(join(prepared.path, name), "{}\n", "utf8");
+  const invalid = listRuns(rootDir);
+  assert.equal(invalid.length, 4);
+  assert.equal(invalid.every((entry) => entry.kind === "invalid"), true);
+});
+
+test("run manager maps legacy kernel state to original-mode and requires a valid v5 mode", () => {
+  const recordsRoot = mkdtempSync(join(tmpdir(), "helix-runs-kernel-mode-"));
+  for (const [runId, state] of [
+    ["legacy-kernel", kernelState("legacy-kernel", 4)],
+    ["graph-kernel", kernelState("graph-kernel", 5, "graph-mode")],
+  ]) {
+    const prepared = prepareRunDirectory(recordsRoot, runId);
+    assert.equal(prepared.ok, true);
+    writeFileSync(join(prepared.path, `${runId}.state.json`), JSON.stringify(state), "utf8");
+  }
+
+  const listed = listRuns(recordsRoot);
+  assert.equal(listed.find((entry) => entry.run_id === "legacy-kernel").execution_mode, "original-mode");
+  assert.equal(listed.find((entry) => entry.run_id === "graph-kernel").execution_mode, "graph-mode");
+  assert.equal(statusRun(recordsRoot, "graph-kernel").entries[0].execution_mode, "graph-mode");
+
+  for (const [runId, state] of [
+    ["missing-mode", kernelState("missing-mode", 5)],
+    ["unknown-mode", kernelState("unknown-mode", 5, "unknown-mode")],
+    ["legacy-extra", kernelState("legacy-extra", 4, "original-mode")],
+    ["negative-events", { ...kernelState("negative-events", 5, "graph-mode"), event_count: -1 }],
+    ["negative-journal", { ...kernelState("negative-journal", 5, "graph-mode"), journal_entries: -1 }],
+  ]) {
+    const prepared = prepareRunDirectory(recordsRoot, runId);
+    assert.equal(prepared.ok, true);
+    writeFileSync(join(prepared.path, `${runId}.state.json`), JSON.stringify(state), "utf8");
+  }
+  const invalid = listRuns(recordsRoot).filter((entry) =>
+    ["missing-mode", "unknown-mode", "legacy-extra", "negative-events", "negative-journal"]
+      .some((runId) => entry.path.startsWith(`${runId}/`)));
+  assert.equal(invalid.length, 5);
+  assert.equal(invalid.every((entry) => entry.kind === "invalid"), true);
 });
 
 test("prepareRunDirectory atomically grants one concurrent reservation", async () => {
