@@ -10,6 +10,11 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { assertPublicSafe, DEFAULT_RUN_RECORD_DIR, hashRef, validateRunRecord } from "./run-record.mjs";
 import { validateDebateSummary } from "./debate.mjs";
 import { PERSISTENCE_CODES, reserveConfinedDirectory } from "./persistence.mjs";
+import {
+  DEFAULT_WORKFLOW_EXECUTION_MODE,
+  validateWorkflowExecutionMode,
+} from "../workflow/graph.mjs";
+import { parseWorkflowChildDefinitionArtifactName } from "../workflow/schema.mjs";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 
@@ -25,6 +30,11 @@ export function validateRunId(runId) {
   if (typeof runId !== "string" || !RUN_ID_PATTERN.test(runId)) return fail("unsafe-run-id", "run-id-pattern");
   if (runId === "." || runId === "..") return fail("unsafe-run-id", "run-id-dot-segment");
   return { ok: true, run_id: runId };
+}
+
+export function kernelPublicCountsAreValid(state) {
+  return Number.isSafeInteger(state?.event_count) && state.event_count >= 0
+    && Number.isSafeInteger(state?.journal_entries) && state.journal_entries >= 0;
 }
 
 function safeRunDir(root, runId) {
@@ -80,17 +90,23 @@ function entryFromJson(root, path) {
   const rel = publicPathLabel(root, path);
   const prunable = rel.includes(sep);
   if (basename(path).endsWith(".state.json")) {
-    if (json?.schema_version !== 4) return null;
+    if (![4, 5].includes(json?.schema_version)) return null;
     const allowed = new Set([
       "schema_version", "run_id", "workflow_id", "workflow_version", "definition_ref", "task_ref",
       "completed", "terminal", "status", "code", "journal_entries", "event_count", "worktree_enabled",
       "worktree_ref", "worktree_branch", "worktree_owner_ref", "baseline_ref",
     ]);
+    if (json.schema_version === 5) {
+      allowed.add("execution_mode");
+      allowed.add("event_ref");
+    }
     if (Object.keys(json).some((key) => !allowed.has(key))
+      || (json.schema_version === 5 && (typeof json.execution_mode !== "string"
+        || !validateWorkflowExecutionMode(json.execution_mode).ok
+        || !/^sha256:[0-9a-f]{64}$/.test(json.event_ref ?? "")))
       || basename(path) !== `${json.run_id}.state.json`
       || !RUN_ID_PATTERN.test(json.run_id) || typeof json.workflow_id !== "string"
-      || typeof json.completed !== "boolean" || !Number.isSafeInteger(json.event_count)
-      || !Number.isSafeInteger(json.journal_entries)) throw new Error("kernel-state-invalid");
+      || typeof json.completed !== "boolean" || !kernelPublicCountsAreValid(json)) throw new Error("kernel-state-invalid");
     return {
       kind: "workflow-kernel",
       run_id: json.run_id,
@@ -98,6 +114,7 @@ function entryFromJson(root, path) {
       stop_reason: json.completed ? json.status : null,
       iterations_run: json.event_count,
       total_tokens: null,
+      execution_mode: json.schema_version === 4 ? DEFAULT_WORKFLOW_EXECUTION_MODE : json.execution_mode,
       worktree_branch: json.worktree_branch,
       path: rel,
       prunable,
@@ -158,6 +175,7 @@ function isManagedCompanion(path) {
     || name === `${runId}.definition.json`
     || name === `${runId}.disagreements.json`
     || name === `${runId}.research.json`
+    || parseWorkflowChildDefinitionArtifactName(name, runId) != null
     || new RegExp(`^${escapedRunId}\\.disagreements\\.[0-9a-f]{64}\\.json$`).test(name);
 }
 

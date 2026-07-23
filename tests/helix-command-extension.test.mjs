@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import helixCommand from "../extensions/helix-command.ts";
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
-import { agent, objectiveGate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import { agent, checkpoint, objectiveGate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
 import { saveUserWorkflow, saveUserWorkflowV4 } from "../extensions/lib/helix-workflows.mjs";
 import { saveProfile, switchProfile } from "../extensions/lib/helix-local.mjs";
 
@@ -115,6 +115,11 @@ test("dedicated run and settings completions omit legacy verb prefixes", () => {
   const runs = commandByName(commands, "helix-run").getArgumentCompletions("");
   assert.ok(runs.some((item) => item.value === "mock-core-loop"));
   assert.equal(runs.some((item) => item.value.startsWith("run ")), false);
+  assert.deepEqual(
+    commandByName(commands, "helix-run").getArgumentCompletions("mock-core-loop --execution-mode ")
+      .map((item) => item.label),
+    ["original-mode", "graph-mode"],
+  );
 
   const settings = commandByName(commands, "helix-settings").getArgumentCompletions("");
   assert.deepEqual(settings.map((item) => item.label), [
@@ -456,6 +461,9 @@ test("helix-run executes the canonical workflow in-process with the exact user t
     assert.equal(messages[0].message.details.title, "Helix run preflight");
     assert.equal(messages[1].message.details.title, "Helix run complete");
     assert.equal(confirmation.title, "Start Helix workflow");
+    assert.match(confirmation.body, /Execution mode: original-mode/);
+    assert.equal(messages[0].message.details.execution_mode, "original-mode");
+    assert.equal(messages[1].message.details.execution_mode, "original-mode");
     assert.match(confirmation.body, /Exact cast:\n  plan \[composite:overlord\]/);
     assert.match(confirmation.body, /planner: mock\/mock-overlord-planner:max x1/);
     assert.match(confirmation.body, /Bound inputs: task/);
@@ -476,6 +484,157 @@ test("helix-run executes the canonical workflow in-process with the exact user t
       "Helix · succeeded · visit 1",
       false, null,
     ]);
+    await commandByName(commands, "helix-run-watch").handler(messages[1].message.details.run_id, {
+      mode: "print", cwd, ui: {},
+    });
+    assert.equal(messages.at(-1).message.details.title, "Helix run watch");
+    assert.equal(messages.at(-1).message.details.execution_mode, "original-mode");
+    assert.match(messages.at(-1).message.content, /Execution mode: original-mode/);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("helix-run parses graph-mode before the task and preserves mode-like task text literally", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-run-mode-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-run-mode-cwd-"));
+  let confirmation = null;
+  let confirmations = 0;
+  try {
+    const { commands, messages } = loadHelixCommands();
+    await commandByName(commands, "helix-run").handler(
+      "mock-core-loop --execution-mode graph-mode -- Keep --execution-mode original-mode as literal task text",
+      {
+        mode: "tui",
+        cwd,
+        ui: {
+          async confirm(_title, body) {
+            confirmations += 1;
+            confirmation = body;
+            return false;
+          },
+          notify() {},
+        },
+      },
+    );
+    assert.equal(confirmations, 1);
+    assert.match(confirmation, /Execution mode: graph-mode/);
+    assert.match(confirmation, /Task: Keep --execution-mode original-mode as literal task text/);
+    assert.equal(messages[0].message.details.execution_mode, "graph-mode");
+
+    await commandByName(commands, "helix-run").handler(
+      "mock-core-loop --execution-mode -- private task",
+      {
+        mode: "tui",
+        cwd,
+        ui: {
+          async confirm() {
+            confirmations += 1;
+            return false;
+          },
+          notify() {},
+        },
+      },
+    );
+    assert.equal(confirmations, 1, "malformed mode is refused before confirmation");
+    assert.equal(messages.at(-1).message.details.code, "workflow-execution-mode-invalid");
+    assert.equal(messages.at(-1).message.content.includes("private task"), false);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("attended graph-mode executes, watches, pauses, resumes, and cleans up its complete command path", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-run-graph-e2e-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-run-graph-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Graph E2E"], { cwd });
+  writeFileSync(join(cwd, "baseline.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "baseline.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const built = workflow({
+    id: "graph-attended", name: "Graph attended", description: "Attended graph-mode pause and resume coverage.",
+    start: "approval",
+    nodes: {
+      approval: checkpoint("operator-approval", "objective"),
+      objective: objectiveGate("succeeded", "failed"),
+      succeeded: terminal("succeeded"),
+      failed: terminal("failed", "graph-attended-failed"),
+    },
+    objective_gate: {
+      type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000,
+    },
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const confirmations = [];
+  const { commands, messages } = loadHelixCommands();
+  const task = "Exercise the attended graph path";
+  const ui = {
+    async input() { return task; },
+    async confirm(title, body) {
+      confirmations.push({ title, body });
+      return true;
+    },
+    notify() {},
+    setWorkingMessage() {},
+    setWorkingVisible() {},
+  };
+  try {
+    await commandByName(commands, "helix-run").handler(
+      `graph-attended --execution-mode graph-mode -- ${task}`,
+      { mode: "tui", cwd, ui },
+    );
+    const paused = messages.find((entry) => entry.message.details?.title === "Helix run paused")?.message;
+    assert.ok(paused, JSON.stringify(messages));
+    assert.equal(paused.details.execution_mode, "graph-mode");
+    const runId = paused.details.run_id;
+    const statePath = join(stateRoot, "runs", runId, `${runId}.state.json`);
+    const pausedState = JSON.parse(readFileSync(statePath, "utf8"));
+    assert.equal(pausedState.schema_version, 5);
+    assert.equal(pausedState.execution_mode, "graph-mode");
+    assert.equal(pausedState.completed, false);
+    const privateCheckpoint = JSON.parse(readFileSync(
+      join(stateRoot, "private", "runs", runId, "kernel-checkpoint.json"),
+      "utf8",
+    ));
+    assert.equal(privateCheckpoint.scheduler.schema_version, 5);
+    assert.equal(privateCheckpoint.scheduler.execution_mode, "graph-mode");
+
+    await commandByName(commands, "helix-run-watch").handler(runId, { mode: "print", cwd, ui: {} });
+    const pausedWatch = messages.at(-1).message;
+    assert.equal(pausedWatch.details.execution_mode, "graph-mode");
+    assert.equal(pausedWatch.details.current_node, "approval");
+    assert.match(pausedWatch.content, /Position: current=approval; last=approval/);
+
+    await commandByName(commands, "helix-run-resume").handler(runId, { mode: "tui", cwd, ui });
+    const completed = messages.at(-1).message;
+    assert.equal(completed.details.title, "Helix run complete");
+    assert.equal(completed.details.execution_mode, "graph-mode");
+    const completedState = JSON.parse(readFileSync(statePath, "utf8"));
+    assert.equal(completedState.completed, true);
+    assert.equal(completedState.execution_mode, "graph-mode");
+
+    await commandByName(commands, "helix-run-watch").handler(runId, { mode: "print", cwd, ui: {} });
+    const completedWatch = messages.at(-1).message;
+    assert.equal(completedWatch.details.current_node, null);
+    assert.equal(completedWatch.details.last_node, "succeeded");
+    assert.match(completedWatch.content, /Position: current=none; last=succeeded/);
+    assert.equal(confirmations.some((entry) => entry.title === "Start Helix workflow"
+      && /Execution mode: graph-mode/.test(entry.body)), true);
+    assert.equal(confirmations.some((entry) => entry.title === "Resume Helix workflow"
+      && /Execution mode: graph-mode/.test(entry.body)), true);
   } finally {
     if (previous === undefined) delete process.env.HELIX_STATE_DIR;
     else process.env.HELIX_STATE_DIR = previous;

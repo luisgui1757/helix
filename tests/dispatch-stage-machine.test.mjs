@@ -382,3 +382,40 @@ test("a conclusion-phase resume runs only the objective gate, never the complete
   assert.deepEqual(deps.stageCalls, []);
   assert.deepEqual(deps.gateCalls, ["implement:conclusion"]);
 });
+
+test("malformed and typed gate integrity failures never enter authored fail transitions", async () => {
+  const gateStage = {
+    id: "gate-stage",
+    max_passes: 1,
+    steps: [],
+    transitions: [{ when: { type: "gate", is: "fail" }, action: "stop", code: "accepted-fail" }],
+  };
+  const accessor = {};
+  Object.defineProperty(accessor, "result", { get() { throw new Error("hostile-gate-accessor"); } });
+  for (const gate of [
+    null,
+    {},
+    { result: "error" },
+    { result: "pass", code: "unexpected-code" },
+    { result: "fail", unexpected: "not-closed" },
+    { result: "error", code: "objective-gate-timeout", unexpected: "not-closed" },
+    { result: "unknown" },
+    accessor,
+  ]) {
+    const result = await runStagedChain({ chain: { stages: [gateStage] }, max_iterations: 1 }, {
+      runStage: async () => ({}),
+      runGate: async () => gate,
+    });
+    assert.equal(result.ok, false, JSON.stringify(gate));
+    assert.equal(result.code, STAGE_MACHINE_CODES.GATE_FAILED_EFFECT, JSON.stringify(gate));
+    assert.equal(result.flow.at(-1)?.action, "refuse", JSON.stringify(gate));
+  }
+
+  const typed = await runStagedChain({ chain: { stages: [gateStage] }, max_iterations: 1 }, {
+    runStage: async () => ({}),
+    runGate: async () => ({ result: "error", code: "objective-gate-timeout" }),
+  });
+  assert.equal(typed.ok, false);
+  assert.equal(typed.code, "objective-gate-timeout");
+  assert.equal(typed.flow.at(-1)?.action, "refuse");
+});

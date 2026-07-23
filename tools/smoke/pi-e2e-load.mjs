@@ -53,6 +53,7 @@ const REQUIRED_PACKAGE_FILES = Object.freeze([
   "extensions/lib/helix-workflow-test.mjs",
   "extensions/lib/helix-workflows.mjs",
   "dispatch/config/run-configs.json",
+  "dispatch/lib/objective-gate-sandbox.mjs",
   "dispatch/lib/pi-agent-adapter.mjs",
   "dispatch/lib/runner.mjs",
   "dispatch/lib/stage-schedule.mjs",
@@ -63,6 +64,9 @@ const REQUIRED_PACKAGE_FILES = Object.freeze([
   "dispatch/runtime/openrouter-audit-proxy.mjs",
   "dispatch/runtime/openrouter-runtime.mjs",
   "dispatch/workflow/schema.mjs",
+  "dispatch/workflow/graph.mjs",
+  "dispatch/workflow/builder.mjs",
+  "dispatch/workflow/visualize.mjs",
   "tools/loop/helix-task-loop.mjs",
 ]);
 

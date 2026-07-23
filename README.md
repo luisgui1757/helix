@@ -26,7 +26,7 @@ it at any time. For checkout development, use `pi -e .`.
 |---|---|
 | `/helix-help` | First steps and refusal guidance |
 | `/helix-onboarding` | Rerun the getting-started tour |
-| `/helix-run [workflow] -- <task>` | Confirm and start an exact workflow |
+| `/helix-run [workflow] [--execution-mode original-mode\|graph-mode] -- <task>` | Confirm and start an exact workflow |
 | `/helix-workflows` | List, show, graph, and test workflows |
 | `/helix-workflows import <file.json>` | Validate and atomically deploy v4 JSON |
 | `/helix-workflow-create` | Guided template-based workflow builder |
@@ -36,15 +36,17 @@ it at any time. For checkout development, use `pi -e .`.
 | `/helix-settings`, `/helix-profiles`, `/helix-setup` | Configure features and casts |
 
 Before execution, Helix displays the task, workflow graph, objective gate,
-repository, deadlines, and every resolved role/provider/model/effort/instance
-tuple across the parent and every pinned direct child. Declared typed inputs are
-collected and validated before run creation;
-consent shows their names without exposing values. Named workflows require the
-canonical per-run worktree policy and refuse before consent when worktrees are
-disabled. The binding is rechecked before run-directory, worktree, or provider
-effects. A real path whose model, effort, route, account, or certification
-cannot be proven is exact-disabled; it never degrades to a session default,
-mock, alternate provider, or fallback route.
+repository, deadlines, and every resolved cast tuple across the parent and each
+pinned child. Typed inputs validate before run creation; consent shows names,
+not values. Named workflows refuse before consent when worktrees are disabled.
+The binding is rechecked before effects. Unproved model, effort, route, account,
+or certification is exact-disabled, never substituted or downgraded.
+
+`original-mode` preserves historical interpretation and binding order/hashes; opt-in `graph-mode` uses locale-independent
+binding order and changes only typed-edge selection. Neither mode resumes the other's state. Children inherit parent runtime/task identity.
+Effect plans bind every successful agent/pipeline/parallel/map visit to complete ordered slot evidence, controlled retry/repair, and allowed
+final outcomes. Resumed effects close their preserved start exactly once; already-closed effects emit no duplicate completion; journal-ahead outcomes
+use recovered-effect evidence; fresh and resumed active nodes re-arbitrate interruption before terminal publication; terminal checkpoints replay idempotently while a durable terminal requires explicit debt for any public lag; terminal repair passes complete scheduler admission and exact cross-document relation checks before writes; child success proves its retained run-end; and smoke gates observe real counted candidate artifacts.
 
 The executable exact real-provider path is currently OpenRouter: attended
 preflight must find one active ZDR route with the required token/reasoning
@@ -55,11 +57,10 @@ tool-free provider turn with transport retries disabled; tool-bearing or
 mutating real definitions remain exact-disabled until every internal provider turn can be independently owned and journaled. Other provider families remain visibly
 exact-disabled until their official surfaces satisfy the same proof contract.
 
-The guided builder covers the common implement/review, plan/implement, and TDD
-loops. Advanced users create the same closed WorkflowDefinition v4 with the
-pure helpers in `dispatch/workflow/builder.mjs`, write the resulting JSON, and
-deploy it with `/helix-workflows import`. Helix executes data, never the builder
-program or arbitrary workflow JavaScript.
+The guided builder covers common loops. Advanced users generate the same closed WorkflowDefinition v4 with pure helpers and deploy its JSON through
+`/helix-workflows import`; Helix never executes builder code. Graph fragments compose
+common patterns with collision/dangling-port refusal. Author input is non-executing
+bounded JSON: proxy/accessor input refuses before reflection and size refuses before cloning.
 
 The kernel supports agent, pipeline, bounded parallel/map, reduce, decision,
 gate, checkpoint, version-pinned subworkflow, and terminal nodes. Successful
@@ -83,23 +84,22 @@ and checked usage arithmetic apply to successful, failed, and structured-repair
 calls. The validated prompt contract, output schema, tool allowlist, mutation
 mode, artifact, attempt, and run namespace reach the runtime unchanged.
 
-Deterministic mock runs use the same counted candidate boundary: any synthetic
-artifact mutation happens inside that adapter call, while artifact verification
-and the final objective gate only observe evidence. They cannot manufacture a
-successful result outside the workflow graph.
+Mock mutation stays inside the counted candidate; verifiers/gates only observe. Command gates use a network-denied, credential-sanitized macOS/Linux sandbox,
+read-only candidate, ephemeral scratch, and a self-contained current-tree/index
+Git snapshot with no host history/object mount; physical `.git` is unreadable in
+ordinary checkouts and linked worktrees, including the shared common directory.
+Host preparation disables replacement refs; indexed metadata plus bounded physical tracked/untracked bytes form the fingerprint without executing Git content filters. Nix closure discovery uses a private, plugin-free local-daemon configuration. Runtime smoke binds both modes to one pre-admitted raw-tree manifest, preserves POSIX path/symlink bytes, and proves the complete raw path/type skeleton, regular-file executable bits, and symlink payloads on disposable scratch before any registration; it does not approximate filesystem collisions with Unicode transforms. Cleanup preserves recovery state until every derived lexical/physical checkout identity is absent from both Git and the filesystem. Sandbox setup verifies scratch cleanup on every post-creation refusal and rolls back any opened workspace guard even when preparation throws. Linux trusts only fixed helpers and isolates IPC; timeout, cancellation, spawn/process failure, and other boundary uncertainty are non-routable and checkpoint-bound against relaunch.
 
-Run records contain structural events and hashes. Raw tasks remain in memory;
-private scheduler checkpoints and bounded workspace snapshots live below
-`~/.pi/agent/helix/private`. Resume requires the original task plus fresh
-workflow, cast, policy, account, and runtime validation. A Git worktree protects
-Git state, but it is not an OS sandbox.
+Run records contain validated structural events/hashes; watch shows exact typed parent/child traversal and rejects invalid public cardinalities. Raw tasks stay in memory; private state lives below
+`~/.pi/agent/helix/private`. Resume authenticates the committed parent/derived
+child event prefixes before effects; omission, drift, or projection-debt clearing
+failure refuses. Every active watch ignores a bounded tail that resume truncates.
+Legacy shapes remain history; Git worktrees are not OS sandboxes.
 
 Helix adds no percentage-based compaction trigger. Each runtime keeps its native
 default compaction behavior.
 
-See [the manual](docs/manual.md), [workflow guide](docs/workflows.md),
-[provider truth table](docs/providers.md), and
-[architecture](docs/architecture.md).
+See [the manual](docs/manual.md), [workflow guide](docs/workflows.md), [provider truth table](docs/providers.md), and [architecture](docs/architecture.md).
 
 ## Verify
 
@@ -116,5 +116,4 @@ npm run check:package
 With a supported Pi binary, `check:package -- --pi-bin <path>` loads the extracted
 artifact through Pi RPC and its real default factory with no live provider call.
 
-Active no-egress and opt-in live-provider certification are documented in the
-manual. Requires Node.js 22.19 or newer. Licensed under [MIT](LICENSE).
+Active no-egress and opt-in live-provider certification are documented in the manual. Requires Node.js 22.19 or newer. Licensed under [MIT](LICENSE).

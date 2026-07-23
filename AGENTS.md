@@ -317,14 +317,129 @@ The single source for test rules.
 - Every named workflow executes only after normalization to WorkflowDefinition
   v4 through `dispatch/kernel/scheduler.mjs`. Legacy stage documents are input
   adapters and historical readers, never a selectable product engine.
+- Workflow execution mode is a resume-bound closed choice. `original-mode`
+  remains the default and preserves historical binding/runtime hash inputs;
+  `graph-mode` changes only transition resolution inside the same scheduler and
+  has its own binding/runtime identity. Schema-4 public run state means legacy
+  original-mode; schema 5 requires an explicit valid mode. Scheduler checkpoint
+  schema 4 is original-mode and schema 5 is graph-mode with an explicit mode;
+  both bind the exact canonical event-prefix ref. Schemas 1/2/3 remain readable
+  history but cannot authorize continuation. Parent and child continuation
+  refuse any unbound prefix or mode mismatch before effects. Recursive child
+  admission inherits the parent's expected runtime/task bindings; it never
+  treats child-authored checkpoint hashes as their own proof.
+- The canonical workflow graph orders node ids by locale-independent Unicode
+  code-unit order, independently of object insertion order, preserves authored
+  outgoing-edge order, and assigns stable edge ids.
+  Persisted stable-key serialization must reconstruct the same lifecycle and
+  public graph projection; duplicate endpoints never collapse edge identity.
+  Graph-mode consent bindings use the same code-unit order for presets and
+  child ids. Original-mode alone retains its historical locale-sensitive
+  binding sort so its existing hash identity does not change.
+- Observed graph admission is mode-aware, definition-bound, lifecycle-bound,
+  and exact per event kind. Every nonempty parent/child stream begins with its
+  binding event; graph-mode transitions require exact edge id/kind; endpoint
+  inference is legacy/original-only. Pinned child definitions and forwarded
+  structural child fields own nested current/last projection; unknown,
+  inconsistent, extra-field, or mode-drifting events refuse. Child run ids equal
+  the parent run/node/visit namespace, and each gate event's finality and result
+  must match the authored gate and subsequent edge. Effects exist only on
+  effect-capable nodes; every completion or ordinary resume closes one exact
+  open start, an already-closed retained effect emits no second completion,
+  while journal-ahead reconciliation uses an explicit recovered event because
+  its start is absent from the durable prefix. Instance ids cannot
+  be reused, and schema-5 repair/retry controls bind the exact failed agent
+  attempt, failure class, and authored ceilings. Runtime expansion cannot raise
+  an authored retry ceiling. Each agent-bearing visit emits a bounded structural
+  effect plan. Successful agent/pipeline/parallel/map completion requires every
+  planned logical slot, ordered pipeline settlement, contiguous panel members,
+  a controlled predecessor before every later attempt, and a final successful
+  or explicitly allowlisted agent outcome. Empty maps remain a valid zero-slot
+  plan. A successful parent subworkflow visit requires its exact child stream
+  to end successfully before the parent may end or transition; that exact
+  checkpoint-bound terminal proof survives only a continuation of the same
+  parent node and visit. Terminal events require no open effects. Successful
+  run completion requires the recorded final-gate pass plus the matching
+  succeeded terminal; a complete failed/refused/cancelled outcome instead ends
+  causally at its current nonterminal node. A closed checkpoint records its
+  exact terminal status/code and replays idempotently; a checkpoint failure is
+  resumable only if an earlier durable checkpoint exists. If the first private
+  checkpoint fails, product state remains incomplete and nonresumable with an
+  empty committed prefix even when the direct scheduler returned a closed
+  failure. Completed public state must agree
+  with that last admitted run-end event. Historical schema-4 child wrappers remain an explicit
+  opaque original-mode watch format; active legacy watch still slices to its
+  recorded count, and those records never gain schema-5 nested authority from
+  mutable child definitions or a valid-looking event suffix.
+- Every structural kernel event is an execution barrier. An event-sink failure
+  stops provider calls, retries, gates, parent/child forwarding, transitions,
+  and terminal checkpoint publication. A resumable event failure continues
+  only from the last checkpointed event prefix after its canonical rolling ref
+  matches. Public count/ref authority is projected only from that committed
+  private checkpoint; accepted JSONL tail events remain unauthoritative.
+  Every schema-4/5 continuation must explicitly supply that exact retained
+  prefix; omission or retained-event tampering refuses before journal,
+  workspace, gate, checkpoint, or provider callbacks. Resume derives every
+  child ref from exact parent wrappers, and watch ignores a valid
+  uncheckpointed suffix. The event
+  path must be a regular non-symlink file no larger than 64 MiB before it is
+  read. Public event and journal cardinalities are safe and nonnegative at
+  discovery, watch, resume rendering, and continuation. They never lead the
+  private scheduler. A nonterminal private scheduler requires an incomplete
+  public projection. A private terminal requires schema-2
+  `public_projection_pending: true`; if the public projection is already
+  complete, its terminal status, code, and node must exactly match that private
+  marker. Any other cross-document relation refuses before projection or
+  provider effects. Explicit durable projection debt may lag and is repaired
+  and durably cleared before provider certification. Failure to clear the debt
+  refuses continuation while preserving the conservative marker. A
+  successful terminal marker is never durable before its exact terminal
+  `node-end` and `run-end` status/code pair. Cancellation and the whole-run
+  deadline are re-arbitrated after every fresh or resumed active node-entry
+  checkpoint and before terminal publication, so continuation cannot bypass an
+  interruption observed before commit. Once the matching marker is durably
+  installed, it is
+  the authoritative returned outcome; cancellation arriving during the
+  successful terminal-checkpoint write cannot contradict the committed event
+  prefix and terminal result. Product execution exposes that durable authority
+  explicitly. Its completed public projection is part of the terminal
+  checkpoint transaction; failure retains explicit private projection debt and
+  resume repairs the exact terminal before any provider/worktree effect. The
+  command layer never rewrites an authoritative failed,
+  refused, or authored-cancelled terminal into a later outer timeout or
+  cancellation.
+- The scheduler owns one cloned, deeply immutable admitted definition for each
+  parent/child invocation. Effect, expansion, gate, and artifact callbacks see
+  detached copies and cannot mutate either resolver's routing authority.
+- Public graph-fragment combinators admit descriptor-safe bounded JSON before
+  reading it. Accessors, proxies, cycles, excessive depth, and executable values
+  return stable refusals and are never invoked as authoring input. Proxy
+  detection occurs before reflection, and canonical UTF-8 admission is bounded
+  by `WORKFLOW_LIMITS.max_canonical_bytes` before structured cloning.
 - A workflow succeeds only through its unique final deterministic objective
   gate. Its `on_pass` is the successful terminal's only incoming edge, the
   final node cannot redefine the top-level objective, and resume requires its
   recorded pass evidence. Model verdicts may route work but cannot declare
-  convergence.
+  convergence. Every gate launch first checkpoints its exact run, definition,
+  node, visit, and objective identity, and every closed result is checkpointed
+  before routing. Resume reuses that settled result; an in-flight or unconfirmed
+  result refuses as unknown and is never relaunched. Cancellation or the run
+  deadline that wins before a gate settles replaces any late `pass`/`fail`
+  before result checkpointing, so interrupted gate evidence cannot become
+  reusable convergence after a later persistence failure.
+- Terminal projection repair is not a second resume engine. Before changing an
+  event file, public state, or projection-debt marker, it must pass the
+  scheduler's canonical task/runtime/mode/budget/journal/terminal admission and
+  match the exact terminal `node-end`/`run-end` status-code pair. A completed
+  public projection with matching explicit private debt is a maintenance retry:
+  it clears that debt and returns the terminal before provider certification.
 - Every invocation consumes its effect and checkpoints an in-flight intent
   before the provider call. A result is reusable only after its identity and
   journal evidence reconcile; an unknown outcome refuses rather than replaying.
+  If cancellation, the run deadline, or the call timeout wins before a provider
+  settles, a later success cannot advance or commit: valid late usage is still
+  accounted and journaled, mutation rolls back, and the exact interruption or
+  timeout remains the semantic result.
   A mutating effect is incomplete until workspace apply, journal append,
   scheduler checkpoint, and bounded private workspace snapshot are durable.
   Recovery/proposal material remains until idempotent finalization; a failed
@@ -407,6 +522,68 @@ The single source for test rules.
 - Deterministic mock workflows may mutate only inside their counted candidate
   adapter effect. Host verifiers and gates observe artifacts and objective
   evidence; they never manufacture convergence or unjournaled workspace state.
+  Runtime smoke binds original-mode and graph-mode to one exact commit. Its
+  complete raw tree manifest is admitted before any worktree is created:
+  object ids, modes, byte paths, blob/symlink sizes, prefix collisions, file
+  count, and aggregate bytes are bounded with checked arithmetic. Disposable
+  worktrees are created without checkout filters, materialized from that one
+  immutable manifest, and fingerprinted from bounded physical bytes using
+  fixed, configuration-sterile, replacement-disabled Git metadata. POSIX path
+  and symlink-target bytes are preserved exactly. Before registration, the
+  scratch filesystem must materialize, enumerate byte-for-byte, and remove the
+  complete path/type skeleton, every regular-file executable bit, and every
+  symlink payload. It must also prove every byte-exact parent and regular-file
+  `realpath` operation used by physical fingerprinting; creation alone is not
+  representability. Helix never infers arbitrary filesystem equivalence from
+  Unicode normalization or case conversion. Cleanup derives lexical and
+  physical checkout identities from
+  the already-created root, reconciles both identities against Git and the
+  filesystem after every independent removal attempt, and preserves the
+  private root whenever removal is uncertain.
+  Runtime smoke uses that same boundary: its candidate writes any synthetic
+  artifact inside the counted transaction, artifact verification reads/hashes
+  the real file, and the authored deterministic gate executes read-only against
+  the disposable worktree. Command gates require a supported OS sandbox: the
+  candidate is mounted read-only, network access and ambient credentials are
+  absent, and exact before/after workspace fingerprints bind the observation.
+  Ephemeral Ubuntu 24.04 CI must enable and prove the documented unprivileged
+  user-namespace boundary before the matrix; it may not skip, mock, or
+  downgrade production sandbox tests because the runner's AppArmor default
+  denies namespace capabilities.
+  The sandbox exposes a minimal credential-free Git view rather than the host
+  Git common directory: a bounded self-contained database contains only the
+  admitted current tree/index objects and has no host history or object-store
+  mount. Physical candidate `.git` metadata is unreadable even for an ordinary
+  checkout or linked worktree; the private sanitized database is the only Git
+  view available to the checker. External checker executables are admitted as
+  exact files, never through a parent-directory grant; every admitted command,
+  dependency, and runtime path must be disjoint in both directions from each
+  physical candidate Git-metadata path, including a linked worktree's
+  per-worktree administration directory and resolved shared common directory,
+  and any root containing the candidate refuses. Linux containment helpers resolve only from
+  fixed trusted system/Nix roots and `.git` masking is installed after external
+  read binds. Nix closure discovery uses a private configuration/home, a fixed
+  helper path, the local daemon store, and disables plugins, substituters, and
+  builders; ambient Nix config, remotes, credentials, and `PATH` cannot execute
+  during host preparation. Pre-sandbox fingerprints and sanitized Git-view construction use
+  fixed Git, a closed environment, disabled replacement refs, and no
+  worktree-to-Git conversion. Indexed metadata is read without filters; tracked
+  and untracked bytes are descriptor-safe, contained, and bounded. Ambient
+  `PATH`, `GIT_*`, repository clean/process filters, and `refs/replace/*` cannot
+  execute or redirect preparation. Symlinks hash only their target text and
+  non-regular entries are structural markers. Linux also isolates IPC. Named and staged runs hold a private snapshot
+  and restore detected drift before returning failure. Timeout and cancellation
+  evidence waits for process-group closure; if bounded termination cannot be
+  confirmed, scratch and restoration material are preserved. Every failure
+  after sandbox scratch creation attempts and verifies cleanup, with cleanup
+  failure taking precedence; a caller that opened a workspace guard rolls it
+  back even when sandbox preparation throws. Sandbox, termination, fingerprint,
+  restore, or cleanup uncertainty is a typed non-routable failure. Pre-abort,
+  timeout, spawn failure, and process error are likewise typed errors, never
+  authored `fail` edges. Operator cancellation
+  remains `cancelled` even when a gate settles late. Staged compatibility
+  execution admits only exact-field, typed, closed `pass`, `fail`, or `error`
+  outcomes. Only a genuine checker exit may select a gate edge.
 - Kernel public events contain structural ids, hashes, counts, status, and
   stable codes only. Tasks, prompts, responses, provider bodies, account
   handles, credentials, and workspace content stay out of public projections.

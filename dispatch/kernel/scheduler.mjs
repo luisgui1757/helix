@@ -12,14 +12,53 @@ import {
   WORKFLOW_LIMITS,
   workflowDefinitionHash,
 } from "../workflow/schema.mjs";
-import { isRecoverableKernelFailure, KERNEL_CHECKPOINT_LIMITS, validateKernelCheckpoint } from "./state.mjs";
+import {
+  compileWorkflowGraph,
+  DEFAULT_WORKFLOW_EXECUTION_MODE,
+  routeWorkflowDecision,
+  routeWorkflowGate,
+  routeWorkflowNext,
+  validateWorkflowExecutionMode,
+} from "../workflow/graph.mjs";
+import {
+  EMPTY_KERNEL_EVENT_PREFIX_REF,
+  extendKernelEventPrefixRef,
+  isRecoverableKernelFailure,
+  kernelChildEventPrefix,
+  KERNEL_CHECKPOINT_LIMITS,
+  validateKernelCheckpoint,
+} from "./state.mjs";
 
 const MUTATING = new Set(["shared-serialized", "isolated-proposal"]);
 const FAILURE_CLASSES = new Set(["agent", "kernel"]);
 const HASH = /^sha256:[0-9a-f]{64}$/;
+const DEFAULT_EFFECT_SETTLEMENT_TIMEOUT_MS = 5_500;
+const BOUNDARY_ABORTED = Symbol("kernel-boundary-aborted-before-start");
+const BOUNDARY_UNSETTLED = Symbol("kernel-boundary-outcome-unknown");
+const TERMINAL_RESUME_ADMISSION = Symbol("kernel-terminal-resume-admission");
+const NONTERMINAL_UNKNOWN_OUTCOMES = new Set([
+  "kernel-boundary-outcome-unknown",
+  "kernel-effect-outcome-unknown",
+  "objective-gate-termination-unconfirmed",
+]);
+
+function freezeTree(value, seen = new Set()) {
+  if (value === null || typeof value !== "object" || seen.has(value)) return value;
+  seen.add(value);
+  for (const entry of Array.isArray(value) ? value : Object.values(value)) freezeTree(entry, seen);
+  return Object.freeze(value);
+}
 
 function safeCode(value, fallback) {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value) && value.length <= 160 ? value : fallback;
+}
+
+export function bindWorkflowKernelRuntimeRef(runtimeRef, executionMode = DEFAULT_WORKFLOW_EXECUTION_MODE) {
+  const mode = validateWorkflowExecutionMode(executionMode);
+  if (!mode.ok || !HASH.test(runtimeRef ?? "")) return null;
+  return mode.mode === DEFAULT_WORKFLOW_EXECUTION_MODE
+    ? runtimeRef
+    : journalRef({ runtime_ref: runtimeRef, execution_mode: mode.mode });
 }
 
 function settled(status, extra = {}) {
@@ -219,33 +258,77 @@ function validBudgetSnapshot(value) {
       .every((entry) => entry === null || (Number.isSafeInteger(entry) && entry >= 0));
 }
 
+function terminalEventPairMatches(resume, events) {
+  if (!Array.isArray(events) || events.length !== resume.event_seq || events.length < 2) return false;
+  const [nodeEnd, runEnd] = events.slice(-2);
+  const marker = resume.terminal_result;
+  return nodeEnd?.kind === "node-end" && runEnd?.kind === "run-end"
+    && nodeEnd.run_id === resume.run_id && runEnd.run_id === resume.run_id
+    && nodeEnd.node_id === resume.current && runEnd.node_id === resume.current
+    && nodeEnd.status === marker.status && runEnd.status === marker.status
+    && (nodeEnd.code ?? null) === marker.code && (runEnd.code ?? null) === marker.code;
+}
+
+export async function validateWorkflowKernelResumeAuthority(definition, input, deps = {}) {
+  if (deps.resume?.terminal_result == null) {
+    return { ok: false, status: "refused", code: "kernel-checkpoint-terminal-invalid" };
+  }
+  const result = await runWorkflowKernel(definition, input, {
+    ...deps,
+    [TERMINAL_RESUME_ADMISSION]: true,
+  });
+  return result.terminal === deps.resume.current && result.status === deps.resume.terminal_result.status
+    && (result.code ?? null) === deps.resume.terminal_result.code
+    ? { ...result, resume_authoritative: true }
+    : result;
+}
+
 export async function runWorkflowKernel(definition, input, deps = {}) {
+  const modeValidation = validateWorkflowExecutionMode(deps.execution_mode);
+  if (!modeValidation.ok) return { ok: false, status: "refused", code: modeValidation.code };
+  const executionMode = modeValidation.mode;
+  try { definition = freezeTree(structuredClone(definition)); }
+  catch { return { ok: false, status: "refused", code: "kernel-definition-invalid" }; }
   const validation = validateWorkflowDefinition(definition);
   if (!validation.valid) return { ok: false, status: "refused", code: "kernel-definition-invalid", errors: validation.errors };
+  const workflowGraph = executionMode === "graph-mode" ? compileWorkflowGraph(definition) : null;
+  if (workflowGraph && !workflowGraph.ok) {
+    return { ok: false, status: "refused", code: workflowGraph.code };
+  }
   const inputValidation = normalizeWorkflowInput(definition.inputs, input);
   if (!inputValidation.valid) return { ok: false, status: "refused", code: "kernel-input-invalid", errors: inputValidation.errors };
   input = inputValidation.input;
-  if (typeof deps.executeAgent !== "function" || typeof deps.runGate !== "function") {
+  const terminalResumeAdmission = deps[TERMINAL_RESUME_ADMISSION] === true;
+  if (terminalResumeAdmission && deps.resume?.terminal_result == null) {
+    return { ok: false, status: "refused", code: "kernel-checkpoint-terminal-invalid" };
+  }
+  if (!terminalResumeAdmission && (typeof deps.executeAgent !== "function" || typeof deps.runGate !== "function")) {
     return { ok: false, status: "refused", code: "kernel-effects-missing" };
   }
   const agents = Object.values(definition.nodes).flatMap((node) => node.kind === "agent" ? [node]
     : node.kind === "pipeline" ? node.stages
       : node.kind === "parallel" ? node.branches
         : node.kind === "map" ? [node.body] : []);
-  if (agents.some((agent) => MUTATING.has(agent.mutation))) {
+  if (!terminalResumeAdmission && agents.some((agent) => MUTATING.has(agent.mutation))) {
     const required = ["currentRef", "verifyRef", "begin", "commit", "rollback", "serialize", "finalize"];
     if (deps.workspace == null || required.some((name) => typeof deps.workspace[name] !== "function")) {
       return { ok: false, status: "refused", code: "kernel-workspace-effects-missing" };
     }
   }
-  if (Object.values(definition.nodes).some((node) => ["agent", "pipeline"].includes(node.kind) && node.artifact)
+  if (!terminalResumeAdmission
+    && Object.values(definition.nodes).some((node) => ["agent", "pipeline"].includes(node.kind) && node.artifact)
     && typeof deps.verifyArtifact !== "function") {
     return { ok: false, status: "refused", code: "kernel-artifact-effect-missing" };
   }
   const runId = deps.run_id ?? definition.id;
   const finalGateId = Object.keys(definition.nodes).find((id) => definition.nodes[id].kind === "gate" && definition.nodes[id].final === true);
   const definitionRef = workflowDefinitionHash(definition);
-  const runtimeRef = deps.runtime_ref ?? journalRef({ runtime: "kernel-injected", version: 1 });
+  const injectedRuntimeRef = deps.runtime_ref ?? journalRef({
+    runtime: "kernel-injected",
+    version: 1,
+  });
+  const runtimeRef = bindWorkflowKernelRuntimeRef(injectedRuntimeRef, executionMode);
+  if (runtimeRef == null) return { ok: false, status: "refused", code: "kernel-runtime-binding-invalid" };
   const resume = deps.resume ?? null;
   if (resume) {
     const checked = validateKernelCheckpoint(resume, {
@@ -254,10 +337,32 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       runtime_ref: runtimeRef,
       task_ref: deps.task_ref,
       node_ids: new Set(Object.keys(definition.nodes)),
+      execution_mode: executionMode,
+      event_prefix: deps.resume_events,
     });
     if (!checked.valid) return { ok: false, status: "refused", code: checked.code };
-    if (resume.schema_version === 1) {
-      return { ok: false, status: "refused", code: "kernel-checkpoint-elapsed-unknown" };
+    if (![4, 5].includes(resume.schema_version)) {
+      return { ok: false, status: "refused", code: "kernel-checkpoint-events-unbound" };
+    }
+    if (resume.terminal_result) {
+      const marker = resume.terminal_result;
+      const terminalNode = definition.nodes[resume.current];
+      const authoredTerminal = terminalNode?.kind === "terminal";
+      const missingEvidence = authoredTerminal && terminalNode.status === "succeeded"
+        && marker.status === "refused" && marker.code === "kernel-objective-gate-evidence-missing";
+      const exactAuthoredTerminal = authoredTerminal && marker.status === terminalNode.status
+        && marker.code === (terminalNode.code ?? null);
+      const nonterminalFailure = !authoredTerminal && marker.status !== "succeeded" && marker.code !== null;
+      const succeededWithEvidence = exactAuthoredTerminal && marker.status === "succeeded"
+        && resume.outputs?.[finalGateId]?.result === "pass"
+        && resume.outputs[finalGateId].final === true;
+      if (!(missingEvidence || nonterminalFailure || succeededWithEvidence
+        || (exactAuthoredTerminal && marker.status !== "succeeded"))) {
+        return { ok: false, status: "refused", code: "kernel-checkpoint-terminal-invalid" };
+      }
+      if (!terminalEventPairMatches(resume, deps.resume_events)) {
+        return { ok: false, status: "refused", code: "kernel-checkpoint-terminal-invalid" };
+      }
     }
     if (resume.active?.child) {
       const parentNode = definition.nodes[resume.active.node_id];
@@ -270,14 +375,36 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         return { ok: false, status: "refused", code: "kernel-checkpoint-child-invalid" };
       }
     }
+    if (resume.active?.boundary) {
+      const boundaryNode = definition.nodes[resume.active.node_id];
+      const boundaryObjective = boundaryNode?.kind === "gate"
+        ? boundaryNode.final === true ? definition.objective_gate : boundaryNode.gate
+        : null;
+      const expectedBoundaryIdentity = boundaryObjective == null ? null : tryJournalRef({
+        kind: "gate", run_id: runId, definition_ref: definitionRef,
+        node_id: resume.active.node_id, visit: resume.active.visit, objective: boundaryObjective,
+      });
+      if (resume.active.boundary.kind !== "gate"
+        || resume.active.boundary.identity !== expectedBoundaryIdentity) {
+        return { ok: false, status: "refused", code: "kernel-checkpoint-boundary-invalid" };
+      }
+    }
   }
   const events = [];
   let seq = resume?.event_seq ?? 0;
+  let eventRef = resume?.event_ref ?? EMPTY_KERNEL_EVENT_PREFIX_REF;
   let eventFailure = null;
   let stopRun = () => {};
   const emit = (kind, fields = {}) => {
     if (eventFailure != null) return false;
     const event = { schema_version: 1, seq: ++seq, run_id: runId, kind, ...fields };
+    const nextEventRef = extendKernelEventPrefixRef(eventRef, event);
+    if (nextEventRef == null) {
+      seq -= 1;
+      eventFailure = "kernel-event-capacity-exceeded";
+      stopRun(eventFailure);
+      return false;
+    }
     events.push(event);
     try { deps.onEvent?.(structuredClone(event)); }
     catch {
@@ -286,6 +413,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       eventFailure = "kernel-event-write-failed";
       stopRun(eventFailure);
     }
+    if (eventFailure == null) eventRef = nextEventRef;
     return eventFailure == null;
   };
   const journal = deps.journal ?? createEffectJournal({
@@ -307,7 +435,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     }
     const suffix = journal.suffix(resume.journal_entries);
     if (!suffix.ok) return { ok: false, status: "refused", code: suffix.code };
-    const pending = resume.schema_version === 2 ? pendingJournalIdentities(resume.active) : new Set();
+    const pending = resume.schema_version >= 2 ? pendingJournalIdentities(resume.active) : new Set();
     if (suffix.records.some((record) => !pending.has(record.identity))) {
       return { ok: false, status: "refused", code: "kernel-journal-checkpoint-drift" };
     }
@@ -352,6 +480,20 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
   }
   const outputs = resume ? structuredClone(resume.outputs) : {};
   const visits = resume ? structuredClone(resume.visits) : Object.fromEntries(Object.keys(definition.nodes).map((id) => [id, 0]));
+  if (resume?.terminal_result) {
+    return {
+      ok: resume.terminal_result.status === "succeeded",
+      status: resume.terminal_result.status,
+      code: resume.terminal_result.code,
+      terminal: resume.current,
+      outputs,
+      visits,
+      events: [],
+      budget: budget.snapshot(),
+      journal: journal.records(),
+      elapsed_ms: resume.elapsed_ms,
+    };
+  }
   let startedAt;
   try { startedAt = deps.now?.() ?? Date.now(); }
   catch { return { ok: false, status: "failed", code: "kernel-clock-failed" }; }
@@ -371,7 +513,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     lastNow = value;
     return value;
   };
-  const priorElapsed = resume?.schema_version === 2 ? resume.elapsed_ms : 0;
+  const priorElapsed = resume?.schema_version >= 2 ? resume.elapsed_ms : 0;
   const totalElapsed = () => {
     const elapsed = priorElapsed + (now() - startedAt);
     if (!Number.isSafeInteger(elapsed) || elapsed < 0) {
@@ -384,6 +526,8 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
   let active = resume?.active ? structuredClone(resume.active) : null;
   if (active && !Object.hasOwn(active, "inflight")) active.inflight = {};
   let checkpointTail = Promise.resolve({ ok: true });
+  let checkpointFailure = null;
+  let durableCheckpointWritten = resume != null;
   let writerTail = Promise.resolve();
   let cancelled = false;
   let interruptionCode = null;
@@ -399,24 +543,57 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     status: interruptionCode === "kernel-run-deadline-exceeded" || eventFailure != null ? "failed" : "cancelled",
     code: eventFailure ?? interruptionCode ?? "kernel-run-cancelled",
   });
+  const arbitrateInterruption = () => {
+    const elapsed = totalElapsed();
+    if (clockFailure) return { status: "failed", code: clockFailure };
+    if (!cancelled && elapsed >= definition.limits.max_run_ms) deadline();
+    return cancelled ? interruption() : null;
+  };
   if (deps.signal?.aborted) abort();
   else deps.signal?.addEventListener?.("abort", abort, { once: true });
   const remainingRunMs = definition.limits.max_run_ms - priorElapsed;
   const runTimer = remainingRunMs > 0 ? setTimeout(deadline, remainingRunMs) : null;
   if (remainingRunMs <= 0) deadline();
-  const runBoundary = async (operation, abortedValue = null) => {
-    if (runController.signal.aborted) return abortedValue;
+  const settlementTimeoutMs = Number.isSafeInteger(deps.effect_settlement_timeout_ms)
+    && deps.effect_settlement_timeout_ms >= 1 && deps.effect_settlement_timeout_ms <= 60_000
+    ? deps.effect_settlement_timeout_ms
+    : DEFAULT_EFFECT_SETTLEMENT_TIMEOUT_MS;
+  const runBoundary = async (operation, signal = runController.signal) => {
+    if (signal.aborted) return BOUNDARY_ABORTED;
+    let operationOutcome;
+    try {
+      operationOutcome = Promise.resolve(operation()).then(
+        (value) => ({ settled: true, value }),
+        (error) => ({ settled: true, error }),
+      );
+    } catch (error) {
+      throw error;
+    }
     let onAbort;
     const aborted = new Promise((resolve) => {
-      onAbort = () => resolve(abortedValue);
-      runController.signal.addEventListener("abort", onAbort, { once: true });
+      onAbort = () => resolve({ settled: false, aborted: true });
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) onAbort();
     });
-    try { return await Promise.race([Promise.resolve().then(operation), aborted]); }
-    finally { runController.signal.removeEventListener("abort", onAbort); }
+    let outcome = await Promise.race([operationOutcome, aborted]);
+    signal.removeEventListener("abort", onAbort);
+    if (!outcome.settled) {
+      let timer;
+      outcome = await Promise.race([
+        operationOutcome,
+        new Promise((resolve) => { timer = setTimeout(() => resolve({ settled: false }), settlementTimeoutMs); }),
+      ]);
+      if (timer) clearTimeout(timer);
+    }
+    if (!outcome.settled) return BOUNDARY_UNSETTLED;
+    if (Object.hasOwn(outcome, "error")) throw outcome.error;
+    return outcome.value;
   };
   const context = () => ({ inputs: input, outputs, visits, budget: budget.snapshot() });
-  const checkpointSnapshot = (workspaceRef, { outputState = outputs, activeState = active } = {}) => ({
-    schema_version: 2,
+  const checkpointSnapshot = (workspaceRef, {
+    outputState = outputs, activeState = active, terminalResult = null,
+  } = {}) => ({
+    schema_version: executionMode === DEFAULT_WORKFLOW_EXECUTION_MODE ? 4 : 5,
     run_id: runId,
     definition_ref: definitionRef,
     runtime_ref: runtimeRef,
@@ -426,10 +603,13 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     visits: structuredClone(visits),
     active: activeState == null ? null : structuredClone(activeState),
     event_seq: seq,
+    event_ref: eventRef,
     journal_entries: journal.records().length,
     budget: budget.snapshot(),
     workspace_ref: workspaceRef,
     elapsed_ms: totalElapsed(),
+    ...(executionMode === DEFAULT_WORKFLOW_EXECUTION_MODE ? {} : { execution_mode: executionMode }),
+    ...(terminalResult == null ? {} : { terminal_result: structuredClone(terminalResult) }),
   });
   const checkpointFits = (options = {}) => {
     try {
@@ -449,7 +629,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     outputs[nodeId] = cloned;
     return true;
   };
-  const checkpoint = async () => {
+  const checkpoint = async ({ terminalResult = null } = {}) => {
     totalElapsed();
     if (clockFailure) return { ok: false, code: clockFailure };
     if (typeof deps.onCheckpoint !== "function") return { ok: true };
@@ -457,7 +637,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       let workspaceRef;
       try { workspaceRef = deps.workspace?.currentRef?.(); } catch { workspaceRef = null; }
       if (!/^sha256:[0-9a-f]{64}$/.test(workspaceRef ?? "")) return { ok: false, code: "kernel-checkpoint-workspace-invalid" };
-      const snapshot = checkpointSnapshot(workspaceRef);
+      const snapshot = checkpointSnapshot(workspaceRef, { terminalResult });
       if (clockFailure) return { ok: false, code: clockFailure };
       try {
         if (Buffer.byteLength(JSON.stringify(snapshot), "utf8") > KERNEL_CHECKPOINT_LIMITS.max_scheduler_bytes) {
@@ -474,18 +654,24 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       }
     };
     checkpointTail = checkpointTail.then(task, task);
-    return checkpointTail;
+    const result = await checkpointTail;
+    checkpointFailure = result.ok ? null : result.code;
+    if (result.ok) durableCheckpointWritten = true;
+    return result;
   };
   const verifyNodeArtifact = async (node, nodeId) => {
     if (!node.artifact) return { ok: true, artifact_ref: null };
     let artifact;
     try {
-      artifact = await runBoundary(() => deps.verifyArtifact(node.artifact, {
+      artifact = await runBoundary(() => deps.verifyArtifact(structuredClone(node.artifact), {
         run_id: runId, node_id: nodeId, definition_id: definition.id, cwd: deps.workspace?.cwd ?? deps.cwd,
         signal: runController.signal,
       }));
     } catch {
       return { ok: false, status: "failed", code: "kernel-artifact-verification-failed" };
+    }
+    if (artifact === BOUNDARY_UNSETTLED) {
+      return { ok: false, status: "failed", code: "kernel-boundary-outcome-unknown" };
     }
     if (cancelled) return { ok: false, ...interruption() };
     if (!artifact?.ok) return { ok: false, status: "failed", code: safeCode(artifact?.code, "kernel-artifact-invalid") };
@@ -493,7 +679,17 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     return { ok: true, artifact_ref: artifact.ref };
   };
 
+  const retainedEffectEvidence = new Map();
+  for (const event of Array.isArray(deps.resume_events) ? deps.resume_events : []) {
+    if (event?.kind === "effect-start") {
+      retainedEffectEvidence.set(event.instance_id, { state: "open", effect_ref: event.effect_ref });
+    } else if (["effect-end", "effect-resumed", "effect-recovered", "effect-cache-hit"].includes(event?.kind)) {
+      retainedEffectEvidence.set(event.instance_id, { state: "closed", effect_ref: event.effect_ref });
+    }
+  }
+
   const resumeCompleted = async (nodeId, instanceId) => {
+    let recoveredFromJournal = false;
     if (active?.node_id === nodeId && Object.hasOwn(active.inflight, instanceId)) {
       const intent = active.inflight[instanceId];
       const record = journal.find(intent.identity, { mutating: intent.mutating, run_id: runId });
@@ -531,6 +727,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         active.inflight[instanceId] = intent;
         return { found: true, result: settled("failed", { code: saved.code }) };
       }
+      recoveredFromJournal = true;
     }
     if (active?.node_id === nodeId && Object.hasOwn(active.completed, instanceId)) {
       const resumed = structuredClone(active.completed[instanceId]);
@@ -561,7 +758,28 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           ? { found: false, result: null }
           : { found: true, result: settled("failed", { code: saved.code }) };
       }
-      emit("effect-resumed", { node_id: nodeId, instance_id: instanceId });
+      const retained = retainedEffectEvidence.get(instanceId) ?? null;
+      if (!recoveredFromJournal && retained?.state === "closed"
+        && retained.effect_ref === resumed._journal_identity) {
+        return { found: true, result: resumed };
+      }
+      const expectedRetainedState = recoveredFromJournal
+        ? retained == null
+        : retained?.state === "open" && retained.effect_ref === resumed._journal_identity;
+      if (!expectedRetainedState) {
+        return { found: true, result: settled("refused", { code: "kernel-checkpoint-events-invalid" }) };
+      }
+      if (!emit(recoveredFromJournal ? "effect-recovered" : "effect-resumed", {
+          node_id: nodeId,
+          instance_id: instanceId,
+          effect_ref: resumed._journal_identity,
+          status: resumed.status,
+          ...(resumed.code ? { code: resumed.code } : {}),
+          ...(resumed.status === "ok" ? {} : { failure_class: resumed.failure_class ?? "kernel" }),
+        })) {
+          const stopped = interruption();
+          return { found: true, result: settled(stopped.status, { code: stopped.code }) };
+      }
       return { found: true, result: resumed };
     }
     return { found: false, result: null };
@@ -593,7 +811,10 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     const cached = journal.lookupBase(baseIdentity, { mutating, run_id: runId });
     if (cached) {
       if (preReservation) budget.release(preReservation.id);
-      emit("effect-cache-hit", { node_id: nodeId, instance_id: instanceId, effect_ref: cached.identity });
+      if (!emit("effect-cache-hit", { node_id: nodeId, instance_id: instanceId, effect_ref: cached.identity })) {
+        const stopped = interruption();
+        return settled(stopped.status, { code: stopped.code });
+      }
       return cached.result;
     }
     const invocation = journal.nextInvocation(baseIdentity, { run_id: runId });
@@ -647,7 +868,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         }
         return settled("failed", { code: restored?.ok ? intentSaved.code : safeCode(restored?.code, "kernel-workspace-restore-failed") });
       }
-      emit("effect-start", { node_id: nodeId, instance_id: instanceId, effect_ref: identity });
+      const effectStarted = emit("effect-start", { node_id: nodeId, instance_id: instanceId, effect_ref: identity });
       const controller = new AbortController();
       const cancel = () => controller.abort("kernel-effect-cancelled");
       if (cancelled || deps.signal?.aborted) cancel();
@@ -657,23 +878,46 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       }
       const timer = setTimeout(() => controller.abort("kernel-effect-timeout"), Math.min(agent.timeout_ms, definition.limits.max_call_ms));
       let raw;
-      if (controller.signal.aborted) {
-        raw = { ok: false, code: controller.signal.reason };
+      if (!effectStarted) {
+        const stopped = interruption();
+        raw = { ok: false, code: stopped.code, usage: { tokens: 0, cost_micros: 0 } };
+      } else if (controller.signal.aborted) {
+        raw = { ok: false, code: controller.signal.reason, usage: { tokens: 0, cost_micros: 0 } };
       } else try {
-        raw = await Promise.race([
-          Promise.resolve(deps.executeAgent(agent, {
+        raw = await runBoundary(() => deps.executeAgent(structuredClone(agent), {
             run_id: runId, node_id: nodeId, instance_id: instanceId, task: input.task,
             definition_id: definition.id,
             input: structuredClone(input), outputs: structuredClone(outputs), local: structuredClone(local),
-            visit: visits[nodeId], artifact: definition.nodes[nodeId]?.artifact ?? agent.artifact ?? null,
+            visit: visits[nodeId],
+            artifact: structuredClone(definition.nodes[nodeId]?.artifact ?? agent.artifact ?? null),
             cwd: tx?.cwd ?? deps.workspace?.cwd ?? deps.cwd, signal: controller.signal,
-          })),
-          new Promise((resolve) => controller.signal.addEventListener("abort", () => resolve({ ok: false, code: controller.signal.reason }), { once: true })),
-        ]);
+          }), controller.signal);
       } catch { raw = { ok: false, code: "kernel-agent-effect-failed" }; }
       clearTimeout(timer);
       deps.signal?.removeEventListener?.("abort", cancel);
       runController.signal.removeEventListener("abort", cancel);
+      if (raw === BOUNDARY_UNSETTLED) {
+        return settled("failed", { code: "kernel-effect-outcome-unknown" });
+      }
+      if (raw === BOUNDARY_ABORTED) {
+        const stopped = cancelled ? interruption() : { status: "cancelled", code: "kernel-effect-cancelled" };
+        raw = { ok: false, code: stopped.code, usage: { tokens: 0, cost_micros: 0 } };
+      } else if (controller.signal.aborted && raw !== BOUNDARY_UNSETTLED) {
+        const stopped = cancelled
+          ? interruption()
+          : {
+            status: controller.signal.reason === "kernel-effect-cancelled" ? "cancelled" : "failed",
+            code: safeCode(controller.signal.reason, "kernel-effect-cancelled"),
+          };
+        raw = {
+          ok: false,
+          code: stopped.code,
+          failure_class: "kernel",
+          ...(raw && typeof raw === "object" && Object.hasOwn(raw, "usage")
+            ? { usage: raw.usage }
+            : { usage: { tokens: 0, cost_micros: 0 } }),
+        };
+      }
       let result;
       let observedUsage = normalizedUsage(raw?.usage);
       if (observedUsage == null) {
@@ -745,7 +989,13 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       }
       if (observedUsage != null && result.usage == null) result = { ...result, usage: observedUsage };
       if (workspaceRecoveryFailed) {
-        emit("effect-end", { node_id: nodeId, instance_id: instanceId, effect_ref: identity, status: "failed", code: workspaceRecoveryCode });
+        if (!emit("effect-end", {
+          node_id: nodeId, instance_id: instanceId, effect_ref: identity,
+          status: "failed", code: workspaceRecoveryCode, failure_class: "kernel",
+        })) {
+          const stopped = interruption();
+          return settled(stopped.status, { code: stopped.code });
+        }
         return settled("failed", { code: workspaceRecoveryCode });
       }
       let journalRecord = {
@@ -839,7 +1089,14 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         delete active.completed[instanceId]._journal_pending;
         const journalCheckpoint = await checkpoint();
         if (!journalCheckpoint.ok) return settled("failed", { code: journalCheckpoint.code });
-        emit("effect-end", { node_id: nodeId, instance_id: instanceId, effect_ref: identity, status: result.status, ...(result.code ? { code: result.code } : {}) });
+        if (!emit("effect-end", {
+          node_id: nodeId, instance_id: instanceId, effect_ref: identity, status: result.status,
+          ...(result.code ? { code: result.code } : {}),
+          ...(result.status === "ok" ? {} : { failure_class: result.failure_class ?? "kernel" }),
+        })) {
+          const stopped = interruption();
+          return settled(stopped.status, { code: stopped.code });
+        }
         if (workspaceApplied) {
           let finalized;
           try { finalized = await deps.workspace.finalize(tx); }
@@ -850,7 +1107,14 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           if (!finalizedCheckpoint.ok) return settled("failed", { code: finalizedCheckpoint.code });
         }
       } else {
-        emit("effect-end", { node_id: nodeId, instance_id: instanceId, effect_ref: identity, status: result.status, ...(result.code ? { code: result.code } : {}) });
+        if (!emit("effect-end", {
+          node_id: nodeId, instance_id: instanceId, effect_ref: identity, status: result.status,
+          ...(result.code ? { code: result.code } : {}),
+          ...(result.status === "ok" ? {} : { failure_class: result.failure_class ?? "kernel" }),
+        })) {
+          const stopped = interruption();
+          return settled(stopped.status, { code: stopped.code });
+        }
       }
       return result;
     };
@@ -880,7 +1144,14 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         && repairAttempt < definition.limits.structured_repair_attempts) {
         repairAttempt += 1;
         invocationAttempt += 1;
-        emit("effect-repair", { node_id: nodeId, instance_id: instanceId, repair_attempt: repairAttempt });
+        if (!emit("effect-repair", {
+          node_id: nodeId, instance_id: instanceId,
+          prior_instance_id: `${instanceId}:attempt-${invocationAttempt - 1}`,
+          repair_attempt: repairAttempt,
+        })) {
+          const stopped = interruption();
+          return settled(stopped.status, { code: stopped.code });
+        }
         continue;
       }
       if (result.status === "ok" || result.status === "cancelled" || result.status === "refused"
@@ -889,7 +1160,14 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         coordination?.stop?.(result);
         return result;
       }
-      emit("effect-retry", { node_id: nodeId, instance_id: instanceId, attempt: ordinaryAttempt, next_attempt: ordinaryAttempt + 1 });
+      if (!emit("effect-retry", {
+        node_id: nodeId, instance_id: instanceId,
+        prior_instance_id: `${instanceId}:attempt-${invocationAttempt}`,
+        attempt: ordinaryAttempt, next_attempt: ordinaryAttempt + 1,
+      })) {
+        const stopped = interruption();
+        return settled(stopped.status, { code: stopped.code });
+      }
       if (agent.retry.backoff_ms > 0) {
         await new Promise((resolve) => {
           let timer;
@@ -920,12 +1198,18 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
     let expanded = [agent];
     let isExpanded = false;
     if (typeof deps.expandAgent === "function") {
-      try { expanded = await deps.expandAgent(agent, { definition_id: definition.id, node_id: nodeId, instance_id: instanceId, local: structuredClone(local) }); }
+      try {
+        expanded = structuredClone(await deps.expandAgent(structuredClone(agent), {
+          definition_id: definition.id, node_id: nodeId, instance_id: instanceId, local: structuredClone(local),
+        }));
+      }
       catch { expanded = null; }
       isExpanded = true;
     }
     if (!Array.isArray(expanded) || expanded.length < 1 || expanded.length > 64
-      || expanded.some((entry) => !entry || typeof entry !== "object" || Array.isArray(entry))) {
+      || expanded.some((entry) => !entry || typeof entry !== "object" || Array.isArray(entry)
+        || !Number.isSafeInteger(entry.retry?.max_attempts) || entry.retry.max_attempts < 1
+        || entry.retry.max_attempts > agent.retry.max_attempts)) {
       return { ok: false, result: settled("refused", { code: "kernel-agent-expansion-invalid" }) };
     }
     const completed = [];
@@ -1024,8 +1308,53 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       : { ok: true, values };
   };
 
+  const terminalize = async (result) => {
+    if (result?.events?.at(-1)?.kind === "run-end"
+      || ["paused", "running"].includes(result?.status)
+      || NONTERMINAL_UNKNOWN_OUTCOMES.has(result?.code)
+      || (durableCheckpointWritten && (isRecoverableKernelFailure(result?.code)
+        || checkpointFailure === result?.code))) return result;
+    const status = ["failed", "refused", "cancelled"].includes(result?.status) ? result.status : "failed";
+    const code = safeCode(result?.code, `kernel-${status}`);
+    if (active == null) {
+      visits[current] += 1;
+      active = { node_id: current, visit: visits[current], completed: {}, inflight: {} };
+      if (!emit("node-start", { node_id: current, visit: visits[current] })) return result;
+    }
+    if (!emit("node-end", { node_id: current, status, code })
+      || !emit("run-end", { node_id: current, status, code })) return result;
+    active = null;
+    if (!(isRecoverableKernelFailure(code) && !durableCheckpointWritten)) {
+      const terminalCheckpoint = await checkpoint({ terminalResult: { status, code } });
+      if (!terminalCheckpoint.ok) {
+        return { ...result, ok: false, status: "failed", code: terminalCheckpoint.code, events, outputs };
+      }
+    }
+    return {
+      ...result,
+      ok: false,
+      status,
+      code,
+      terminal: current,
+      outputs,
+      visits,
+      events,
+      budget: budget.snapshot(),
+      journal: journal.records(),
+      elapsed_ms: totalElapsed(),
+    };
+  };
+
   try {
-    emit(resume ? "run-resume" : "run-start", { node_id: current, definition_ref: definitionRef });
+    const result = await (async () => {
+      if (!emit(resume ? "run-resume" : "run-start", {
+      node_id: current,
+      definition_ref: definitionRef,
+      ...(executionMode === DEFAULT_WORKFLOW_EXECUTION_MODE ? {} : { execution_mode: executionMode }),
+    })) {
+      const stopped = interruption();
+      return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+    }
     if (cancelled) {
       const stopped = interruption();
       return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
@@ -1045,22 +1374,41 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         definition.limits.max_total_effects + Object.keys(definition.nodes).length,
       );
       if (visits[current] > maxVisits) return { ok: false, status: "refused", code: `kernel-node-visits-exhausted:${current}`, events, outputs };
-      emit("node-start", { node_id: current, visit: visits[current] });
+      if (!emit("node-start", { node_id: current, visit: visits[current] })) {
+        const stopped = interruption();
+        return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+      }
       if (!continuing) {
         const nodeCheckpoint = await checkpoint();
         if (!nodeCheckpoint.ok) return { ok: false, status: "failed", code: nodeCheckpoint.code, events, outputs };
       }
+      const stopped = arbitrateInterruption();
+      if (stopped != null) {
+        return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+      }
       let next = null;
+      let transitionEdge = null;
       let nodeStatus = "ok";
       if (node.kind === "agent") {
+        if (!emit("effect-plan", { node_id: current, slot_count: 1 })) {
+          return { ok: false, status: "failed", code: eventFailure ?? "kernel-event-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+        }
         const result = await executeAgentWithRetry(node, current, `${current}:${visits[current]}`);
         if (result.status !== "ok") return { ok: false, status: result.status, code: result.code ?? "kernel-agent-failed", events, outputs, budget: budget.snapshot() };
         const artifact = await verifyNodeArtifact(node, current);
         if (!artifact.ok) return { ok: false, status: artifact.status, code: artifact.code, events, outputs, budget: budget.snapshot() };
         const agentOutput = artifact.artifact_ref ? { ...result, artifact_ref: artifact.artifact_ref } : result;
         if (!storeOutput(current, agentOutput)) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
-        next = node.next;
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowNext(workflowGraph, current);
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else next = node.next;
       } else if (node.kind === "pipeline") {
+        if (!emit("effect-plan", { node_id: current, slot_count: node.stages.length })) {
+          return { ok: false, status: "failed", code: eventFailure ?? "kernel-event-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+        }
         const values = [];
         let upstream = null;
         for (let index = 0; index < node.stages.length; index += 1) {
@@ -1085,8 +1433,16 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
             return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
           }
         }
-        next = node.next;
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowNext(workflowGraph, current);
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else next = node.next;
       } else if (node.kind === "parallel") {
+        if (!emit("effect-plan", { node_id: current, slot_count: node.branches.length })) {
+          return { ok: false, status: "failed", code: eventFailure ?? "kernel-event-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+        }
         const result = await runInlineList(node.branches, current, {
           visit: visits[current],
           concurrency: Math.min(node.max_concurrency, definition.limits.max_concurrency),
@@ -1095,11 +1451,19 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         });
         if (!storeOutput(current, result.values)) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
         if (!result.ok) return { ok: false, status: result.status ?? "failed", code: result.code, events, outputs, budget: budget.snapshot() };
-        next = node.next;
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowNext(workflowGraph, current);
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else next = node.next;
       } else if (node.kind === "map") {
         const resolved = resolveJsonPointer(context(), node.items_path);
         if (!resolved.found || !Array.isArray(resolved.value)) return { ok: false, status: "refused", code: "kernel-map-input-invalid", events, outputs };
         if (resolved.value.length > node.max_items || resolved.value.length > definition.limits.max_map_items) return { ok: false, status: "refused", code: "kernel-map-cardinality-exceeded", events, outputs };
+        if (!emit("effect-plan", { node_id: current, slot_count: resolved.value.length })) {
+          return { ok: false, status: "failed", code: eventFailure ?? "kernel-event-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+        }
         const prepared = [];
         for (let index = 0; index < resolved.value.length; index += 1) {
           prepared.push(await prepareAgentExecution(node.body, current, `${current}:${visits[current]}:${index}`, { item: resolved.value[index], index }));
@@ -1122,7 +1486,12 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         if (hardFailure) {
           return { ok: false, status: hardFailure.status, code: hardFailure.code ?? "kernel-child-failed", events, outputs, budget: budget.snapshot() };
         }
-        next = node.next;
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowNext(workflowGraph, current);
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else next = node.next;
       } else if (node.kind === "reduce") {
         const resolved = resolveJsonPointer(context(), node.items_path);
         if (!resolved.found || !Array.isArray(resolved.value)) return { ok: false, status: "refused", code: "kernel-reduce-input-invalid", events, outputs };
@@ -1130,38 +1499,121 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           : node.strategy === "count" ? resolved.value.length
             : resolved.value.map((value) => typeof value === "string" ? value : JSON.stringify(value)).join(node.separator);
         if (!storeOutput(current, reduced)) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
-        next = node.next;
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowNext(workflowGraph, current);
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else next = node.next;
       } else if (node.kind === "decision") {
-        const selected = node.transitions.find((entry) => evaluateCondition(entry.when, context()));
-        const edge = selected ?? node.default;
-        if (edge.loop === true && deps.loops === false) next = node.loops_off;
-        else next = edge.target;
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowDecision(workflowGraph, current, {
+            evaluate: (condition) => evaluateCondition(condition, context()),
+            loops: deps.loops !== false,
+          });
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else {
+          const selected = node.transitions.find((entry) => evaluateCondition(entry.when, context()));
+          const edge = selected ?? node.default;
+          if (edge.loop === true && deps.loops === false) next = node.loops_off;
+          else next = edge.target;
+        }
         if (!storeOutput(current, { selected: next })) return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
       } else if (node.kind === "gate") {
-        let result;
         const objective = node.final === true ? definition.objective_gate : node.gate;
-        try { result = await runBoundary(() => deps.runGate(objective, { run_id: runId, node_id: current, definition_id: definition.id, final: node.final === true, cwd: deps.workspace?.cwd ?? deps.cwd, signal: runController.signal })); }
-        catch { return { ok: false, status: "failed", code: "kernel-gate-effect-failed", events, outputs, budget: budget.snapshot() }; }
+        const boundaryIdentity = tryJournalRef({
+          kind: "gate", run_id: runId, definition_ref: definitionRef,
+          node_id: current, visit: visits[current], objective,
+        });
+        if (boundaryIdentity == null) {
+          return { ok: false, status: "failed", code: "kernel-gate-result-invalid", events, outputs, budget: budget.snapshot() };
+        }
+        let result;
+        if (active.boundary != null) {
+          if (active.boundary.kind !== "gate" || active.boundary.identity !== boundaryIdentity) {
+            return { ok: false, status: "refused", code: "kernel-checkpoint-boundary-invalid", events, outputs, budget: budget.snapshot() };
+          }
+          if (active.boundary.status === "inflight") {
+            return { ok: false, status: "failed", code: "kernel-boundary-outcome-unknown", events, outputs, budget: budget.snapshot() };
+          }
+          result = structuredClone(active.boundary.result);
+        } else {
+          active.boundary = { kind: "gate", identity: boundaryIdentity, status: "inflight" };
+          const intentSaved = await checkpoint();
+          if (!intentSaved.ok) {
+            delete active.boundary;
+            return { ok: false, status: "failed", code: intentSaved.code, events, outputs, budget: budget.snapshot() };
+          }
+          let raw;
+          try {
+            raw = await runBoundary(() => deps.runGate(structuredClone(objective), {
+              run_id: runId, node_id: current, definition_id: definition.id, final: node.final === true,
+              cwd: deps.workspace?.cwd ?? deps.cwd, signal: runController.signal,
+            }));
+          } catch {
+            raw = { result: "error", code: "kernel-gate-effect-failed" };
+          }
+          if (raw === BOUNDARY_UNSETTLED) raw = { result: "error", code: "kernel-boundary-outcome-unknown" };
+          else if (raw === BOUNDARY_ABORTED) raw = { result: "error", code: interruption().code };
+          else if (cancelled || runController.signal.aborted) {
+            raw = { result: "error", code: interruption().code };
+          }
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)
+            || !["pass", "fail", "error"].includes(raw.result)
+            || (raw.result === "error" && safeCode(raw.code, null) == null)
+            || (raw.evidence_ref != null && !HASH.test(raw.evidence_ref))) {
+            result = { result: "error", code: "kernel-gate-result-invalid" };
+          } else {
+            result = {
+              result: raw.result,
+              ...(raw.result === "error" ? { code: raw.code } : {}),
+              ...(raw.evidence_ref ? { evidence_ref: raw.evidence_ref } : {}),
+            };
+          }
+          active.boundary = { kind: "gate", identity: boundaryIdentity, status: "settled", result: structuredClone(result) };
+          const resultSaved = await checkpoint();
+          if (!resultSaved.ok) {
+            return { ok: false, status: "failed", code: resultSaved.code, events, outputs, budget: budget.snapshot() };
+          }
+        }
+        if (result?.result === "error") {
+          return {
+            ok: false,
+            status: result.code === "kernel-run-cancelled" ? "cancelled" : "failed",
+            code: result.code,
+            events,
+            outputs,
+            budget: budget.snapshot(),
+          };
+        }
         if (cancelled) {
           const stopped = interruption();
           return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
-        }
-        if (!result || typeof result !== "object" || Array.isArray(result)
-          || !["pass", "fail"].includes(result.result)
-          || (result.evidence_ref != null && !HASH.test(result.evidence_ref))) {
-          return { ok: false, status: "failed", code: "kernel-gate-result-invalid", events, outputs, budget: budget.snapshot() };
         }
         const pass = result?.result === "pass";
         if (!storeOutput(current, { result: pass ? "pass" : "fail", evidence_ref: result?.evidence_ref ?? null, final: node.final === true })) {
           return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
         }
-        emit("gate", {
+        if (!emit("gate", {
           node_id: current,
           result: pass ? "pass" : "fail",
           final: node.final === true,
           ...(result?.evidence_ref ? { evidence_ref: result.evidence_ref } : {}),
-        });
-        next = !pass && deps.loops === false && node.loops_off ? node.loops_off : (pass ? node.on_pass : node.on_fail);
+        })) {
+          const stopped = interruption();
+          return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+        }
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowGate(workflowGraph, current, {
+            result: pass ? "pass" : "fail",
+            loops: deps.loops !== false,
+          });
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else next = !pass && deps.loops === false && node.loops_off ? node.loops_off : (pass ? node.on_pass : node.on_fail);
       } else if (node.kind === "checkpoint") {
         let result;
         try {
@@ -1172,6 +1624,9 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         } catch {
           return { ok: false, status: "failed", code: "kernel-checkpoint-effect-failed", events, outputs, budget: budget.snapshot() };
         }
+        if (result === BOUNDARY_UNSETTLED) {
+          return { ok: false, status: "failed", code: "kernel-boundary-outcome-unknown", events, outputs, budget: budget.snapshot() };
+        }
         if (cancelled) {
           const stopped = interruption();
           return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
@@ -1181,12 +1636,20 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           if (!pausedCheckpoint.ok) return { ok: false, status: "failed", code: pausedCheckpoint.code, events, outputs, budget: budget.snapshot() };
           return { ok: false, status: "paused", code: node.reason, node_id: current, events, outputs, budget: budget.snapshot() };
         }
-        next = node.next;
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowNext(workflowGraph, current);
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else next = node.next;
       } else if (node.kind === "subworkflow") {
         if (typeof deps.resolveSubworkflow !== "function" || deps.depth >= 1) return { ok: false, status: "refused", code: "kernel-subworkflow-unavailable", events, outputs };
         let child;
         try { child = await runBoundary(() => deps.resolveSubworkflow(node.workflow_id, node.version)); }
         catch { return { ok: false, status: "failed", code: "kernel-subworkflow-resolution-failed", events, outputs, budget: budget.snapshot() }; }
+        if (child === BOUNDARY_UNSETTLED) {
+          return { ok: false, status: "failed", code: "kernel-boundary-outcome-unknown", events, outputs, budget: budget.snapshot() };
+        }
         if (cancelled) {
           const stopped = interruption();
           return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
@@ -1198,6 +1661,9 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
         const childResume = active?.child?.workflow_id === node.workflow_id
           && active.child.version === node.version && active.child.run_id === childRunId
           ? active.child.scheduler
+          : null;
+        const childResumeEvents = childResume
+          ? kernelChildEventPrefix(deps.resume_events, childRunId, childResume.event_seq)
           : null;
         let childBudget = null;
         if (child) {
@@ -1219,39 +1685,67 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           depth: (deps.depth ?? 0) + 1,
           run_id: childRunId,
           resume: childResume,
+          ...(childResume ? { resume_events: childResumeEvents } : {}),
           onCheckpoint: typeof deps.onCheckpoint === "function" ? async (scheduler) => {
             active.child = { workflow_id: node.workflow_id, version: node.version, run_id: childRunId, scheduler: structuredClone(scheduler) };
             return checkpoint();
           } : null,
           checkpoint: (context) => deps.checkpoint?.({ ...context, child_run_id: childRunId, parent_node_id: current }),
-          onEvent: (event) => emit("subworkflow-event", {
+          onEvent: (event) => {
+            if (!emit("subworkflow-event", {
             node_id: current,
             child_run_id: childRunId,
+            child_workflow_id: node.workflow_id,
+            child_workflow_version: node.version,
             child_seq: event.seq,
             child_kind: event.kind,
             ...(event.node_id ? { child_node_id: event.node_id } : {}),
+            ...(event.definition_ref ? { child_definition_ref: event.definition_ref } : {}),
+            ...(event.execution_mode ? { child_execution_mode: event.execution_mode } : {}),
+            ...(event.target ? { child_target: event.target } : {}),
+            ...(event.edge_id ? { child_edge_id: event.edge_id } : {}),
+            ...(event.edge_kind ? { child_edge_kind: event.edge_kind } : {}),
+            ...(event.visit != null ? { child_visit: event.visit } : {}),
+            ...(event.instance_id ? { child_instance_id: event.instance_id } : {}),
+            ...(event.effect_ref ? { child_effect_ref: event.effect_ref } : {}),
+            ...(event.slot_count != null ? { child_slot_count: event.slot_count } : {}),
+            ...(event.result ? { child_result: event.result } : {}),
+            ...(event.final != null ? { child_final: event.final } : {}),
+            ...(event.evidence_ref ? { child_evidence_ref: event.evidence_ref } : {}),
+            ...(event.repair_attempt != null ? { child_repair_attempt: event.repair_attempt } : {}),
+            ...(event.attempt != null ? { child_attempt: event.attempt } : {}),
+            ...(event.next_attempt != null ? { child_next_attempt: event.next_attempt } : {}),
+            ...(event.prior_instance_id ? { child_prior_instance_id: event.prior_instance_id } : {}),
             ...(event.status ? { child_status: event.status } : {}),
             ...(event.code ? { child_code: event.code } : {}),
-          }),
+            ...(event.failure_class ? { child_failure_class: event.failure_class } : {}),
+            })) throw new Error("kernel-event-write-failed");
+          },
         }) : null;
         if (!result?.ok) return { ok: false, status: result?.status ?? "refused", code: result?.code ?? "kernel-subworkflow-failed", events, outputs };
         delete active.child;
         if (!storeOutput(current, { status: result.status, terminal: result.terminal })) {
           return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
         }
-        next = node.next;
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowNext(workflowGraph, current);
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else next = node.next;
       } else {
         if (node.status === "succeeded"
           && (visits[finalGateId] < 1 || outputs[finalGateId]?.result !== "pass" || outputs[finalGateId]?.final !== true)) {
-          emit("node-end", { node_id: current, status: "refused", code: "kernel-objective-gate-evidence-missing" });
-          emit("run-end", { node_id: current, status: "refused", code: "kernel-objective-gate-evidence-missing" });
-          active = null;
-          const terminalCheckpoint = await checkpoint();
-          if (!terminalCheckpoint.ok) return { ok: false, status: "failed", code: terminalCheckpoint.code, events, outputs };
-          if (cancelled) {
+          if (!emit("node-end", { node_id: current, status: "refused", code: "kernel-objective-gate-evidence-missing" })
+            || !emit("run-end", { node_id: current, status: "refused", code: "kernel-objective-gate-evidence-missing" })) {
             const stopped = interruption();
             return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
           }
+          active = null;
+          const terminalCheckpoint = await checkpoint({
+            terminalResult: { status: "refused", code: "kernel-objective-gate-evidence-missing" },
+          });
+          if (!terminalCheckpoint.ok) return { ok: false, status: "failed", code: terminalCheckpoint.code, events, outputs };
           return {
             ok: false,
             status: "refused",
@@ -1266,15 +1760,16 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           };
         }
         nodeStatus = node.status;
-        emit("node-end", { node_id: current, status: nodeStatus });
-        emit("run-end", { node_id: current, status: nodeStatus, ...(node.code ? { code: node.code } : {}) });
-        active = null;
-        const terminalCheckpoint = await checkpoint();
-        if (!terminalCheckpoint.ok) return { ok: false, status: "failed", code: terminalCheckpoint.code, events, outputs };
-        if (cancelled) {
+        if (!emit("node-end", { node_id: current, status: nodeStatus, ...(node.code ? { code: node.code } : {}) })
+          || !emit("run-end", { node_id: current, status: nodeStatus, ...(node.code ? { code: node.code } : {}) })) {
           const stopped = interruption();
           return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
         }
+        active = null;
+        const terminalCheckpoint = await checkpoint({
+          terminalResult: { status: nodeStatus, code: node.code ?? null },
+        });
+        if (!terminalCheckpoint.ok) return { ok: false, status: "failed", code: terminalCheckpoint.code, events, outputs };
         return {
           ok: node.status === "succeeded",
           status: node.status,
@@ -1288,15 +1783,23 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           elapsed_ms: totalElapsed(),
         };
       }
-      emit("node-end", { node_id: current, status: nodeStatus });
-      emit("transition", { node_id: current, target: next });
+      if (!emit("node-end", { node_id: current, status: nodeStatus }) || !emit("transition", {
+        node_id: current,
+        target: next,
+        ...(transitionEdge ? { edge_id: transitionEdge.id, edge_kind: transitionEdge.kind } : {}),
+      })) {
+        const stopped = interruption();
+        return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+      }
       active = null;
       current = next;
       const transitionCheckpoint = await checkpoint();
       if (!transitionCheckpoint.ok) return { ok: false, status: "failed", code: transitionCheckpoint.code, events, outputs };
     }
-    const stopped = interruption();
-    return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+      const stopped = interruption();
+      return { ok: false, ...stopped, events, outputs, budget: budget.snapshot() };
+    })();
+    return await terminalize(result);
   } finally {
     if (runTimer) clearTimeout(runTimer);
     deps.signal?.removeEventListener?.("abort", abort);

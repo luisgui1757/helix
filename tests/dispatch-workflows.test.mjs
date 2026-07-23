@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveChain } from "../dispatch/lib/chains.mjs";
 import { WORKFLOW_LIMITS } from "../dispatch/workflow/schema.mjs";
+import { hashRef, stableStringify } from "../dispatch/lib/run-record.mjs";
 
 import {
   WORKFLOW_TEMPLATES,
@@ -18,6 +19,7 @@ import {
   validateWorkflowLifecycleSnapshot,
   workflowLifecycleSnapshot,
   workflowFromExecution,
+  workflowExecutionBindingRef,
   workflowToExecution,
 } from "../dispatch/lib/workflows.mjs";
 import {
@@ -53,6 +55,63 @@ test("workflow templates are concise, named, and produce valid explicit transiti
     assert.equal(tested.definition_tested, true);
     assert.equal(tested.deployment_projected, true);
     assert.equal(tested.runtime_tested, false);
+  }
+});
+
+test("workflow execution bindings preserve original-mode identity and separate graph-mode", () => {
+  const args = {
+    workflow: template(),
+    profile: null,
+    toggles: { loops: true, worktree: true },
+    presets: new Map([
+      ["z-last", { schema_version: 1, id: "z-last" }],
+      ["a-first", { schema_version: 1, id: "a-first" }],
+    ]),
+    subworkflows: [],
+  };
+  const legacyInput = {
+    workflow: args.workflow,
+    profile: args.profile,
+    toggles: args.toggles,
+    presets: [...args.presets.entries()].sort(([left], [right]) => left.localeCompare(right)),
+    subworkflows: [],
+  };
+  const legacyRef = hashRef(stableStringify(legacyInput));
+
+  assert.equal(workflowExecutionBindingRef(args), legacyRef);
+  assert.equal(workflowExecutionBindingRef({ ...args, execution_mode: "original-mode" }), legacyRef);
+  assert.notEqual(workflowExecutionBindingRef({ ...args, execution_mode: "graph-mode" }), legacyRef);
+  assert.equal(workflowExecutionBindingRef({ ...args, execution_mode: "unknown-mode" }), null);
+});
+
+test("graph-mode bindings use locale-independent code-unit ordering for presets and children", () => {
+  const base = {
+    workflow: template(), profile: null, toggles: { loops: true, worktree: true },
+    presets: new Map([
+      ["z", { schema_version: 1, id: "z" }],
+      ["aa", { schema_version: 1, id: "aa" }],
+    ]),
+    subworkflows: [{ id: "z", version: 1 }, { id: "aa", version: 1 }],
+    execution_mode: "graph-mode",
+  };
+  const reversed = {
+    ...base,
+    presets: new Map([...base.presets].reverse()),
+    subworkflows: [...base.subworkflows].reverse(),
+  };
+  const originalLocaleCompare = String.prototype.localeCompare;
+  let localeCalls = 0;
+  String.prototype.localeCompare = function localeCompareProbe(other) {
+    localeCalls += 1;
+    return String(other) < String(this) ? -1 : String(other) > String(this) ? 1 : 0;
+  };
+  try {
+    assert.equal(workflowExecutionBindingRef(base), workflowExecutionBindingRef(reversed));
+    assert.equal(localeCalls, 0);
+    assert.match(workflowExecutionBindingRef({ ...base, execution_mode: "original-mode" }), /^sha256:[0-9a-f]{64}$/);
+    assert.ok(localeCalls > 0);
+  } finally {
+    String.prototype.localeCompare = originalLocaleCompare;
   }
 });
 

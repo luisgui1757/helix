@@ -23,6 +23,7 @@ test("CI is least-privilege, deduplicated, dependency-reviewed, and exposes one 
   assert.match(workflow, /^  test_matrix:\n    name: test \(\$\{\{ matrix\.node-version \}\}, Pi \$\{\{ matrix\.pi-version \}\}\)$/m);
   assert.match(workflow, /^        node-version:\n          - 22\.19\.0\n          - 26\n        pi-version:\n          - 0\.80\.7\n          # renovate: .+\n          - 0\.80\.\d+$/m);
   assert.match(workflow, /^      - run: npm install --ignore-scripts --no-save @earendil-works\/pi-coding-agent@\$\{\{ matrix\.pi-version \}\}$/m);
+  assert.match(workflow, /^      - name: Enable and prove the objective-gate namespace boundary\n        run: \|\n          set -euo pipefail\n          restriction_path=\/proc\/sys\/kernel\/apparmor_restrict_unprivileged_userns\n          if \[\[ -e "\$restriction_path" \]\]; then\n            echo 0 \| sudo tee "\$restriction_path" >\/dev\/null\n          fi\n          \/usr\/bin\/unshare --user --map-root-user --mount --net --ipc --pid \\\n            --fork --kill-child=SIGKILL \/usr\/bin\/true$/m);
   assert.match(workflow, /^  dependency_review:\n    name: dependency-review$/m);
   assert.match(workflow, /^  test:\n    name: test\n    if: \$\{\{ always\(\) \}\}\n    needs: \[test_matrix, dependency_review\]$/m);
   assert.match(workflow, /^          MATRIX_RESULT: \$\{\{ needs\.test_matrix\.result \}\}$/m);

@@ -11,6 +11,7 @@ import { isPublicCode } from "../lib/public-values.mjs";
 
 const ID = /^[a-z0-9][a-z0-9._-]*$/;
 const NODE_ID = /^[a-z][a-z0-9-]*$/;
+const RUN_ID = /^[A-Za-z0-9._-]+$/;
 export const WORKFLOW_LIMITS = Object.freeze({
   max_id_length: 64,
   max_name_length: 128,
@@ -84,6 +85,25 @@ export const WORKFLOW_NODE_KINDS = Object.freeze([
   "agent", "parallel", "map", "pipeline", "reduce",
   "decision", "gate", "checkpoint", "subworkflow", "terminal",
 ]);
+
+export function workflowChildDefinitionArtifactName(runId, workflowId, version) {
+  if (typeof runId !== "string" || !RUN_ID.test(runId) || runId === "." || runId === ".."
+    || !safeId(workflowId) || !safeInteger(version, 1, WORKFLOW_LIMITS.max_version)) return null;
+  return `${runId}.child.${workflowId}.v${version}.definition.json`;
+}
+
+export function parseWorkflowChildDefinitionArtifactName(filename, runId) {
+  if (typeof filename !== "string" || typeof runId !== "string") return null;
+  const prefix = `${runId}.child.`;
+  const suffix = ".definition.json";
+  if (!filename.startsWith(prefix) || !filename.endsWith(suffix)) return null;
+  const middle = filename.slice(prefix.length, -suffix.length);
+  const match = /^(.*)\.v(0|[1-9][0-9]*)$/.exec(middle);
+  if (!match) return null;
+  const version = Number(match[2]);
+  const canonical = workflowChildDefinitionArtifactName(runId, match[1], version);
+  return canonical === filename ? { workflow_id: match[1], version } : null;
+}
 
 const MUTATING_ROLES = new Set(["planner", "builder", "documenter"]);
 const isSafeWorkflowPath = isSafeWorktreeFilePath;

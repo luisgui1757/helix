@@ -7,7 +7,11 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { loadPresetRegistry } from "../../dispatch/lib/presets.mjs";
 import { loadSettings, toggleVector, DEFAULT_SETTINGS_REL_PATH } from "../../dispatch/lib/settings.mjs";
-import { prepareRunDirectory, validateRunId } from "../../dispatch/lib/run-manager.mjs";
+import {
+  kernelPublicCountsAreValid,
+  prepareRunDirectory,
+  validateRunId,
+} from "../../dispatch/lib/run-manager.mjs";
 import { writeTextAtomic } from "../../dispatch/lib/persistence.mjs";
 import { hashRef, stableStringify } from "../../dispatch/lib/run-record.mjs";
 import {
@@ -28,15 +32,28 @@ import {
   normalizeWorkflowDefinition,
   normalizeWorkflowInput,
   WORKFLOW_LIMITS,
+  workflowChildDefinitionArtifactName,
   workflowDefinitionHash,
 } from "../../dispatch/workflow/schema.mjs";
-import { runWorkflowKernel } from "../../dispatch/kernel/scheduler.mjs";
+import {
+  DEFAULT_WORKFLOW_EXECUTION_MODE,
+  validateWorkflowExecutionMode,
+} from "../../dispatch/workflow/graph.mjs";
+import {
+  bindWorkflowKernelRuntimeRef,
+  runWorkflowKernel,
+  validateWorkflowKernelResumeAuthority,
+} from "../../dispatch/kernel/scheduler.mjs";
 import { createCanonicalWorkspace } from "../../dispatch/kernel/workspace.mjs";
 import { createEffectJournal } from "../../dispatch/kernel/journal.mjs";
 import {
+  EMPTY_KERNEL_EVENT_PREFIX_REF,
+  extendKernelEventPrefixRef,
   KERNEL_CHECKPOINT_LIMITS,
+  kernelEventPrefixRef,
   kernelResultIsComplete,
   validateKernelCheckpoint,
+  validateKernelCheckpointEventPrefix,
 } from "../../dispatch/kernel/state.mjs";
 import { frameContent } from "../../dispatch/kernel/content.mjs";
 import {
@@ -52,6 +69,7 @@ import {
 } from "./helix-local.mjs";
 import { resolveWorkflow } from "./helix-workflows.mjs";
 
+const MAX_KERNEL_EVENT_FILE_BYTES = 64 * 1024 * 1024;
 const RETRYABLE_AGENT_FAILURES = new Set([
   "pi-agent-provider-failed",
   "pi-agent-semantic-output-invalid",
@@ -61,6 +79,31 @@ const RETRYABLE_AGENT_FAILURES = new Set([
 function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : null;
+}
+
+function readPersistedChildDefinitions(runPath, runId, bundles) {
+  const definitions = [];
+  try {
+    for (const bundle of bundles) {
+      const persisted = readBoundJson(
+        join(runPath, workflowChildDefinitionArtifactName(
+          runId,
+          bundle.definition.id,
+          bundle.definition.version,
+        )),
+        WORKFLOW_LIMITS.max_workflow_read_bytes,
+      );
+      const normalized = normalizeWorkflowDefinition(persisted);
+      if (!normalized.ok || normalized.migrated
+        || normalized.definition.id !== bundle.definition.id
+        || normalized.definition.version !== bundle.definition.version
+        || workflowDefinitionHash(normalized.definition) !== workflowDefinitionHash(bundle.definition)) return null;
+      definitions.push(normalized.definition);
+    }
+  } catch {
+    return null;
+  }
+  return definitions;
 }
 
 function membersFor(stageCast, role) {
@@ -116,6 +159,20 @@ function nonMockSpecs(castContexts) {
       ];
     });
   }).filter((spec) => spec.provider !== "mock");
+}
+
+function workflowKernelRuntimeRef(definitionRef, castContexts, executionMode) {
+  const binding = {
+    definition_ref: definitionRef,
+    casts: castContexts.map((entry) => ({
+      workflow_id: entry.definition.id,
+      version: entry.definition.version,
+      cast: entry.cast,
+    })),
+  };
+  return hashRef(stableStringify(executionMode === DEFAULT_WORKFLOW_EXECUTION_MODE
+    ? binding
+    : { ...binding, execution_mode: executionMode }));
 }
 
 function promptHandoff(ctx) {
@@ -174,13 +231,14 @@ async function certifyCast(adapter, specs, signal, { require_live = false } = {}
   }
 }
 
-function publicKernelState({ runId, definition, definitionRef, result, worktree }) {
+function publicKernelState({ runId, definition, definitionRef, executionMode, result, worktree }) {
   return {
-    schema_version: 4,
+    schema_version: 5,
     run_id: runId,
     workflow_id: definition.id,
     workflow_version: definition.version,
     definition_ref: definitionRef,
+    execution_mode: executionMode,
     task_ref: result.task_ref,
     completed: result.completed,
     terminal: result.terminal,
@@ -188,6 +246,7 @@ function publicKernelState({ runId, definition, definitionRef, result, worktree 
     code: result.code,
     journal_entries: result.journal_entries,
     event_count: result.event_count,
+    event_ref: result.event_ref,
     worktree_enabled: true,
     worktree_ref: worktree.worktree_ref,
     worktree_branch: worktree.branch_ref,
@@ -196,10 +255,59 @@ function publicKernelState({ runId, definition, definitionRef, result, worktree 
   };
 }
 
+function resumeProjectionRelationIsValid(publicState, resumeDocument) {
+  const scheduler = resumeDocument.scheduler;
+  const marker = scheduler.terminal_result ?? null;
+  const projectionPending = resumeDocument.schema_version === 2
+    && resumeDocument.maintenance.public_projection_pending === true;
+  if (marker == null) return publicState.completed === false;
+  if (!projectionPending) return false;
+  return publicState.completed === false
+    || (publicState.completed === true
+      && publicState.terminal === scheduler.current
+      && publicState.status === marker.status
+      && publicState.code === marker.code);
+}
+
+function authenticateResumeEvents(runPath, runId, publicState, resumeDocument) {
+  const scheduler = resumeDocument.scheduler;
+  const projectionPending = resumeDocument.schema_version === 2
+    && resumeDocument.maintenance.public_projection_pending === true;
+  if (!resumeProjectionRelationIsValid(publicState, resumeDocument)) return null;
+  let events;
+  try {
+    const eventsPath = join(runPath, `${runId}.kernel.events.jsonl`);
+    const entry = lstatSync(eventsPath);
+    if (entry.isSymbolicLink() || !entry.isFile() || entry.size > MAX_KERNEL_EVENT_FILE_BYTES) return null;
+    const text = readFileSync(eventsPath, "utf8");
+    if (text !== "" && !text.endsWith("\n")) return null;
+    events = text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  } catch { return null; }
+  if (!kernelPublicCountsAreValid(publicState)
+    || publicState.event_count > scheduler.event_seq
+    || publicState.journal_entries > scheduler.journal_entries
+    || events.length < scheduler.event_seq
+    || events.some((event, index) => event?.seq !== index + 1 || event.run_id !== runId)) return null;
+  const prefix = events.slice(0, scheduler.event_seq);
+  const publicPrefix = prefix.slice(0, publicState.event_count);
+  if (kernelEventPrefixRef(publicPrefix) !== publicState.event_ref
+    || !validateKernelCheckpointEventPrefix(scheduler, prefix)
+    || (!(projectionPending && publicState.completed === false)
+      && (publicState.event_count !== scheduler.event_seq
+        || publicState.event_ref !== scheduler.event_ref
+        || publicState.journal_entries !== scheduler.journal_entries))) return null;
+  return { prefix, projection_pending: projectionPending };
+}
+
 async function executeKernelDefinition({
   definition, definitionRef, execution, config, presets, toggles, adapter, input, runId, cwd,
-  prepared, packageRoot, stateRoot, signal, onEvent, castContexts, resumeDocument = null, subworkflows = [],
+  prepared, packageRoot, stateRoot, signal, onEvent, castContexts,
+  executionMode = DEFAULT_WORKFLOW_EXECUTION_MODE, resumeDocument = null, resumeEvents = null, subworkflows = [],
+  writeText = writeTextAtomic,
 }) {
+  if (!validateWorkflowExecutionMode(executionMode).ok) {
+    return { ok: false, status: "fail-closed", code: "workflow-execution-mode-invalid" };
+  }
   if (!Array.isArray(castContexts) || castContexts.length !== subworkflows.length + 1) {
     return { ok: false, status: "fail-closed", code: "provider-cast-binding-invalid" };
   }
@@ -220,17 +328,20 @@ async function executeKernelDefinition({
   }
   const task = input.task;
   const taskRef = hashRef(stableStringify(input));
-  const runtimeRef = hashRef(stableStringify({
-    definition_ref: definitionRef,
-    casts: castContexts.map((entry) => ({ workflow_id: entry.definition.id, version: entry.definition.version, cast: entry.cast })),
-  }));
+  const runtimeRef = workflowKernelRuntimeRef(definitionRef, castContexts, executionMode);
   if (resumeDocument) {
+    const schedulerRuntimeRef = bindWorkflowKernelRuntimeRef(runtimeRef, executionMode);
+    if (schedulerRuntimeRef == null) {
+      return { ok: false, status: "fail-closed", code: "kernel-runtime-binding-invalid" };
+    }
     const validResume = validateKernelCheckpoint(resumeDocument.scheduler, {
       run_id: runId,
       definition_ref: definitionRef,
-      runtime_ref: runtimeRef,
+      runtime_ref: schedulerRuntimeRef,
       task_ref: taskRef,
       node_ids: new Set(Object.keys(definition.nodes)),
+      execution_mode: executionMode,
+      event_prefix: resumeEvents,
     });
     if (!validResume.valid) return { ok: false, status: "fail-closed", code: validResume.code };
   }
@@ -278,16 +389,15 @@ async function executeKernelDefinition({
   const briefsDir = join(packageRoot, "dispatch", "config", "agents");
   const eventPath = `${runId}.kernel.events.jsonl`;
   let runningState = null;
+  let acceptedEventRef = resumeDocument?.scheduler.event_ref ?? EMPTY_KERNEL_EVENT_PREFIX_REF;
+  let acceptedEventCount = resumeDocument?.scheduler.event_seq ?? 0;
   const emit = (event) => {
-    appendText(prepared.path, eventPath, `${JSON.stringify(event)}\n`);
-    if (runningState) {
-      runningState.event_count = event.seq;
-      writeTextAtomic(prepared.path, `${runId}.state.json`, `${stableStringify(publicKernelState({
-        runId, definition, definitionRef, result: runningState,
-        worktree: { ...created, baseline_ref: baselineRef },
-      }))}\n`);
-    }
     onEvent?.(event);
+    const nextEventRef = extendKernelEventPrefixRef(acceptedEventRef, event);
+    if (nextEventRef == null) throw new Error("kernel-event-prefix-invalid");
+    appendText(prepared.path, eventPath, `${JSON.stringify(event)}\n`);
+    acceptedEventRef = nextEventRef;
+    acceptedEventCount = event.seq;
   };
   const expandAgent = (node, ctx) => {
     const stageCast = castsByDefinition.get(ctx.definition_id)?.get(node.stage_id);
@@ -406,7 +516,10 @@ async function executeKernelDefinition({
     } catch { return { ok: false, code: "kernel-artifact-invalid" }; }
   };
   const runGate = async (gateDefinition, ctx) => {
-    const objective = makeObjectiveGate(created.path, gateDefinition, { signal: ctx.signal });
+    const objective = makeObjectiveGate(created.path, gateDefinition, {
+      signal: ctx.signal,
+      workspaceGuard: workspace,
+    });
     const result = await objective({ stage_id: ctx.node_id, phase: ctx.final ? "conclusion" : "stage-expectation" });
     return result;
   };
@@ -414,25 +527,16 @@ async function executeKernelDefinition({
     task_ref: taskRef, completed: false, terminal: null, status: "running", code: null,
     journal_entries: resumeDocument?.scheduler.journal_entries ?? 0,
     event_count: resumeDocument?.scheduler.event_seq ?? 0,
+    event_ref: resumeDocument?.scheduler.event_ref ?? EMPTY_KERNEL_EVENT_PREFIX_REF,
   };
   if (!resumeDocument) {
-    writeTextAtomic(prepared.path, `${runId}.state.json`, `${stableStringify(publicKernelState({
-      runId, definition, definitionRef, result: started,
+    writeText(prepared.path, `${runId}.state.json`, `${stableStringify(publicKernelState({
+      runId, definition, definitionRef, executionMode, result: started,
       worktree: { ...created, baseline_ref: baselineRef },
     }))}\n`);
-  } else {
-    const eventsFile = join(prepared.path, eventPath);
-    try {
-      const text = existsSync(eventsFile) ? readFileSync(eventsFile, "utf8") : "";
-      if (text !== "" && !text.endsWith("\n")) throw new Error("partial");
-      const events = text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
-      if (events.length < resumeDocument.scheduler.event_seq
-        || events.some((event, index) => event.seq !== index + 1 || event.run_id !== runId)) throw new Error("invalid");
-      const prefix = events.slice(0, resumeDocument.scheduler.event_seq);
-      writeTextAtomic(prepared.path, eventPath, prefix.map((event) => JSON.stringify(event)).join("\n") + (prefix.length ? "\n" : ""));
-    } catch {
-      return { ok: false, status: "fail-closed", code: "kernel-resume-events-invalid" };
-    }
+  } else if (!Array.isArray(resumeEvents)
+    || !validateKernelCheckpointEventPrefix(resumeDocument.scheduler, resumeEvents)) {
+    return { ok: false, status: "fail-closed", code: "kernel-resume-events-invalid" };
   }
   runningState = started;
   let journal;
@@ -453,10 +557,17 @@ async function executeKernelDefinition({
     generation: resumeDocument.snapshot_generation,
     ref: resumeDocument.snapshot_ref,
   } : null;
+  let terminalResultAuthoritative = resumeDocument?.scheduler?.terminal_result != null;
+  let terminalProjectionCommitted = resumeDocument?.scheduler?.terminal_result != null
+    && resumeDocument?.public_state?.completed === true;
+  let durableCheckpointDocument = resumeDocument == null ? null : structuredClone(resumeDocument);
   let checkpointMaintenance = resumeDocument?.schema_version === 2
     ? structuredClone(resumeDocument.maintenance)
     : { cleanup_generations: [], public_projection_pending: false };
   const onCheckpoint = async (schedulerState) => {
+    if (schedulerState.event_seq !== acceptedEventCount || schedulerState.event_ref !== acceptedEventRef) {
+      return { ok: false, code: "kernel-event-prefix-invalid" };
+    }
     const snapshotGeneration = `kernel-${schedulerState.event_seq}-${schedulerState.journal_entries}-${schedulerState.workspace_ref.slice(7, 23)}`;
     const snapshot = checkpoint.snapshot(runId, snapshotGeneration, created.path);
     if (!snapshot.ok || snapshot.tree_ref !== schedulerState.workspace_ref) {
@@ -481,21 +592,32 @@ async function executeKernelDefinition({
       if (Buffer.byteLength(text, "utf8") > KERNEL_CHECKPOINT_LIMITS.max_document_bytes) {
         throw new Error("kernel-checkpoint-too-large");
       }
-      writeTextAtomic(stateRoot, checkpointPath, text);
+      writeText(stateRoot, checkpointPath, text);
+      durableCheckpointDocument = structuredClone(document);
     } catch (error) {
       if (previousSnapshot?.generation !== snapshotGeneration) checkpoint.remove(runId, snapshotGeneration);
       return { ok: false, code: error?.message === "kernel-checkpoint-too-large"
         ? "kernel-checkpoint-too-large" : "kernel-checkpoint-write-failed" };
     }
     previousSnapshot = { generation: snapshotGeneration, ref: snapshot.tree_ref };
+    if (schedulerState.terminal_result != null) terminalResultAuthoritative = true;
     runningState.journal_entries = schedulerState.journal_entries;
     runningState.event_count = schedulerState.event_seq;
+    runningState.event_ref = schedulerState.event_ref;
+    const projectionState = schedulerState.terminal_result == null ? runningState : {
+      ...runningState,
+      completed: true,
+      terminal: schedulerState.current,
+      status: schedulerState.terminal_result.status,
+      code: schedulerState.terminal_result.code,
+    };
     try {
-      writeTextAtomic(prepared.path, `${runId}.state.json`, `${stableStringify(publicKernelState({
-        runId, definition, definitionRef, result: runningState,
+      writeText(prepared.path, `${runId}.state.json`, `${stableStringify(publicKernelState({
+        runId, definition, definitionRef, executionMode, result: projectionState,
         worktree: { ...created, baseline_ref: baselineRef },
       }))}\n`);
       document.maintenance.public_projection_pending = false;
+      if (schedulerState.terminal_result != null) terminalProjectionCommitted = true;
     } catch {
       // The authoritative private checkpoint records this projection debt.
     }
@@ -505,11 +627,28 @@ async function executeKernelDefinition({
     });
     checkpointMaintenance = structuredClone(document.maintenance);
     try {
-      writeTextAtomic(stateRoot, checkpointPath, `${stableStringify(document)}\n`, { replace: true });
+      writeText(stateRoot, checkpointPath, `${stableStringify(document)}\n`, { replace: true });
+      durableCheckpointDocument = structuredClone(document);
     } catch {
       // The first canonical write retained a conservative superset of the debt.
     }
     return { ok: true };
+  };
+  const clearProjectionDebt = () => {
+    if (durableCheckpointDocument?.maintenance?.public_projection_pending !== true) return;
+    const maintained = structuredClone(durableCheckpointDocument);
+    maintained.maintenance.public_projection_pending = false;
+    try {
+      writeText(
+        stateRoot,
+        join("private", "runs", runId, "kernel-checkpoint.json"),
+        `${stableStringify(maintained)}\n`,
+        { replace: true },
+      );
+      durableCheckpointDocument = maintained;
+    } catch {
+      // The exact public projection is durable; conservative private debt remains for maintenance.
+    }
   };
   let checkpointConsentAvailable = resumeDocument != null;
   const result = await runWorkflowKernel(definition, input, {
@@ -519,7 +658,9 @@ async function executeKernelDefinition({
     journal,
     runtime_ref: runtimeRef,
     task_ref: taskRef,
+    execution_mode: executionMode,
     ...(resumeDocument ? { resume: resumeDocument.scheduler } : {}),
+    ...(resumeDocument ? { resume_events: resumeEvents } : {}),
     onCheckpoint,
     expandAgent,
     executeAgent,
@@ -541,26 +682,39 @@ async function executeKernelDefinition({
     signal,
     onEvent: emit,
   });
+  const hasDurableCheckpoint = previousSnapshot !== null;
   const completed = {
     task_ref: taskRef,
-    completed: kernelResultIsComplete(result, { has_checkpoint: previousSnapshot !== null }),
+    completed: hasDurableCheckpoint && kernelResultIsComplete(result, { has_checkpoint: true }),
     terminal: result.terminal ?? null,
     status: result.status,
     code: result.code ?? null,
-    journal_entries: result.journal?.length ?? journal.records().length,
-    event_count: result.events?.at(-1)?.seq ?? runningState?.event_count ?? started.event_count,
+    journal_entries: runningState?.journal_entries ?? started.journal_entries,
+    event_count: runningState?.event_count ?? started.event_count,
+    event_ref: runningState?.event_ref ?? started.event_ref,
   };
   runningState = null;
-  writeTextAtomic(prepared.path, `${runId}.state.json`, `${stableStringify(publicKernelState({
-    runId, definition, definitionRef, result: completed,
-    worktree: { ...created, baseline_ref: baselineRef },
-  }))}\n`);
+  if (!terminalProjectionCommitted) {
+    let finalProjectionCommitted = false;
+    try {
+      writeText(prepared.path, `${runId}.state.json`, `${stableStringify(publicKernelState({
+        runId, definition, definitionRef, executionMode, result: completed,
+        worktree: { ...created, baseline_ref: baselineRef },
+      }))}\n`);
+      finalProjectionCommitted = true;
+    } catch (error) {
+      if (!terminalResultAuthoritative) throw error;
+    }
+    if (finalProjectionCommitted) clearProjectionDebt();
+  }
+  if (terminalProjectionCommitted) clearProjectionDebt();
   return {
     ok: result.ok,
     status: result.ok ? "ok" : "fail-closed",
     code: result.code,
     run_id: runId,
     chain_id: definition.id,
+    execution_mode: executionMode,
     converged: result.status === "succeeded",
     stop_reason: result.status,
     total_passes: Object.entries(result.visits ?? {}).reduce((sum, [nodeId, value]) =>
@@ -574,7 +728,8 @@ async function executeKernelDefinition({
     open_disagreements: 0,
     warnings: [],
     calls: nonMock.length === 0 ? mock.calls : null,
-    resumable: !completed.completed,
+    terminal_authoritative: terminalResultAuthoritative,
+    resumable: hasDurableCheckpoint && !completed.completed,
   };
 }
 
@@ -616,14 +771,22 @@ async function executeNamedWorkflowLeased({
   chain_registry,
   run_registry,
   adapter = null,
+  execution_mode = DEFAULT_WORKFLOW_EXECUTION_MODE,
   expected_binding_ref,
   expected_exact_ref = null,
   signal = null,
   now = Date.now(),
   onEvent = null,
+  write_text_atomic = writeTextAtomic,
 } = {}) {
   if (![cwd, state_root, package_root].every((value) => typeof value === "string" && value.length > 0)) {
     return { ok: false, status: "fail-closed", code: "workflow-execution-path-invalid" };
+  }
+  if (typeof write_text_atomic !== "function") {
+    return { ok: false, status: "fail-closed", code: "workflow-execution-persistence-invalid" };
+  }
+  if (!validateWorkflowExecutionMode(execution_mode).ok) {
+    return { ok: false, status: "fail-closed", code: "workflow-execution-mode-invalid" };
   }
   if (!validateRunId(run_id).ok) return { ok: false, status: "fail-closed", code: "unsafe-run-id" };
   if (input == null && (typeof task !== "string" || task.trim() === "")) {
@@ -672,6 +835,7 @@ async function executeNamedWorkflowLeased({
     toggles,
     presets: profiled.presets,
     subworkflows: childWorkflows.bundles.map((entry) => entry.definition),
+    execution_mode,
   });
   if (actualBindingRef !== expected_binding_ref) {
     return { ok: false, status: "fail-closed", code: "workflow-preflight-drift" };
@@ -703,6 +867,13 @@ async function executeNamedWorkflowLeased({
   try {
     writeTextAtomic(prepared.path, `${run_id}.workflow.json`, `${lifecycleText}\n`);
     writeTextAtomic(prepared.path, `${run_id}.definition.json`, `${stableStringify(normalized.definition)}\n`);
+    for (const bundle of childWorkflows.bundles) {
+      writeTextAtomic(
+        prepared.path,
+        workflowChildDefinitionArtifactName(run_id, bundle.definition.id, bundle.definition.version),
+        `${stableStringify(bundle.definition)}\n`,
+      );
+    }
   } catch {
     return { ok: false, status: "fail-closed", code: "workflow-lifecycle-snapshot-write-failed" };
   }
@@ -723,8 +894,10 @@ async function executeNamedWorkflowLeased({
     signal,
     onEvent,
     definitionRef,
+    executionMode: execution_mode,
     castContexts: castResolution.contexts,
     subworkflows: childWorkflows.bundles,
+    writeText: write_text_atomic,
   });
 }
 
@@ -748,9 +921,13 @@ async function resumeNamedWorkflowLeased({
   expected_exact_ref = null,
   signal = null,
   onEvent = null,
+  write_text_atomic = writeTextAtomic,
 } = {}) {
   if (![cwd, state_root, package_root].every((value) => typeof value === "string" && value.length > 0)) {
     return { ok: false, status: "fail-closed", code: "workflow-execution-path-invalid" };
+  }
+  if (typeof write_text_atomic !== "function") {
+    return { ok: false, status: "fail-closed", code: "workflow-execution-persistence-invalid" };
   }
   if (!validateRunId(run_id).ok) return { ok: false, status: "fail-closed", code: "unsafe-run-id" };
   if (input == null && (typeof task !== "string" || task.trim() === "")) {
@@ -772,8 +949,17 @@ async function resumeNamedWorkflowLeased({
   } catch {
     return { ok: false, status: "fail-closed", code: "kernel-resume-record-invalid" };
   }
-  if (publicState?.schema_version !== 4 || publicState.run_id !== run_id || publicState.completed !== false
+  const executionMode = publicState?.schema_version === 4
+    ? DEFAULT_WORKFLOW_EXECUTION_MODE
+    : validateWorkflowExecutionMode(publicState?.execution_mode).ok
+      ? publicState.execution_mode
+      : null;
+  if (publicState?.schema_version !== 5 || executionMode == null
+    || publicState.run_id !== run_id || typeof publicState.completed !== "boolean"
     || typeof publicState.workflow_id !== "string" || !/^sha256:[0-9a-f]{64}$/.test(publicState.definition_ref ?? "")
+    || !/^sha256:[0-9a-f]{64}$/.test(publicState.event_ref ?? "")
+    || !kernelPublicCountsAreValid(publicState)
+    || ![4, 5].includes(resumeDocument?.scheduler?.schema_version)
     || !/^sha256:[0-9a-f]{64}$/.test(publicState.baseline_ref ?? "")
     || !/^sha256:[0-9a-f]{64}$/.test(publicState.worktree_owner_ref ?? "")
     || ![1, 2].includes(resumeDocument?.schema_version)
@@ -794,6 +980,13 @@ async function resumeNamedWorkflowLeased({
     || !/^[A-Za-z0-9._-]+$/.test(resumeDocument.snapshot_generation ?? "")
     || !/^sha256:[0-9a-f]{64}$/.test(resumeDocument.snapshot_ref ?? "")) {
     return { ok: false, status: "fail-closed", code: "kernel-resume-record-invalid" };
+  }
+  if (!resumeProjectionRelationIsValid(publicState, resumeDocument)) {
+    return { ok: false, status: "fail-closed", code: "kernel-resume-record-invalid" };
+  }
+  const authenticatedEvents = authenticateResumeEvents(runPath, run_id, publicState, resumeDocument);
+  if (authenticatedEvents == null) {
+    return { ok: false, status: "fail-closed", code: "kernel-resume-events-invalid" };
   }
   const normalized = normalizeWorkflowDefinition(definition);
   if (!normalized.ok || normalized.migrated || workflowDefinitionHash(normalized.definition) !== publicState.definition_ref
@@ -833,12 +1026,17 @@ async function resumeNamedWorkflowLeased({
     profile: active.profile,
   });
   if (!childWorkflows.ok) return { ok: false, status: "fail-closed", code: childWorkflows.code };
+  if (publicState.schema_version === 5
+    && readPersistedChildDefinitions(runPath, run_id, childWorkflows.bundles) == null) {
+    return { ok: false, status: "fail-closed", code: "kernel-resume-definition-invalid" };
+  }
   const actualBindingRef = workflowExecutionBindingRef({
     workflow: named.workflow,
     profile: active.profile,
     toggles,
     presets: profiled.presets,
     subworkflows: childWorkflows.bundles.map((entry) => entry.definition),
+    execution_mode: executionMode,
   });
   if (typeof expected_binding_ref !== "string" || actualBindingRef !== expected_binding_ref) {
     return { ok: false, status: "fail-closed", code: "workflow-preflight-drift" };
@@ -848,6 +1046,98 @@ async function resumeNamedWorkflowLeased({
     ...childWorkflows.bundles,
   ], profiled.presets, toggles);
   if (!castResolution.ok) return { ok: false, status: "fail-closed", code: castResolution.code };
+  if (resumeDocument.scheduler.terminal_result != null) {
+    const taskRef = hashRef(stableStringify(runtimeInput));
+    const runtimeRef = workflowKernelRuntimeRef(publicState.definition_ref, castResolution.contexts, executionMode);
+    let authority;
+    try {
+      authority = await validateWorkflowKernelResumeAuthority(normalized.definition, runtimeInput, {
+        run_id,
+        runtime_ref: runtimeRef,
+        task_ref: taskRef,
+        execution_mode: executionMode,
+        resume: resumeDocument.scheduler,
+        resume_events: authenticatedEvents.prefix,
+        journal_root: runPath,
+        depth: 0,
+      });
+    } catch {
+      return { ok: false, status: "fail-closed", code: "kernel-journal-corrupt" };
+    }
+    if (authority.resume_authoritative !== true) {
+      return { ok: false, status: "fail-closed", code: authority.code ?? "kernel-checkpoint-terminal-invalid" };
+    }
+  }
+  try {
+    write_text_atomic(
+      runPath,
+      `${run_id}.kernel.events.jsonl`,
+      authenticatedEvents.prefix.map((event) => JSON.stringify(event)).join("\n")
+        + (authenticatedEvents.prefix.length ? "\n" : ""),
+    );
+    const terminalMarker = authenticatedEvents.projection_pending
+      ? resumeDocument.scheduler.terminal_result ?? null
+      : null;
+    if (publicState.event_count !== resumeDocument.scheduler.event_seq
+      || publicState.journal_entries !== resumeDocument.scheduler.journal_entries
+      || publicState.event_ref !== resumeDocument.scheduler.event_ref
+      || terminalMarker != null) {
+      publicState = {
+        ...publicState,
+        journal_entries: resumeDocument.scheduler.journal_entries,
+        event_count: resumeDocument.scheduler.event_seq,
+        event_ref: resumeDocument.scheduler.event_ref,
+        ...(terminalMarker == null ? {} : {
+          completed: true,
+          terminal: resumeDocument.scheduler.current,
+          status: terminalMarker.status,
+          code: terminalMarker.code,
+        }),
+      };
+      write_text_atomic(runPath, `${run_id}.state.json`, `${stableStringify(publicState)}\n`);
+    }
+    if (authenticatedEvents.projection_pending) {
+      const maintained = structuredClone(resumeDocument);
+      maintained.maintenance.public_projection_pending = false;
+      try {
+        write_text_atomic(
+          state_root,
+          join("private", "runs", run_id, "kernel-checkpoint.json"),
+          `${stableStringify(maintained)}\n`,
+        );
+        resumeDocument = maintained;
+      } catch {
+        return { ok: false, status: "fail-closed", code: "kernel-resume-projection-write-failed" };
+      }
+    }
+  } catch {
+    return { ok: false, status: "fail-closed", code: "kernel-resume-events-invalid" };
+  }
+  if (publicState.completed === true && resumeDocument.scheduler.terminal_result != null) {
+    const terminalMarker = resumeDocument.scheduler.terminal_result;
+    return {
+      ok: terminalMarker.status === "succeeded",
+      status: terminalMarker.status === "succeeded" ? "ok" : "fail-closed",
+      code: terminalMarker.code,
+      run_id,
+      chain_id: normalized.definition.id,
+      execution_mode: executionMode,
+      converged: terminalMarker.status === "succeeded",
+      stop_reason: terminalMarker.status,
+      total_passes: 0,
+      flow: [],
+      cast: [],
+      worktree_path: null,
+      worktree_branch: publicState.worktree_branch,
+      events_path: join(runPath, `${run_id}.kernel.events.jsonl`),
+      state_path: join(runPath, `${run_id}.state.json`),
+      open_disagreements: 0,
+      warnings: [],
+      calls: null,
+      terminal_authoritative: true,
+      resumable: false,
+    };
+  }
   const certified = await certifyCast(adapter, nonMockSpecs(castResolution.contexts), signal, {
     require_live: castResolution.contexts.some((entry) => entry.definition.provider_policy.require_live_certification === true),
   });
@@ -859,6 +1149,7 @@ async function resumeNamedWorkflowLeased({
   return executeKernelDefinition({
     definition: normalized.definition,
     definitionRef: publicState.definition_ref,
+    executionMode,
     execution,
     config,
     presets: profiled.presets,
@@ -874,7 +1165,9 @@ async function resumeNamedWorkflowLeased({
     onEvent,
     castContexts: castResolution.contexts,
     resumeDocument: { ...resumeDocument, public_state: publicState },
+    resumeEvents: authenticatedEvents.prefix,
     subworkflows: childWorkflows.bundles,
+    writeText: write_text_atomic,
   });
 }
 

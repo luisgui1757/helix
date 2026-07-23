@@ -36,6 +36,18 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: npm install --ignore-scripts --no-save @earendil-works/pi-coding-agent@${{ matrix.pi-version }}
+      # Ubuntu 24.04 restricts unprivileged user namespaces by default. The
+      # runner is ephemeral, and Helix must exercise its real namespace sandbox:
+      # https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890
+      - name: Enable and prove the objective-gate namespace boundary
+        run: |
+          set -euo pipefail
+          restriction_path=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [[ -e "$restriction_path" ]]; then
+            echo 0 | sudo tee "$restriction_path" >/dev/null
+          fi
+          /usr/bin/unshare --user --map-root-user --mount --net --ipc --pid \
+            --fork --kill-child=SIGKILL /usr/bin/true
       - run: npm test
       - run: npm run check:resources
       - run: npm run check:docs-truth

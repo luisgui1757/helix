@@ -50,6 +50,34 @@ export const STAGE_MACHINE_CODES = Object.freeze({
   NOT_CONVERGED: "not-converged-within-max-iterations",
 });
 
+function gateIntegrityCode(gate) {
+  try {
+    if (gate == null || typeof gate !== "object" || Array.isArray(gate)) {
+      return STAGE_MACHINE_CODES.GATE_FAILED_EFFECT;
+    }
+    const allowed = new Set(["result", "code", "command_names", "source", "evidence_ref"]);
+    if (Object.keys(gate).some((field) => !allowed.has(field))
+      || (Object.hasOwn(gate, "command_names")
+        && (!Array.isArray(gate.command_names) || gate.command_names.length > 64
+          || gate.command_names.some((name) => typeof name !== "string" || name.length < 1
+            || name.length > 256 || name.includes("\0"))))
+      || (Object.hasOwn(gate, "source")
+        && (typeof gate.source !== "string" || gate.source.length < 1 || gate.source.length > 64
+          || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(gate.source)))
+      || (Object.hasOwn(gate, "evidence_ref")
+        && !/^sha256:[0-9a-f]{64}$/.test(gate.evidence_ref))) {
+      return STAGE_MACHINE_CODES.GATE_FAILED_EFFECT;
+    }
+    if (["pass", "fail"].includes(gate.result) && !Object.hasOwn(gate, "code")) return null;
+    return gate.result === "error" && typeof gate.code === "string" && gate.code.length <= 160
+      && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(gate.code)
+      ? gate.code
+      : STAGE_MACHINE_CODES.GATE_FAILED_EFFECT;
+  } catch {
+    return STAGE_MACHINE_CODES.GATE_FAILED_EFFECT;
+  }
+}
+
 /**
  * Pure per-pass routing decision. Exhaustively unit-testable without effects.
  *
@@ -278,6 +306,8 @@ export async function runStagedChain(request, deps = {}) {
     } catch {
       return { result: refuse(STAGE_MACHINE_CODES.GATE_FAILED_EFFECT, totalPasses) };
     }
+    const integrityCode = gateIntegrityCode(gate);
+    if (integrityCode) return { result: refuse(integrityCode, totalPasses) };
     finalGate = { result: gate?.result === "pass" ? "pass" : "fail" };
     if (finalGate.result === "pass") {
       return { result: finish(true, true, "converged", null, totalPasses, finalGate) };
@@ -330,6 +360,11 @@ export async function runStagedChain(request, deps = {}) {
       } catch {
         flow.push(flowEntry(stage, pass, "refuse", STAGE_MACHINE_CODES.GATE_FAILED_EFFECT));
         return refuse(STAGE_MACHINE_CODES.GATE_FAILED_EFFECT, totalPasses);
+      }
+      const integrityCode = gateIntegrityCode(gate);
+      if (integrityCode) {
+        flow.push(flowEntry(stage, pass, "refuse", integrityCode));
+        return refuse(integrityCode, totalPasses);
       }
       stageGateResult = gate?.result === "pass" ? "pass" : "fail";
     }

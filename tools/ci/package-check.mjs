@@ -52,10 +52,15 @@ try {
   for (const required of [
     "NOTICE", "SECURITY.md", "dispatch/kernel/scheduler.mjs", "dispatch/runtime/openrouter-audit-proxy.mjs",
     "dispatch/runtime/openrouter-runtime.mjs",
-    "dispatch/workflow/schema.mjs", "docs/providers.md", "extensions/lib/helix-execution.mjs",
+    "dispatch/lib/objective-gate-sandbox.mjs",
+    "dispatch/workflow/schema.mjs", "dispatch/workflow/graph.mjs", "dispatch/workflow/builder.mjs",
+    "dispatch/workflow/visualize.mjs", "docs/providers.md", "extensions/lib/helix-execution.mjs",
   ]) readFileSync(join(packageRoot, required));
   const schema = await import(pathToFileURL(join(packageRoot, "dispatch/workflow/schema.mjs")));
   if (schema.WORKFLOW_SCHEMA_VERSION !== 4) throw new Error("package-runtime-schema-invalid");
+  const graph = await import(pathToFileURL(join(packageRoot, "dispatch/workflow/graph.mjs")));
+  if (graph.DEFAULT_WORKFLOW_EXECUTION_MODE !== "original-mode"
+    || !graph.WORKFLOW_EXECUTION_MODES.includes("graph-mode")) throw new Error("package-runtime-graph-invalid");
   const core = await import(pathToFileURL(join(packageRoot, "extensions/lib/helix-command-core.mjs")));
   const help = core.executeHelixCommand("help", { mode: "print" });
   if (!help.ok || !help.text.includes("/helix-run-resume")) throw new Error("package-runtime-rpc-invalid");
