@@ -28,9 +28,23 @@ const requiredWorkflows = [
   'provider-proof.js',
 ]
 check(JSON.stringify(workflowFiles) === JSON.stringify(requiredWorkflows), `expected exactly ${requiredWorkflows.length} workflow scripts`)
+const graphWorkflowDir = new URL('workflows/graph/', root)
+const graphWorkflowFiles = readdirSync(graphWorkflowDir).filter(file => file.endsWith('.js')).sort()
+const requiredGraphWorkflows = [
+  'helix-delivery.js',
+  'helix-implement-review.js',
+  'helix-research.js',
+  'helix-scout.js',
+  'helix-ship-pre-pr.js',
+  'helix-tdd-fix.js',
+]
+check(JSON.stringify(graphWorkflowFiles) === JSON.stringify(requiredGraphWorkflows), `expected exactly ${requiredGraphWorkflows.length} generated graph workflow scripts`)
+const allWorkflowPaths = [
+  ...workflowFiles.map(file => `workflows/${file}`),
+  ...graphWorkflowFiles.map(file => `workflows/graph/${file}`),
+]
 const referencedAgents = new Set()
-for (const file of workflowFiles) {
-  const workflowPath = `workflows/${file}`
+for (const workflowPath of allWorkflowPaths) {
   const workflow = read(workflowPath)
   check(Buffer.byteLength(workflow) <= 512 * 1024, `${workflowPath} exceeds Claude Code 512 KiB limit`)
   check(workflow.startsWith('export const meta ='), `${workflowPath} metadata must be the first statement`)
@@ -83,8 +97,11 @@ for (const name of requiredSkills) {
   check(new RegExp(`\\nname: ${name}\\n`).test(source), `${path} has the wrong name`)
   check(/\ndescription: .+\n/.test(source), `${path} needs a description`)
   check(/\ndisable-model-invocation: true\n/.test(source), `${path} must require explicit user invocation`)
-  if (name !== 'helix-doctor') {
-    check(source.includes(`scriptPath: "\${CLAUDE_PLUGIN_ROOT}/workflows/${name === 'helix-loop' ? 'helix-delivery' : name}.js"`), `${path} must invoke its canonical workflow path`)
+    if (name !== 'helix-doctor') {
+      const workflowName = name === 'helix-loop' ? 'helix-delivery' : name
+      check(source.includes(`\${CLAUDE_PLUGIN_ROOT}/workflows/${workflowName}.js`), `${path} must name its original workflow path`)
+      check(source.includes(`\${CLAUDE_PLUGIN_ROOT}/workflows/graph/${workflowName}.js`), `${path} must name its graph workflow path`)
+      check(/`mode`: `original` by default, or explicit `graph`/.test(source), `${path} must keep original mode as the default`)
     check(source.includes('node "${CLAUDE_PLUGIN_ROOT}/bin/helix-cc-doctor" --json'), `${path} must use the installed doctor path`)
     if (name !== 'helix-scout') {
       check(source.includes('mcp__plugin_helix-cc_helix-cc-evidence__start_session'), `${path} must start a trusted evidence session`)
@@ -93,7 +110,7 @@ for (const name of requiredSkills) {
   }
 }
 
-for (const path of ['docs/providers.md', 'docs/quickstart.md', 'docs/workflows.md']) {
+for (const path of ['docs/providers.md', 'docs/quickstart.md', 'docs/workflows.md', 'docs/graph-mode.md', 'docs/workflow-graphs.md']) {
   try {
     check(statSync(new URL(path, root)).isFile(), `missing ${path}`)
   } catch {
@@ -115,5 +132,5 @@ if (errors.length) {
   process.stderr.write(`${errors.map(error => `- ${error}`).join('\n')}\n`)
   process.exitCode = 1
 } else {
-  process.stdout.write(`validated helix-cc: ${workflowFiles.length} workflows, ${agentFiles.length} agents, ${skillNames.length} skills\n`)
+  process.stdout.write(`validated helix-cc: ${workflowFiles.length} original/internal workflows, ${graphWorkflowFiles.length} graph workflows, ${agentFiles.length} agents, ${skillNames.length} skills\n`)
 }

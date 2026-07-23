@@ -13,15 +13,21 @@ Use this loop to understand an unfamiliar change surface before implementation. 
 
 1. Treat `$ARGUMENTS` as the exact reconnaissance question. If empty, ask and stop.
 2. Read repository rules and state that the loop will not create, edit, delete, format, install, migrate, or implement.
-3. Configure optional `scout` and `planner` models. Omitted roles inherit the session model.
+3. Select `mode`: `original` by default, or explicit `graph`. Original uses
+   `${CLAUDE_PLUGIN_ROOT}/workflows/helix-scout.js`; graph uses
+   `${CLAUDE_PLUGIN_ROOT}/workflows/graph/helix-scout.js`. If a supplied mode is
+   neither exact `original` nor exact `graph`, stop before doctor or Workflow
+   invocation. Configure optional
+   `scout` and `planner` models. Omitted roles inherit the session model.
 4. Run `node "${CLAUDE_PLUGIN_ROOT}/bin/helix-cc-doctor" --json`. Require a locally ready native or CLIProxyAPI workflow path. Stop for a global subagent-model override when explicit role models were requested.
 5. For CLIProxyAPI, require exact catalog membership and an exact-model proof before first use of a new provider/model binding. Use provider prefixes for mixed casts and reject OpenRouter.
-6. Show the exact question, read-only boundary, and models. Obtain explicit confirmation.
+6. Show the exact question, selected mode and exact script path, read-only
+   boundary, and models. Obtain explicit confirmation.
 7. Invoke:
 
 ```text
 Workflow({
-  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/helix-scout.js",
+  scriptPath: "<exact selected original or graph script path>",
   args: {
     task: "<exact confirmed question>",
     models: {

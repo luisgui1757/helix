@@ -8,6 +8,10 @@ Start with the current operating documents:
   configuration contracts, diagnostics, and lifecycle.
 - [Workflow catalog](workflows.md) — every Helix loop mapping, exact inputs,
   signed-evidence boundary, stage invariants, and terminal result.
+- [Graph mode](graph-mode.md) — secondary-mode selection, closed graph IR,
+  validation, compilation, construction, and parity rules.
+- [Workflow graphs](workflow-graphs.md) — generated Mermaid diagrams, graph
+  digests, and absolute step ceilings.
 - [Status ledger](../STATUS.md) — current implementation state and evidence.
 - [Security and governance baseline](security-governance.md) — first-principles
   controls, ownership boundaries, live settings, and deliberate non-controls.

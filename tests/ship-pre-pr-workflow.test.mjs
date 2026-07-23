@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createReceiptSigner } from './evidence-fixtures.mjs'
-import { runWorkflow } from './workflow-harness.mjs'
+import { runWorkflow, workflowFileForMode } from './workflow-harness.mjs'
 
-const file = 'helix-ship-pre-pr.js'
+const file = workflowFileForMode('helix-ship-pre-pr.js')
 const verificationArgv = ['npm', 'run', 'verify']
 const releaseCheckArgv = ['npm', 'run', 'release-check']
 const taskPaths = ['lib/a.mjs']

@@ -1,11 +1,19 @@
 # Workflow catalog
 
-This is the canonical catalog for Helix CC `0.4.x`. The source comparison used
+This is the canonical catalog for Helix CC `0.5.x`. The source comparison used
 base Helix `dispatch/config/chains.json` at `bb1c37f62ee1808a5c24bac06d975023f73dcb3b`;
 the same chain catalog was present on Helix workflow-kernel revision
 `77421126a63efa3f97be92bdbd4208ce4919a2da` when parity was implemented.
 
-## Parity map
+## Mode and parity map
+
+Every public skill supports `original` and `graph`. Original is the default and
+uses the existing audited script. Graph mode uses the generated script under
+`workflows/graph/`; it accepts the same arguments and preserves observable
+result and failure semantics. Mode is selected by exact script path before
+launch, never by a mutable workflow argument. An omitted selection means
+`original`; an explicit value other than exact `original` or exact `graph`
+stops before preflight or execution.
 
 | Base Helix chain or template | Helix CC skill | Workflow script | Mapping |
 |---|---|---|---|
@@ -16,6 +24,11 @@ the same chain catalog was present on Helix workflow-kernel revision
 | `scout` | `/helix-cc:helix-scout` | `helix-scout.js` | Read-only reconnaissance followed by a decision-ready structured brief |
 | `research` | `/helix-cc:helix-research` | `helix-research.js` | One falsifiable hypothesis and bounded experiment per pass; the signed typed measurement and test argv rerun after the documentation writer |
 | `ship-pre-pr` | `/helix-cc:helix-ship-pre-pr` | `helix-ship-pre-pr.js` | Documentation, exact gate, dual review, verifier, then one commit/push/open-or-reuse-PR handoff; never merge |
+
+Each row has a generated secondary script at
+`workflows/graph/<workflow-script>`. The graph definitions, diagrams, and safe
+construction rules are documented in [`graph-mode.md`](graph-mode.md) and
+[`workflow-graphs.md`](workflow-graphs.md).
 
 `helix-evidence-verify.js` is an internal child workflow, not another user
 loop. It verifies the RSA signature and exact operation contract on receipts
@@ -64,6 +77,16 @@ are strict subsets share their stronger standalone implementation.
   command. Every reviewer and verifier receives this semantic contract
   explicitly.
 - A pass-bound exhaustion throws; it is never returned as successful work.
+- Graph mode additionally validates reachability, exhaustive transition
+  outcomes, registered operation identity, context availability, fork safety,
+  entry-crossing bounded cycles, fresh evidence/gate requirements on every
+  approval path, and an absolute execution-step ceiling before generation.
+- Generated graph scripts embed their definition digest and cannot import a
+  runtime module. `npm run graph:check` fails when scripts or diagrams drift.
+- Original and graph write modes must not be compared in the same checkout.
+  Deterministic parity fixtures use independent boundary state; a live
+  comparison needs separate equivalent disposable repositories and fresh
+  evidence sessions. Shipping is never compared through two live runs.
 
 ## Loop-specific inputs and invariants
 
@@ -194,3 +217,11 @@ and Git effects in disposable repositories, verifies signed receipts through
 the actual workflow verifier, and separately exercises every user workflow.
 Provider proof commands and live Claude Workflow receipts remain distinct and
 are recorded in [`STATUS.md`](../STATUS.md).
+
+The same workflow behavioral suites run once against original scripts and once
+against graph scripts. A separate parity suite compares normalized inputs,
+complete agent calls and responses, parallel grouping, child-workflow names and
+arguments/results, terminal results, ordinary logs, and exact errors across
+modes. Only an exact generated graph dispatcher trace for the compared workflow
+is removed from the graph observation; ordinary logs beginning with `[graph:`
+remain comparison inputs.

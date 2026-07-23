@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "id": "helix-delivery",
+  "title": "Helix delivery",
+  "description": "Competing plans, serialized implementation, complete evidence passes, remediation, and correctness-triggered replanning.",
+  "entry": "plan-candidates",
+  "initialContext": ["task", "verificationArgv", "evidenceSession", "maxPasses", "plannerModels", "stageModels", "plannerCount", "pass"],
+  "nodes": [
+    { "id": "plan-candidates", "label": "Candidate plans", "kind": "fork", "operation": "plan-candidates", "effect": "read", "mutatesCheckout": false, "reads": ["task", "plannerModels", "plannerCount"], "writes": ["candidatePlans"], "tags": [], "transitions": { "next": "plan-judge" } },
+    { "id": "plan-judge", "label": "Plan judge", "kind": "operation", "operation": "plan-judge", "effect": "read", "mutatesCheckout": false, "reads": ["task", "candidatePlans", "stageModels"], "writes": ["plan"], "tags": [], "transitions": { "next": "implement" } },
+    { "id": "implement", "label": "Initial implementation", "kind": "operation", "operation": "implement", "effect": "write", "mutatesCheckout": true, "reads": ["task", "plan", "stageModels"], "writes": ["work"], "tags": [], "transitions": { "next": "verification-pass" } },
+    { "id": "verification-pass", "label": "Begin verification pass", "kind": "operation", "operation": "verification-pass", "effect": "control", "mutatesCheckout": false, "reads": ["pass", "maxPasses"], "writes": ["pass"], "tags": [], "transitions": { "next": "test" } },
+    { "id": "test", "label": "Test", "kind": "operation", "operation": "test", "effect": "write", "mutatesCheckout": true, "reads": ["task", "plan", "pass", "stageModels"], "writes": ["lastTest"], "tags": [], "transitions": { "next": "document" } },
+    { "id": "document", "label": "Synchronize documentation", "kind": "operation", "operation": "document", "effect": "write", "mutatesCheckout": true, "reads": ["task", "plan", "work", "lastTest", "pass", "stageModels"], "writes": ["lastDocumentation"], "tags": [], "transitions": { "next": "trusted-evidence" } },
+    { "id": "trusted-evidence", "label": "Signed command evidence", "kind": "operation", "operation": "trusted-evidence", "effect": "evidence", "mutatesCheckout": false, "reads": ["evidenceSession", "verificationArgv", "pass"], "writes": ["lastTrustedEvidence"], "tags": ["trusted-evidence"], "transitions": { "next": "review-panel" } },
+    { "id": "review-panel", "label": "Correctness and red-team reviews", "kind": "fork", "operation": "review-panel", "effect": "read", "mutatesCheckout": false, "reads": ["task", "plan", "lastTest", "lastTrustedEvidence", "pass", "stageModels"], "writes": ["lastReviews"], "tags": [], "transitions": { "next": "verifier" } },
+    { "id": "verifier", "label": "Verification gate", "kind": "operation", "operation": "verifier", "effect": "read", "mutatesCheckout": false, "reads": ["task", "plan", "lastTest", "lastTrustedEvidence", "lastDocumentation", "lastReviews", "pass", "stageModels"], "writes": ["gate"], "tags": [], "transitions": { "next": "pass-decision" } },
+    { "id": "pass-decision", "label": "Deterministic pass decision", "kind": "decision", "operation": "pass-decision", "effect": "control", "mutatesCheckout": false, "reads": ["lastTest", "lastDocumentation", "lastReviews", "gate", "lastTrustedEvidence", "pass", "maxPasses"], "writes": ["problems"], "tags": ["deterministic-gate"], "transitions": { "approved": "approved", "exhausted": "exhausted", "replan": "replan-candidates", "remediate": "remediate" } },
+    { "id": "replan-candidates", "label": "Corrected candidate plans", "kind": "fork", "operation": "replan-candidates", "effect": "read", "mutatesCheckout": false, "reads": ["task", "plan", "lastTest", "lastDocumentation", "lastReviews", "gate", "pass", "plannerModels", "plannerCount"], "writes": ["revisedCandidates"], "tags": [], "transitions": { "next": "replan-judge" } },
+    { "id": "replan-judge", "label": "Corrected plan judge", "kind": "operation", "operation": "replan-judge", "effect": "read", "mutatesCheckout": false, "reads": ["task", "revisedCandidates", "lastReviews", "pass", "stageModels"], "writes": ["plan"], "tags": [], "transitions": { "next": "reimplement" } },
+    { "id": "reimplement", "label": "Implement corrected plan", "kind": "operation", "operation": "reimplement", "effect": "write", "mutatesCheckout": true, "reads": ["task", "plan", "lastTest", "lastDocumentation", "lastReviews", "gate", "pass", "stageModels"], "writes": ["work"], "tags": [], "transitions": { "next": "verification-pass" } },
+    { "id": "remediate", "label": "Remediate verified findings", "kind": "operation", "operation": "remediate", "effect": "write", "mutatesCheckout": true, "reads": ["task", "plan", "lastTest", "lastDocumentation", "lastReviews", "gate", "pass", "stageModels"], "writes": ["work"], "tags": [], "transitions": { "next": "verification-pass" } },
+    { "id": "approved", "label": "Approved", "kind": "terminal", "operation": "approved", "effect": "control", "mutatesCheckout": false, "reads": ["pass", "plan", "work", "lastTest", "lastTrustedEvidence", "lastDocumentation", "lastReviews", "gate"], "writes": [], "tags": [], "transitions": {} },
+    { "id": "exhausted", "label": "Pass rail exhausted", "kind": "terminal", "operation": "exhausted", "effect": "control", "mutatesCheckout": false, "reads": ["maxPasses", "problems", "gate", "lastTest", "lastDocumentation", "lastReviews"], "writes": [], "tags": [], "transitions": {} }
+  ],
+  "cycles": [
+    { "id": "verification-loop", "entry": "verification-pass", "nodes": ["verification-pass", "test", "document", "trusted-evidence", "review-panel", "verifier", "pass-decision", "replan-candidates", "replan-judge", "reimplement", "remediate"], "limit": { "input": "maxPasses", "maximum": 5 } }
+  ],
+  "approvalTerminals": ["approved"],
+  "approvalRequirements": ["trusted-evidence", "deterministic-gate"]
+}

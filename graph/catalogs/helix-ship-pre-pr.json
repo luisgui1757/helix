@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "id": "helix-ship-pre-pr",
+  "operations": [
+    {
+      "name": "intent",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "headBranch",
+        "baseBranch",
+        "taskPaths",
+        "models"
+      ],
+      "writes": [
+        "intentResult"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "document",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "intentResult",
+        "models"
+      ],
+      "writes": [
+        "documentation"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "preflight",
+      "kind": "operation",
+      "effect": "evidence",
+      "mutatesCheckout": false,
+      "reads": [
+        "repository",
+        "headBranch",
+        "baseBranch",
+        "taskPaths",
+        "verificationArgv",
+        "releaseCheckArgv",
+        "evidenceSession",
+        "models"
+      ],
+      "writes": [
+        "preflightResult"
+      ],
+      "tags": [
+        "trusted-evidence"
+      ],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "review-panel",
+      "kind": "fork",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "preflightResult",
+        "models"
+      ],
+      "writes": [
+        "reviews"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "verifier",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "intentResult",
+        "documentation",
+        "preflightResult",
+        "reviews",
+        "models"
+      ],
+      "writes": [
+        "gate"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "ship-decision",
+      "kind": "decision",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "documentation",
+        "preflightResult",
+        "reviews",
+        "gate"
+      ],
+      "writes": [
+        "problems"
+      ],
+      "tags": [
+        "deterministic-gate"
+      ],
+      "outcomes": [
+        "refuse",
+        "ship"
+      ]
+    },
+    {
+      "name": "shipment",
+      "kind": "terminal",
+      "effect": "ship",
+      "mutatesCheckout": true,
+      "reads": [
+        "intentResult",
+        "documentation",
+        "preflightResult",
+        "reviews",
+        "gate",
+        "evidenceSession",
+        "commitMessage",
+        "pullRequestTitle",
+        "pullRequestBody",
+        "repository",
+        "headBranch",
+        "baseBranch",
+        "models"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": []
+    },
+    {
+      "name": "refused",
+      "kind": "terminal",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "problems"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": []
+    }
+  ]
+}

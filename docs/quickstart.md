@@ -57,7 +57,10 @@ Every provider-backed route follows the same sequence:
 4. Require a JSON receipt with `"status": "passed"`, the requested model,
    matching `workflowResolvedModels`, and `"markerMatched": true`.
 5. Launch `claudex` with both `--providers` and an explicit `--model`.
-6. Choose one of the supported skills in section 8 and confirm its displayed configuration. Write loops start one ephemeral signed-evidence session automatically; stop if the `helix-cc-evidence` MCP server is unavailable.
+6. Choose one of the supported skills in section 8, select `original` (default)
+   or `graph`, and confirm its displayed mode, exact script path, and complete
+   configuration. Write loops start one ephemeral signed-evidence session
+   automatically; stop if the `helix-cc-evidence` MCP server is unavailable.
 7. Require the loop-specific terminal result from section 8 (`approved: true`
    for write loops or `completed: true` for scout).
 8. Exit Claude normally; the launcher stops every helper process it owns.
@@ -221,6 +224,21 @@ checkout. Choose the smallest loop whose contract matches the task:
 | Scout | `/helix-cc:helix-scout <question>` | Optional scout/planner models | `completed: true`; checkout remains unchanged |
 | Research | `/helix-cc:helix-research <objective>` | Metric/unit, numeric comparator target, exact measurement/test argv, pass bound, optional plateau bound | `target-met` or valuable `dead-end` returns `approved: true`; `diminishing-returns` or `max-iterations` returns structured `approved: false` |
 | Ship pre-PR | `/helix-cc:helix-ship-pre-pr <completed task>` | Exact GitHub repo/head/base, task paths, separate verification/release-check argv, commit and PR text, separate PR confirmation | `approved: true`, signed pushed full SHA, exact open/reused unmerged PR |
+
+Each skill offers two execution modes:
+
+| Mode | State | Script path |
+|---|---|---|
+| `original` | Default audited implementation | `workflows/<workflow>.js` |
+| `graph` | Secondary generated implementation | `workflows/graph/<workflow>.js` |
+
+An omitted mode selects `original`; any explicit value other than exact
+`original` or exact `graph` stops before doctor, evidence-session, or Workflow
+invocation. Both modes accept the same loop-specific input object and have
+deterministic parity coverage. Do not run both write modes against one checkout. Use
+`npm run graph:compare` for simulated comparison, or separate equivalent
+disposable repositories with fresh evidence sessions for an authorized live
+comparison. Never compare shipping with two live runs.
 
 The skill collects and displays the structured inputs before launch. Do not use
 the ship loop when the requested handoff excludes a pull request; a normal Git

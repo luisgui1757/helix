@@ -5,6 +5,11 @@ onto bounded Claude Code dynamic workflows. It ships full-cycle delivery,
 implement/review, red-first TDD fixes, read-only reconnaissance, measured
 research, and evidence-gated pre-PR handoff.
 
+Version `0.5.x` retains those audited standalone workflows as `original` mode
+and adds a secondary `graph` mode compiled from closed, validated workflow
+graphs. Both modes preserve the same public inputs, role/effect boundaries, and
+observable outcomes; original remains the default.
+
 Write-capable loops do not trust a role's prose as command, metric, file-scope,
 or shipment proof. A bundled MCP service executes exact argument vectors
 without a shell, observes tracked content/type/mode and Git state itself, and
@@ -30,6 +35,8 @@ planners → plan judge → builder → tester → documenter
 
 The [workflow catalog](docs/workflows.md) defines every input, stage,
 deterministic gate, and deliberate Claude Code mapping difference.
+The [graph-mode reference](docs/graph-mode.md) defines the IR, compiler,
+visualization, authoring boundary, and original-versus-graph comparison.
 
 Claude Code always owns the Workflow scheduler, agent contexts, tools,
 journals, and structured outputs. Optional local provider adapters translate
@@ -83,9 +90,10 @@ Then choose a loop, for example:
 ```
 
 Each skill checks the local route, shows the exact task, role models, pass
-limit, writer scope, and verification argv, then asks for confirmation. It
-starts a fresh trusted-evidence session and passes that exact public receipt key
-to the workflow. A
+limit, writer scope, verification argv, and selected `original` or `graph` mode,
+then asks for confirmation. Original mode is selected when no mode is named;
+any other explicit value stops before launch. It starts a fresh trusted-evidence
+session and passes that exact public receipt key to the workflow. A
 successful workflow returns `approved: true`; an exhausted workflow terminates
 without approval and reports the remaining reasons.
 
@@ -103,6 +111,11 @@ npm run verify
 That runs plugin structure validation, all deterministic tests, and Claude
 Code's strict plugin validator. Provider proof commands and full live Workflow
 runs are separate because they contact the selected provider.
+
+`npm run graph:check` proves generated graph scripts and diagrams match their
+definitions, same-ID operation catalogs, and audited templates.
+`npm run graph:compare` compares complete simulated observable outcomes and
+boundary traces between original and graph modes for every public workflow.
 
 Pull requests run the structure validator, dependency audit and registry
 signature verification, deterministic tests on the minimum and current Node.js
@@ -136,14 +149,21 @@ duplicate security PRs.
   diagnostics, and lifecycle.
 - [Workflow catalog](docs/workflows.md) — complete Helix parity map, loop inputs,
   stage contracts, and terminal results.
+- [Graph mode](docs/graph-mode.md) — graph IR, validation, compilation,
+  visualization, mode selection, and parity testing.
+- [Workflow graphs](docs/workflow-graphs.md) — generated diagrams and definition
+  digests for all six graph workflows.
 - [Status ledger](STATUS.md) — current claims and exact evidence.
 - [Documentation index](docs/README.md) — architecture, historical decisions,
   and dated proof records.
 
 ## Repository map
 
-- `workflows/` — six user loops, two bounded route-proof workflows, and one
-  internal signed-receipt verifier.
+- `workflows/` — six original user loops, six generated graph-mode equivalents,
+  two bounded route-proof workflows, and one internal signed-receipt verifier.
+- `graph/` — closed definitions, machine-readable operation catalogs, validator,
+  compiler, renderer, boundary-complete comparison harness, audited templates,
+  and bounded generated runtime.
 - `agents/` — thirteen role definitions, including capability-limited evidence,
   reproduction, and shipping roles.
 - `skills/` — six loop launchers and the provider doctor.
@@ -154,6 +174,7 @@ duplicate security PRs.
 - `tests/` — unit, component, subprocess, lifecycle, and workflow tests.
 - `review-prompts/` — canonical external-review dispatch prompts.
 
-Helix CC intentionally uses audited standalone workflows instead of Helix's
-arbitrary chain compiler. Its remaining runtime boundaries are explicit in
-[STATUS.md](STATUS.md), not hidden behind the green local gate.
+Helix CC does not accept arbitrary workflow code or uploaded graphs. Original
+mode uses audited standalone workflows; graph mode compiles reviewed closed
+definitions into equally standalone artifacts. Remaining runtime boundaries are
+explicit in [STATUS.md](STATUS.md), not hidden behind the green local gate.

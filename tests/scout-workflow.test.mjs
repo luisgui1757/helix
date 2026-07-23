@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { runWorkflow } from './workflow-harness.mjs'
+import { runWorkflow, workflowFileForMode } from './workflow-harness.mjs'
 
-const file = 'helix-scout.js'
+const file = workflowFileForMode('helix-scout.js')
 const recon = { summary: 'trace', entrypoints: ['bin/tool'], relevantFiles: ['lib/a.mjs'], dataFlow: ['bin -> lib'], invariants: ['read-only'], tests: ['tests/a.test.mjs'], unknowns: [] }
 const brief = { objective: 'change safely', scope: ['lib/a.mjs'], nonGoals: [], implementationSteps: ['add behavior'], verification: ['npm test'], documentation: ['README.md'], openDecisions: [] }
 

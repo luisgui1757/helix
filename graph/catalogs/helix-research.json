@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "id": "helix-research",
+  "operations": [
+    {
+      "name": "initialize",
+      "kind": "operation",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [],
+      "writes": [
+        "priorEvidence",
+        "bestMeasurement",
+        "plateauCount"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "research-pass",
+      "kind": "operation",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "pass",
+        "maxPasses"
+      ],
+      "writes": [
+        "pass"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "hypothesis",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "metric",
+        "target",
+        "priorEvidence",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "hypothesisResult"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "experiment",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "hypothesisResult",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "experimentResult"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "preliminary-measurement",
+      "kind": "operation",
+      "effect": "evidence",
+      "mutatesCheckout": false,
+      "reads": [
+        "metric",
+        "target",
+        "measurementArgv",
+        "evidenceSession",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "preliminaryMeasurement"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "document",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "hypothesisResult",
+        "preliminaryMeasurement",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "documentation"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "final-measurement",
+      "kind": "operation",
+      "effect": "evidence",
+      "mutatesCheckout": false,
+      "reads": [
+        "metric",
+        "target",
+        "measurementArgv",
+        "evidenceSession",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "measurement"
+      ],
+      "tags": [
+        "metric-evidence"
+      ],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "final-tests",
+      "kind": "operation",
+      "effect": "evidence",
+      "mutatesCheckout": false,
+      "reads": [
+        "testArgv",
+        "evidenceSession",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "testEvidence"
+      ],
+      "tags": [
+        "test-evidence"
+      ],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "review",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "metric",
+        "target",
+        "hypothesisResult",
+        "measurement",
+        "testEvidence",
+        "documentation",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "reviewResult"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "verifier",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "measurement",
+        "testEvidence",
+        "documentation",
+        "reviewResult",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "gate"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "convergence-decision",
+      "kind": "decision",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "metric",
+        "target",
+        "hypothesisResult",
+        "experimentResult",
+        "preliminaryMeasurement",
+        "measurement",
+        "testEvidence",
+        "documentation",
+        "reviewResult",
+        "gate",
+        "bestMeasurement",
+        "plateauCount",
+        "priorEvidence",
+        "plateauAfter",
+        "pass",
+        "maxPasses"
+      ],
+      "writes": [
+        "problems",
+        "targetMet",
+        "bestMeasurement",
+        "plateauCount",
+        "priorEvidence",
+        "stopReason"
+      ],
+      "tags": [
+        "deterministic-gate"
+      ],
+      "outcomes": [
+        "approved",
+        "continue",
+        "stopped"
+      ]
+    },
+    {
+      "name": "approved",
+      "kind": "terminal",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "targetMet",
+        "pass",
+        "hypothesisResult",
+        "experimentResult",
+        "measurement",
+        "testEvidence",
+        "documentation",
+        "reviewResult",
+        "gate"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": []
+    },
+    {
+      "name": "stopped",
+      "kind": "terminal",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "stopReason",
+        "pass",
+        "hypothesisResult",
+        "experimentResult",
+        "measurement",
+        "testEvidence",
+        "documentation",
+        "reviewResult",
+        "gate",
+        "problems"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": []
+    }
+  ]
+}

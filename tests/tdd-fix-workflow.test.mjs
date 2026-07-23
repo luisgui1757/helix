@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createReceiptSigner } from './evidence-fixtures.mjs'
-import { runWorkflow } from './workflow-harness.mjs'
+import { runWorkflow, workflowFileForMode } from './workflow-harness.mjs'
 
-const file = 'helix-tdd-fix.js'
+const file = workflowFileForMode('helix-tdd-fix.js')
 const reproductionArgv = ['npm', 'test', '--', 'bug']
 const verificationArgv = ['npm', 'run', 'verify']
 const testPaths = ['tests/bug.test.mjs']

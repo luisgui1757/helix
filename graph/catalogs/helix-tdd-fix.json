@@ -1,0 +1,315 @@
+{
+  "version": 1,
+  "id": "helix-tdd-fix",
+  "operations": [
+    {
+      "name": "baseline",
+      "kind": "operation",
+      "effect": "evidence",
+      "mutatesCheckout": false,
+      "reads": [
+        "evidenceSession",
+        "testPaths"
+      ],
+      "writes": [
+        "baselineResult"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "reproduction-pass",
+      "kind": "operation",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "reproductionPass",
+        "reproductionPasses"
+      ],
+      "writes": [
+        "reproductionPass"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "reproduce",
+      "kind": "operation",
+      "effect": "evidence",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "testPaths",
+        "reproductionArgv",
+        "evidenceSession",
+        "baselineResult",
+        "reproductionPass",
+        "models"
+      ],
+      "writes": [
+        "reproduction",
+        "reproductionError"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "reproduction-decision",
+      "kind": "decision",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "reproduction",
+        "reproductionError",
+        "reproductionPass",
+        "reproductionPasses"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": [
+        "exhausted",
+        "red",
+        "retry"
+      ]
+    },
+    {
+      "name": "implement",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "reproduction",
+        "models"
+      ],
+      "writes": [
+        "work"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "verification-pass",
+      "kind": "operation",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "pass",
+        "maxPasses"
+      ],
+      "writes": [
+        "pass"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "test",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "work",
+        "verificationArgv",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "tests"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "document",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "tests",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "documentation"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "trusted-evidence",
+      "kind": "operation",
+      "effect": "evidence",
+      "mutatesCheckout": false,
+      "reads": [
+        "verificationArgv",
+        "evidenceSession",
+        "pass"
+      ],
+      "writes": [
+        "trustedEvidence"
+      ],
+      "tags": [
+        "trusted-evidence"
+      ],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "review",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "reproduction",
+        "tests",
+        "trustedEvidence",
+        "documentation",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "reviewResult"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "verifier",
+      "kind": "operation",
+      "effect": "read",
+      "mutatesCheckout": false,
+      "reads": [
+        "task",
+        "reproduction",
+        "tests",
+        "trustedEvidence",
+        "documentation",
+        "reviewResult",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "gate"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "pass-decision",
+      "kind": "decision",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "tests",
+        "documentation",
+        "reviewResult",
+        "gate",
+        "trustedEvidence",
+        "pass",
+        "maxPasses"
+      ],
+      "writes": [
+        "problems"
+      ],
+      "tags": [
+        "deterministic-gate"
+      ],
+      "outcomes": [
+        "approved",
+        "exhausted",
+        "remediate"
+      ]
+    },
+    {
+      "name": "remediate",
+      "kind": "operation",
+      "effect": "write",
+      "mutatesCheckout": true,
+      "reads": [
+        "task",
+        "tests",
+        "documentation",
+        "reviewResult",
+        "gate",
+        "pass",
+        "models"
+      ],
+      "writes": [
+        "work"
+      ],
+      "tags": [],
+      "outcomes": [
+        "next"
+      ]
+    },
+    {
+      "name": "approved",
+      "kind": "terminal",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "baselineResult",
+        "reproduction",
+        "pass",
+        "work",
+        "tests",
+        "trustedEvidence",
+        "documentation",
+        "reviewResult",
+        "gate"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": []
+    },
+    {
+      "name": "reproduction-exhausted",
+      "kind": "terminal",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "reproductionPasses",
+        "reproductionError"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": []
+    },
+    {
+      "name": "fix-exhausted",
+      "kind": "terminal",
+      "effect": "control",
+      "mutatesCheckout": false,
+      "reads": [
+        "maxPasses",
+        "problems"
+      ],
+      "writes": [],
+      "tags": [],
+      "outcomes": []
+    }
+  ]
+}
