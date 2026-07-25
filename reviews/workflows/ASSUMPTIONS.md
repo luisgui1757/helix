@@ -1205,3 +1205,30 @@ Rejected alternatives:
   resume command while their structural run status is `failed`.
 - “Any settled record may resume”: rejected. Settlement alone does not prove
   resumability; the normalized outcome must explicitly carry the capability.
+
+## 2026-07-25 — Exact-provider interruption cleanup invariant
+
+- The provider call boundary and resource-cleanup boundary are distinct. Once
+  cancellation or call timeout rejects the call boundary, cleanup cannot race
+  session disposal, audit settlement, or audit-proxy close against that same
+  already-rejected promise.
+- Cleanup uses one independent bounded window and attempts every teardown step:
+  session disposal, audit settlement, proxy close, call-timer clearing, and
+  abort-listener removal. A timed-out cleanup step cannot prevent the later
+  steps from being invoked.
+- Session and proxy acquisitions also remain owned while pending. If the call
+  boundary wins before assignment, an acquisition that has already resolved is
+  adopted into cleanup; one that resolves later aborts/disposes or closes itself
+  instead of leaving an unreferenced live resource.
+- The first causal provider/session/cancellation failure remains the returned
+  failure. A cleanup failure is retained as structural secondary evidence and
+  becomes primary only when the provider path had no earlier failure.
+
+Rejected alternatives:
+
+- “The provider call timeout should also bound cleanup”: rejected. After that
+  boundary settles, racing cleanup against it rejects immediately and skips
+  mandatory teardown.
+- “Rethrow the first cleanup error immediately”: rejected. Throwing from inside
+  `finally` abandons later cleanup and can replace the actual provider or
+  interruption result.

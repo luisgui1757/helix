@@ -564,8 +564,14 @@ The single source for test rules.
 - Exact real Pi sessions are one read-only, tool-free provider turn with Pi
   transport retries disabled. A tool-bearing or mutating real definition is
   exact-disabled before provider preflight until Helix owns and journals every
-  internal provider-turn boundary; deterministic mock execution retains the
-  complete workflow tool/mutation contract.
+  internal provider-turn boundary. Provider cancellation and call timeout never
+  become the cleanup boundary: session disposal, audit settlement, proxy close,
+  timer clear, and abort-listener removal are all attempted under a separate
+  bounded cleanup window. A session or proxy acquisition that loses the provider
+  race remains owned: an already-resolved resource transfers to cleanup, and a
+  later resolution releases itself. The first causal provider failure remains
+  primary and any cleanup failure stays structurally visible. Deterministic mock
+  execution retains the complete workflow tool/mutation contract.
 - The extracted-package Pi gate must exercise both command discovery and the
   shipped adapter's real default session factory through its localhost audit
   proxy. An injected session factory or raw Pi-only mock is not production-path

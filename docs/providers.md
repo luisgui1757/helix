@@ -76,7 +76,12 @@ Pi's streaming message omits the OpenRouter route. Helix therefore uses a
 session-local HTTP proxy bound only to `127.0.0.1`. It rejects any outbound
 model/routing drift, forwards the original request bytes with the certified
 credential, observes the response model and any response provider metadata,
-and closes with the session. The response provider is compared with the
+and closes with the session. Cancellation and call timeout use a separate
+bounded cleanup window rather than their already-rejected effect boundary, so
+session disposal, audit settlement and close, timer clearing, and listener
+removal are all attempted without replacing the first causal failure. Pending
+session/proxy acquisitions remain owned and release themselves if they resolve
+after cancellation has already returned. The response provider is compared with the
 certified provider name, not the endpoint tag; the later generation lookup
 independently verifies model and provider. It is an audit/transport boundary,
 not an OS sandbox. It
