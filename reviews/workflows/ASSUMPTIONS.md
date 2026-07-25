@@ -1220,9 +1220,10 @@ Rejected alternatives:
   boundary wins before assignment, an acquisition that has already resolved is
   adopted into cleanup; one that resolves later aborts/disposes or closes itself
   instead of leaving an unreferenced live resource.
-- The first causal provider/session/cancellation failure remains the returned
-  failure. A cleanup failure is retained as structural secondary evidence and
-  becomes primary only when the provider path had no earlier failure.
+- The first causal provider, session, or cancellation failure remains the
+  returned failure. A cleanup failure is retained as structural secondary
+  evidence and becomes primary only when the provider path had no earlier
+  failure.
 
 Rejected alternatives:
 

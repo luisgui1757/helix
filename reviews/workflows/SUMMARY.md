@@ -1935,8 +1935,8 @@ Accepted finding and resolution:
 - Cleanup now has one independent bounded window. Every teardown operation is
   invoked even after an earlier step rejects or times out; proxy close is
   initiated even when that cleanup window is already exhausted. The original
-  provider/session/interruption error remains primary, with any cleanup failure
-  attached as the stable secondary `cleanup_code`.
+  provider, session, or interruption error remains primary, with any cleanup
+  failure attached as the stable secondary `cleanup_code`.
 - Review of the acquisition side found the same race before assignment: an
   audit proxy or Pi session could resolve after cancellation won, while no
   assigned handle existed for `finally` to release. Pending acquisitions now
