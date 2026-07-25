@@ -497,6 +497,55 @@ The single source for test rules.
 - Declared typed inputs validate before run creation and are bound to resume.
   Named workflows require the canonical per-run worktree and refuse before
   consent when that feature is disabled.
+- WorkflowDefinition v5 is the current authoring version; v4 remains directly
+  admitted without rewriting its canonical identity. `human-choice` is
+  v5-only. Entering it checkpoints one exact in-flight run/node/visit choice
+  boundary before pausing; attended resume discovers the choice from the
+  persisted parent definition or exact pinned child companion, supplies it to
+  that run namespace, and checkpoints the selected option or bounded custom text
+  before routing. No default is inferred, and public events expose only
+  `option:<id>` or `custom`, never custom response text. A settled checkpoint
+  choice is revalidated against the immutable authored node before any output,
+  event, or transition. Cancellation and the run deadline are re-arbitrated
+  after both choice checkpoints, and an attended answer that settles after its
+  session signal is refused. Public graph-fragment composition rewrites every
+  authored option and custom target.
+- The Pi-session run supervisor is a control-plane adapter over the one kernel,
+  not another execution engine. An approved run returns after registration,
+  completion is delivered exactly once, `/helix-control` projects only bounded
+  structural status with durable pauses labeled `paused`, and at most four runs
+  are active and 128 records retained. Session shutdown closes
+  confirmation-in-flight starts, suppresses late status/completion delivery,
+  then aborts and awaits every active run. Session replacement performs the
+  same close without requiring a preceding shutdown event. Resume reconciles a
+  matching same-session paused record, and run control re-reads state after
+  every open selection/confirmation boundary before acting. The next Pi session
+  receives a fresh supervisor and cleared run-status projection; late resume
+  completion cannot restore prior-session UI.
+  An active attended resume is re-admitted to that supervisor, so direct stop,
+  control cancellation, command abort, and session close cancel and await its
+  exact execution.
+  Cross-session authority remains the durable public/private run state.
+- Helix-owned model-callable tools append one hash-only intent before implementation
+  and one hash-only result after settlement; raw arguments and results never
+  enter that journal. A tool-call id is one-use within the Pi session's
+  4,096-call ledger, and an opaque per-intent token prevents a late result from
+  settling a same-id turn
+  after session reset. Intent-write failure prevents effects. Structured search
+  stays bounded and contained without following symlinks. Process start is
+  attended, direct-argv, implicit-shell-free, credential-free, cwd-contained, and
+  session-scoped; result-write failure rolls it back and session shutdown
+  confirms complete process-group termination even when a parent exits before
+  its descendants. Concurrent timeout, attended stop, and shutdown requests
+  share one termination operation and retain the first causal stop reason.
+  Session shutdown or replacement closes confirmation-in-flight starts and
+  terminates every active group concurrently; the next session gets a fresh
+  process supervisor and in-memory tool-turn journal only after cleanup is
+  confirmed. Cleanup uncertainty leaves process start closed and preserves the
+  old supervisor for status and stop remediation.
+  Output is capped at 64 KiB, active processes at eight, and retained records at
+  128. These model-callable Pi tools are
+  outside HWK and do not relax the exact real-workflow tool-free invariant.
 - `dispatch/runtime/pi-runtime.mjs` is the only Pi SDK import seam and supports
   `>=0.80.7 <0.81.0`. Provider runtimes require structural branding and a
   short-lived exact CapabilityAttestation; requested-only values never count as

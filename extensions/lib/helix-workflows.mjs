@@ -10,6 +10,7 @@ import {
   workflowFromExecution,
 } from "../../dispatch/lib/workflows.mjs";
 import {
+  isWorkflowDefinitionDocument,
   stableWorkflowStringify,
   validateWorkflowDefinition,
   WORKFLOW_LIMITS,
@@ -55,7 +56,9 @@ export function listUserWorkflows(root) {
         return { ok: false, code: WORKFLOW_CODES.UNREADABLE, detail: name };
       }
       const workflow = JSON.parse(readFileSync(path, "utf8"));
-      const valid = workflow.schema_version === 4 ? validateWorkflowDefinition(workflow) : validateWorkflow(workflow);
+      const valid = isWorkflowDefinitionDocument(workflow)
+        ? validateWorkflowDefinition(workflow)
+        : validateWorkflow(workflow);
       if (!valid.valid || workflow.source !== "user" || `${workflow.id}.json` !== name) {
         return { ok: false, code: WORKFLOW_CODES.INVALID, detail: name };
       }
@@ -83,7 +86,7 @@ export function saveUserWorkflow(root, workflow, { replace = false, builtInIds =
   return { ok: true, workflow_id: workflow.id, path };
 }
 
-export function saveUserWorkflowV4(root, definition, { replace = false, builtInIds = [] } = {}) {
+export function saveUserWorkflowDefinition(root, definition, { replace = false, builtInIds = [] } = {}) {
   const valid = validateWorkflowDefinition(definition);
   if (!valid.valid || definition.source !== "user") {
     return { ok: false, code: WORKFLOW_CODES.INVALID, detail: valid.errors?.map((entry) => entry.path).join(",") ?? "source" };
@@ -103,6 +106,11 @@ export function saveUserWorkflowV4(root, definition, { replace = false, builtInI
   return { ok: true, workflow_id: definition.id, path };
 }
 
+// Compatibility export for integrations written against the original
+// WorkflowDefinition v4-only API. It now admits both supported definition
+// versions through the same closed validator.
+export const saveUserWorkflowV4 = saveUserWorkflowDefinition;
+
 export function deleteUserWorkflow(root, id) {
   if (!isWorkflowId(id)) return { ok: false, code: WORKFLOW_CODES.UNKNOWN, detail: "workflow-id-invalid" };
   const path = join(workflowsDir(root), `${id}.json`);
@@ -113,7 +121,9 @@ export function deleteUserWorkflow(root, id) {
       return { ok: false, code: WORKFLOW_CODES.UNREADABLE, detail: id };
     }
     const workflow = JSON.parse(readFileSync(path, "utf8"));
-    const valid = workflow.schema_version === 4 ? validateWorkflowDefinition(workflow) : validateWorkflow(workflow);
+    const valid = isWorkflowDefinitionDocument(workflow)
+      ? validateWorkflowDefinition(workflow)
+      : validateWorkflow(workflow);
     if (workflow.id !== id || workflow.source !== "user" || !valid.valid) {
       return { ok: false, code: WORKFLOW_CODES.INVALID, detail: id };
     }

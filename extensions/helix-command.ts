@@ -8,7 +8,8 @@
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   executeHelixCommand,
@@ -40,12 +41,20 @@ import { helixStateRoot } from "./lib/helix-paths.mjs";
 import { builtInWorkflows, deleteUserWorkflow, resolveWorkflow, saveUserWorkflow, workflowCatalog } from "./lib/helix-workflows.mjs";
 import { isHelixProvider } from "../dispatch/lib/providers.mjs";
 import { isPublicCode } from "../dispatch/lib/public-values.mjs";
-import { normalizeWorkflowDefinition, normalizeWorkflowInput } from "../dispatch/workflow/schema.mjs";
+import {
+  normalizeWorkflowDefinition,
+  normalizeWorkflowInput,
+  WORKFLOW_LIMITS,
+  workflowChildDefinitionArtifactName,
+} from "../dispatch/workflow/schema.mjs";
+import { KERNEL_CHECKPOINT_LIMITS } from "../dispatch/kernel/state.mjs";
+import { validateRunId } from "../dispatch/lib/run-manager.mjs";
 import {
   DEFAULT_WORKFLOW_EXECUTION_MODE,
   validateWorkflowExecutionMode,
 } from "../dispatch/workflow/graph.mjs";
 import { smokeTestWorkflowRuntime } from "./lib/helix-workflow-test.mjs";
+import { createRunSupervisor } from "./lib/helix-run-supervisor.mjs";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
 
@@ -79,6 +88,8 @@ type CommandDefinition = {
   workflowCreatorUi?: boolean;
   workflowLifecycleUi?: "edit" | "clone" | "delete";
   resumeUi?: boolean;
+  controlUi?: boolean;
+  runStopUi?: boolean;
 };
 
 function trimWithPrefix(prefix: string, args: string): string {
@@ -141,6 +152,8 @@ const COMMANDS: readonly CommandDefinition[] = Object.freeze([
   { name: "helix-runs", description: "List Helix run records", coreArgs: (args) => trimWithPrefix("runs", args || "list") },
   { name: "helix-run-status", description: "Inspect a Helix run", coreArgs: (args) => trimWithPrefix("runs status", args) },
   { name: "helix-run-watch", description: "Show current run progress", coreArgs: (args) => trimWithPrefix("runs watch", args) },
+  { name: "helix-control", description: "Open the session run control center", coreArgs: () => "runs list", controlUi: true },
+  { name: "helix-run-stop", description: "Cancel a background run", coreArgs: (args) => trimWithPrefix("runs status", args), runStopUi: true },
   { name: "helix-run-resume", description: "Resume an interrupted workflow", coreArgs: (args) => trimWithPrefix("runs resume", args), resumeUi: true },
   { name: "helix-run-prune", description: "Delete one run record", coreArgs: (args) => trimWithPrefix("runs prune", args) },
   { name: "helix-models", description: "Show casts and available models", coreArgs: () => "models" },
@@ -254,6 +267,57 @@ function readRegistry(path: string) {
   return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 }
 
+function readBoundWorkflowDefinition(path: string) {
+  const entry = lstatSync(path);
+  if (entry.isSymbolicLink() || !entry.isFile()
+    || entry.size < 1 || entry.size > WORKFLOW_LIMITS.max_workflow_read_bytes) return null;
+  const normalized = normalizeWorkflowDefinition(JSON.parse(readFileSync(path, "utf8")));
+  return normalized.ok && !normalized.migrated ? normalized.definition : null;
+}
+
+function pendingHumanChoice(runId: string) {
+  try {
+    if (!validateRunId(runId).ok) return null;
+    const stateRoot = helixStateRoot();
+    const runPath = join(stateRoot, "runs", runId);
+    const definition = readBoundWorkflowDefinition(join(runPath, `${runId}.definition.json`));
+    if (definition == null) return null;
+    const checkpointPath = join(stateRoot, "private", "runs", runId, "kernel-checkpoint.json");
+    const entry = lstatSync(checkpointPath);
+    if (entry.isSymbolicLink() || !entry.isFile()
+      || entry.size > KERNEL_CHECKPOINT_LIMITS.max_document_bytes) return null;
+    const document = JSON.parse(readFileSync(checkpointPath, "utf8"));
+    const visit = (scheduler: any, currentDefinition: any, depth: number): any => {
+      if (depth > 1 || scheduler?.run_id == null) return null;
+      const current = scheduler.current;
+      const active = scheduler.active;
+      const node = currentDefinition.nodes[current];
+      if (active?.node_id !== current || !Number.isSafeInteger(active.visit) || active.visit < 1) return null;
+      if (node?.kind === "human-choice"
+        && active.boundary?.kind === "human-choice"
+        && active.boundary.status === "inflight") {
+        return {
+          run_id: scheduler.run_id,
+          node_id: current,
+          visit: active.visit,
+          node,
+        };
+      }
+      if (node?.kind !== "subworkflow" || active.child?.workflow_id !== node.workflow_id
+        || active.child.version !== node.version
+        || active.child.run_id !== `${scheduler.run_id}.${current}.${active.visit}`) return null;
+      const filename = workflowChildDefinitionArtifactName(runId, node.workflow_id, node.version);
+      if (filename == null) return null;
+      const childDefinition = readBoundWorkflowDefinition(join(runPath, filename));
+      if (childDefinition?.id !== node.workflow_id || childDefinition.version !== node.version) return null;
+      return visit(active.child.scheduler, childDefinition, depth + 1);
+    };
+    return visit(document?.scheduler, definition, 0);
+  } catch {
+    return null;
+  }
+}
+
 const WORKFLOW_PANEL_ROLES = [...WORKFLOW_ROLE_BLOCKS];
 const WORKFLOW_CANDIDATE_ROLES = WORKFLOW_PANEL_ROLES.filter((role) => role !== "verifier");
 const SAFE_STAGE_ID = /^[a-z][a-z0-9-]*$/;
@@ -287,8 +351,8 @@ async function chooseObjectiveGate(workflow: any, ctx: any) {
   if (!kind) return false;
   if (kind.startsWith("Run a command")) {
     const suggested = suggestedObjectiveCommand(ctx.cwd);
-    const command = (await ctx.ui.input("Executable (no shell)", suggested.command))?.trim() ?? "";
-    const argsText = (await ctx.ui.input("Arguments (space-separated; passed literally, no shell)", suggested.args.join(" ")))?.trim() ?? "";
+    const command = (await ctx.ui.input("Executable (direct argv; no implicit shell)", suggested.command))?.trim() ?? "";
+    const argsText = (await ctx.ui.input("Arguments (space-separated; passed literally)", suggested.args.join(" ")))?.trim() ?? "";
     const timeout = await ctx.ui.select("Objective-check timeout", ["1 minute", "2 minutes (recommended)", "5 minutes", "10 minutes"]);
     if (!command || !timeout) return false;
     workflow.stop.objective_gate = {
@@ -878,7 +942,34 @@ function confirmationCastSpecs(cast: any): any[] {
   ]).filter((member: any) => member.provider !== "mock");
 }
 
-async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args: string) {
+function updateRunStatus(ctx: ExtensionCommandContext, supervisor: any) {
+  const active = supervisor.list().filter((entry: any) => ["running", "cancelling"].includes(entry.status)).length;
+  ctx.ui.setStatus?.("helix-runs", active > 0 ? `Helix: ${active} background run${active === 1 ? "" : "s"}` : undefined);
+}
+
+function sendSupervisedCompletion(pi: ExtensionAPI, runId: string, configId: string, executionMode: string, execution: any) {
+  sendOutput(pi, renderHelixRunCompletion({
+    runId,
+    configId,
+    exitCode: execution.ok ? 0 : 1,
+    converged: execution.converged === true,
+    stopReason: execution.stop_reason,
+    failureCode: execution.ok ? null : execution.code,
+    resumable: execution.resumable === true,
+    hasRunRecord: execution.has_run_record === true,
+    executionMode,
+  }));
+}
+
+async function runWorkflow(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  args: string,
+  supervisor: any,
+  lifecycle: { closing: boolean; generation: number },
+) {
+  const generation = lifecycle.generation;
+  if (lifecycle.closing || ctx.signal?.aborted) return;
   const parsed = parseRunArgs(args);
   if (!parsed.ok) {
     sendOutput(pi, executeHelixCommand(`run ${parsed.preflightArgs}`, { mode: ctx.mode }));
@@ -931,7 +1022,9 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
   const callTimeoutMs = Number(preflight.details?.runtime_limits?.call_timeout_ms);
   const executionBindingRef = String(preflight.details?.execution_binding_ref ?? "");
   const gate = named.ok
-    ? objectiveGateSummary(named.workflow.schema_version === 4 ? named.workflow.objective_gate : named.workflow.stop.objective_gate)
+    ? objectiveGateSummary([4, 5].includes(named.workflow.schema_version)
+      ? named.workflow.objective_gate
+      : named.workflow.stop.objective_gate)
     : "unavailable";
   const inputNames = Object.keys(collected.input).sort().join(", ");
   const exactCast = confirmationCastLines(preflight.details?.cast).join("\n");
@@ -942,7 +1035,6 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
   if (realProviders.length > 0) {
     adapter = createPiAgentAdapter({
       modelRegistry: ctx.modelRegistry,
-      signal: ctx.signal,
       callTimeoutMs,
       exactMode: true,
       ...((pi as any).helixSessionFactory ? { sessionFactory: (pi as any).helixSessionFactory } : {}),
@@ -971,79 +1063,177 @@ async function runWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args:
     ctx.ui.notify("Helix run cancelled; no workflow was started", "info");
     return;
   }
+  if (ctx.signal?.aborted || lifecycle.closing || lifecycle.generation !== generation) {
+    if (!lifecycle.closing) ctx.ui.notify("Helix run cancelled; no workflow was started", "info");
+    return;
+  }
 
   const runId = nextRunId();
-  ctx.ui.setWorkingMessage?.(`Helix is running ${configId}`);
-  ctx.ui.setWorkingVisible?.(true);
-  let execution: any;
-  const runAbort = new AbortController();
-  let runAbortCode: string | null = null;
-  const cancelRun = () => {
-    runAbortCode ??= "workflow-run-cancelled";
-    runAbort.abort(runAbortCode);
-  };
-  ctx.signal?.addEventListener?.("abort", cancelRun, { once: true });
-  const runTimer = setTimeout(() => {
-    runAbortCode ??= "workflow-run-timeout";
-    runAbort.abort(runAbortCode);
-  }, maxRuntimeMs);
-  try {
-    execution = await executeNamedWorkflow({
-      workflow_id: workflowId,
-      execution_mode: executionMode,
-      task,
-      input: collected.input,
-      run_id: runId,
-      cwd: ctx.cwd,
-      state_root: helixStateRoot(),
-      package_root: PACKAGE_ROOT,
-      chain_registry: registries.chains,
-      run_registry: registries.runs,
-      adapter,
-      expected_binding_ref: executionBindingRef,
-      expected_exact_ref: expectedExactRef,
-      signal: runAbort.signal,
-      onEvent(event: any) {
-        if (event.kind === "pass-start") {
-          ctx.ui.setWorkingMessage?.(`Helix · ${event.stage_id} · pass ${event.pass}/${event.of}`);
-        } else if (event.kind === "node-start") {
-          ctx.ui.setWorkingMessage?.(`Helix · ${event.node_id} · visit ${event.visit}`);
-        } else if (event.kind === "gate") {
-          ctx.ui.setWorkingMessage?.(`Helix · objective check ${event.result}`);
-        } else if (event.kind === "blocked") {
-          ctx.ui.setWorkingMessage?.(`Helix · blocked · ${event.code}`);
-        }
-      },
-    });
-    execution.code = arbitrateHelixRunFailureCode({
-      ok: execution.ok,
-      code: execution.code,
-      terminalAuthoritative: execution.terminal_authoritative === true,
-      runAbortCode,
-      adapterFailureCode: adapter?.lastFailureCode?.() ?? null,
-    });
-  } catch {
-    execution = { ok: false, code: "helix-runner-failed", converged: false, stop_reason: null };
-  } finally {
-    clearTimeout(runTimer);
-    ctx.signal?.removeEventListener?.("abort", cancelRun);
-    ctx.ui.setWorkingVisible?.(false);
-    ctx.ui.setWorkingMessage?.();
+  const started = supervisor.start({
+    run_id: runId,
+    label: configId,
+    async execute({ signal, onEvent }: any) {
+      let execution: any;
+      let runAbortCode: string | null = null;
+      const runAbort = new AbortController();
+      const cancel = () => {
+        runAbortCode ??= "workflow-run-cancelled";
+        runAbort.abort(runAbortCode);
+      };
+      if (signal.aborted) cancel();
+      else signal.addEventListener("abort", cancel, { once: true });
+      const runTimer = setTimeout(() => {
+        runAbortCode ??= "workflow-run-timeout";
+        runAbort.abort(runAbortCode);
+      }, maxRuntimeMs);
+      try {
+        execution = await executeNamedWorkflow({
+          workflow_id: workflowId,
+          execution_mode: executionMode,
+          task,
+          input: collected.input,
+          run_id: runId,
+          cwd: ctx.cwd,
+          state_root: helixStateRoot(),
+          package_root: PACKAGE_ROOT,
+          chain_registry: registries.chains,
+          run_registry: registries.runs,
+          adapter,
+          expected_binding_ref: executionBindingRef,
+          expected_exact_ref: expectedExactRef,
+          signal: runAbort.signal,
+          onEvent(event: any) {
+            onEvent(event);
+            if (!lifecycle.closing && lifecycle.generation === generation) {
+              updateRunStatus(ctx, supervisor);
+            }
+          },
+        });
+        execution.code = arbitrateHelixRunFailureCode({
+          ok: execution.ok,
+          code: execution.code,
+          terminalAuthoritative: execution.terminal_authoritative === true,
+          runAbortCode,
+          adapterFailureCode: adapter?.lastFailureCode?.() ?? null,
+        });
+        return execution;
+      } catch {
+        return { ok: false, code: "helix-runner-failed", converged: false, stop_reason: null };
+      } finally {
+        clearTimeout(runTimer);
+        signal.removeEventListener("abort", cancel);
+      }
+    },
+  });
+  if (!started.ok) {
+    sendProviderRefusal(pi, started.code);
+    return;
   }
-  sendOutput(pi, renderHelixRunCompletion({
-    runId,
-    configId,
-    exitCode: execution.ok ? 0 : 1,
-    converged: execution.converged === true,
-    stopReason: execution.stop_reason,
-    failureCode: execution.ok ? null : execution.code,
-    resumable: execution.resumable === true,
-    hasRunRecord: typeof execution.state_path === "string",
-    executionMode,
-  }));
+  updateRunStatus(ctx, supervisor);
+  pi.sendMessage({
+    customType: "helix-command",
+    content:
+      `Helix background run started: ${runId}\n` +
+      `Workflow: ${configId}\nExecution mode: ${executionMode}\n` +
+      `Control: /helix-control\nCancel: /helix-run-stop ${runId}`,
+    display: true,
+    details: { title: "Helix run started", status: "running", run_id: runId, workflow_id: configId, execution_mode: executionMode },
+  }, { triggerTurn: false });
+  void started.completion.then(() => {
+    const execution = supervisor.claimCompletion(runId);
+    if (!lifecycle.closing && lifecycle.generation === generation) {
+      if (execution != null) sendSupervisedCompletion(pi, runId, configId, executionMode, execution);
+      updateRunStatus(ctx, supervisor);
+    }
+  });
 }
 
-async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, args: string) {
+async function showRunControl(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  supervisor: any,
+  lifecycle: { closing: boolean; generation: number },
+) {
+  const generation = lifecycle.generation;
+  const sessionChanged = () => lifecycle.closing || lifecycle.generation !== generation;
+  if (sessionChanged()) return;
+  const runs = supervisor.list();
+  if (runs.length === 0) {
+    ctx.ui.notify("No workflows are managed by this Pi session", "info");
+    return;
+  }
+  const labels = runs.map((entry: any) =>
+    `${entry.status === "running" ? "●" : entry.status === "cancelling" ? "◌" : "○"} ${entry.run_id} · ${entry.label} · ${entry.status}`);
+  const selected = await ctx.ui.select("Helix run control", labels);
+  if (sessionChanged()) return;
+  const index = labels.indexOf(selected ?? "");
+  if (index < 0) return;
+  const current = supervisor.status(runs[index].run_id);
+  if (!current.ok) {
+    ctx.ui.notify("That session run is no longer available", "info");
+    return;
+  }
+  const run = current.run;
+  pi.sendMessage({
+    customType: "helix-command",
+    content:
+      `Run: ${run.run_id}\nWorkflow: ${run.label}\nStatus: ${run.status}\n` +
+      `Last event: ${run.last_event?.kind ?? "none"}${run.last_event?.node_id ? ` at ${run.last_event.node_id}` : ""}`,
+    display: true,
+    details: { title: "Helix run control", ...run },
+  }, { triggerTurn: false });
+  if (["running", "cancelling"].includes(run.status)
+    && await ctx.ui.confirm("Cancel background run?", `Run: ${run.run_id}\nWorkflow: ${run.label}`)
+    && !sessionChanged()) {
+    const cancelled = supervisor.cancel(run.run_id);
+    updateRunStatus(ctx, supervisor);
+    if (!cancelled.ok) {
+      ctx.ui.notify(`Cancellation refused for ${run.run_id}: ${cancelled.code}`, "warning");
+    } else if (cancelled.already_closed) {
+      ctx.ui.notify(`${run.run_id} already closed before cancellation`, "info");
+    } else {
+      ctx.ui.notify(`Cancellation requested for ${run.run_id}`, "warning");
+    }
+  }
+}
+
+function stopRun(pi: ExtensionAPI, ctx: ExtensionCommandContext, args: string, supervisor: any) {
+  const runId = args.trim();
+  const stopped = runId && !/\s/.test(runId)
+    ? supervisor.cancel(runId)
+    : { ok: false, code: "missing-run-id" };
+  pi.sendMessage({
+    customType: "helix-command",
+    content: stopped.ok && stopped.already_closed
+      ? `Run already closed: ${runId}`
+      : stopped.ok
+        ? `Cancellation requested: ${runId}`
+      : `Helix refusal: ${stopped.code}`,
+    display: true,
+    details: {
+      title: stopped.ok && stopped.already_closed
+        ? "Helix run already closed"
+        : stopped.ok ? "Helix run cancellation" : "Helix run cancellation refused",
+      ...stopped,
+    },
+  }, { triggerTurn: false });
+  updateRunStatus(ctx, supervisor);
+}
+
+async function resumeWorkflow(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  args: string,
+  supervisor: any,
+  lifecycle: {
+    closing: boolean;
+    generation: number;
+  },
+) {
+  const generation = lifecycle.generation;
+  const sessionChanged = () => lifecycle.closing || lifecycle.generation !== generation;
+  const cancelled = () => ctx.signal?.aborted || sessionChanged();
+  if (cancelled()) return;
   const runId = args.trim();
   if (!runId || /\s/.test(runId)) {
     sendOutput(pi, executeHelixCommand(`runs resume ${runId}`, { mode: ctx.mode }));
@@ -1057,6 +1247,10 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
     return;
   }
   const task = (await ctx.ui.input?.("Re-enter the original workflow task"))?.trim() ?? "";
+  if (cancelled()) {
+    ctx.ui.notify("Helix resume cancelled; the checkpoint was not changed", "info");
+    return;
+  }
   if (!task) {
     ctx.ui.notify("The original task is required; the interrupted run was not changed", "warning");
     return;
@@ -1078,9 +1272,69 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
     return;
   }
   const collected = await collectWorkflowInput(ctx, named.workflow, task);
+  if (cancelled()) {
+    ctx.ui.notify("Helix resume cancelled; the checkpoint was not changed", "info");
+    return;
+  }
   if (!collected.ok) {
     ctx.ui.notify(`Workflow input refused (${collected.code}); the checkpoint was not changed`, "warning");
     return;
+  }
+  const pendingChoice = pendingHumanChoice(runId);
+  let humanChoice: any = null;
+  if (pendingChoice) {
+    const customLabel = "Custom answer…";
+    const optionLabels = pendingChoice.node.choices.map(
+      (choice: any) => `${choice.label} [${choice.id}]`,
+    );
+    const labels = [
+      ...optionLabels,
+      ...(pendingChoice.node.allow_custom ? [customLabel] : []),
+    ];
+    const selected = await ctx.ui.select(pendingChoice.node.question, labels);
+    if (cancelled()) {
+      ctx.ui.notify("Helix resume cancelled; the checkpoint was not changed", "info");
+      return;
+    }
+    if (selected == null) {
+      ctx.ui.notify("The workflow choice remains open; the checkpoint was not changed", "info");
+      return;
+    }
+    if (selected === customLabel) {
+      const text = (await ctx.ui.input?.("Custom answer"))?.trim() ?? "";
+      if (cancelled()) {
+        ctx.ui.notify("Helix resume cancelled; the checkpoint was not changed", "info");
+        return;
+      }
+      if (!text || text.length > WORKFLOW_LIMITS.max_human_response_length) {
+        ctx.ui.notify(
+          `A custom answer must contain 1–${WORKFLOW_LIMITS.max_human_response_length} characters; the checkpoint was not changed`,
+          "warning",
+        );
+        return;
+      }
+      humanChoice = {
+        run_id: pendingChoice.run_id,
+        node_id: pendingChoice.node_id,
+        visit: pendingChoice.visit,
+        kind: "custom",
+        text,
+      };
+    } else {
+      const optionIndex = optionLabels.indexOf(selected);
+      const option = optionIndex < 0 ? null : pendingChoice.node.choices[optionIndex];
+      if (!option) {
+        ctx.ui.notify("The workflow choice was invalid; the checkpoint was not changed", "warning");
+        return;
+      }
+      humanChoice = {
+        run_id: pendingChoice.run_id,
+        node_id: pendingChoice.node_id,
+        visit: pendingChoice.visit,
+        kind: "option",
+        option_id: option.id,
+      };
+    }
   }
   const modelInventory = await availableModelInventory(`run ${workflowId}`, ctx);
   const preflight = executeHelixCommand(
@@ -1113,6 +1367,10 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
       sendProviderRefusal(pi, exact.code ?? "provider-exact-preflight-failed");
       return;
     }
+    if (cancelled()) {
+      ctx.ui.notify("Helix resume cancelled; the checkpoint was not changed", "info");
+      return;
+    }
     exactBindings = exact.bindings;
     expectedExactRef = exact.binding_ref;
   }
@@ -1128,41 +1386,66 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
     ctx.ui.notify("Helix resume cancelled; the checkpoint was not changed", "info");
     return;
   }
-  const controller = new AbortController();
-  const cancel = () => controller.abort("workflow-run-cancelled");
-  ctx.signal?.addEventListener?.("abort", cancel, { once: true });
+  if (cancelled()) {
+    ctx.ui.notify("Helix resume cancelled; the checkpoint was not changed", "info");
+    return;
+  }
+  const started = supervisor.resume({
+    run_id: runId,
+    label: workflowId,
+    async execute({ signal, onEvent }: any) {
+      const result = await resumeNamedWorkflow({
+        run_id: runId,
+        execution_mode: executionMode,
+        task,
+        input: collected.input,
+        cwd: ctx.cwd,
+        state_root: helixStateRoot(),
+        package_root: PACKAGE_ROOT,
+        chain_registry: registries.chains,
+        run_registry: registries.runs,
+        adapter,
+        expected_binding_ref: String(preflight.details?.execution_binding_ref ?? ""),
+        expected_exact_ref: expectedExactRef,
+        human_choice: humanChoice,
+        signal,
+        onEvent(event: any) {
+          onEvent(event);
+          if (event.kind === "node-start") ctx.ui.setWorkingMessage?.(`Helix · ${event.node_id} · visit ${event.visit}`);
+        },
+      });
+      return !result.ok && result.code === "kernel-run-deadline-exceeded"
+        ? { ...result, code: "workflow-run-timeout" }
+        : result;
+    },
+  });
+  if (!started.ok) {
+    ctx.ui.notify(`Helix resume refused (${started.code}); the checkpoint was not changed`, "warning");
+    return;
+  }
+  const cancel = () => { supervisor.cancel(runId); };
+  if (ctx.signal?.aborted) cancel();
+  else ctx.signal?.addEventListener?.("abort", cancel, { once: true });
+  updateRunStatus(ctx, supervisor);
   ctx.ui.setWorkingVisible?.(true);
   ctx.ui.setWorkingMessage?.(`Helix · resuming ${runId}`);
-  let execution: any;
   try {
-    execution = await resumeNamedWorkflow({
-      run_id: runId,
-      execution_mode: executionMode,
-      task,
-      input: collected.input,
-      cwd: ctx.cwd,
-      state_root: helixStateRoot(),
-      package_root: PACKAGE_ROOT,
-      chain_registry: registries.chains,
-      run_registry: registries.runs,
-      adapter,
-      expected_binding_ref: String(preflight.details?.execution_binding_ref ?? ""),
-      expected_exact_ref: expectedExactRef,
-      signal: controller.signal,
-      onEvent(event: any) {
-        if (event.kind === "node-start") ctx.ui.setWorkingMessage?.(`Helix · ${event.node_id} · visit ${event.visit}`);
-      },
-    });
-    if (!execution.ok && execution.code === "kernel-run-deadline-exceeded") {
-      execution.code = "workflow-run-timeout";
-    }
-  } catch {
-    execution = { ok: false, code: "helix-resume-failed", converged: false, stop_reason: null };
+    await started.completion;
   } finally {
     ctx.signal?.removeEventListener?.("abort", cancel);
     ctx.ui.setWorkingVisible?.(false);
     ctx.ui.setWorkingMessage?.();
   }
+  const execution = supervisor.claimCompletion(runId) ?? {
+    ok: false,
+    code: "helix-resume-failed",
+    converged: false,
+    stop_reason: null,
+    resumable: false,
+    has_run_record: true,
+  };
+  if (sessionChanged()) return;
+  updateRunStatus(ctx, supervisor);
   sendOutput(pi, renderHelixRunCompletion({
     runId,
     configId: workflowId,
@@ -1171,7 +1454,7 @@ async function resumeWorkflow(pi: ExtensionAPI, ctx: ExtensionCommandContext, ar
     stopReason: execution.stop_reason,
     failureCode: execution.ok ? null : execution.code,
     resumable: execution.resumable === true,
-    hasRunRecord: typeof execution.state_path === "string",
+    hasRunRecord: execution.has_run_record === true,
     executionMode,
   }));
 }
@@ -1190,7 +1473,7 @@ async function testWorkflowCommand(pi: ExtensionAPI, ctx: ExtensionCommandContex
   if (!resolved.ok) return true;
   const approved = await ctx.ui.confirm(
     `Run isolated runtime smoke test for ${id}?`,
-    "Helix will normalize the definition to v4, execute one deterministic path through the real Workflow Kernel in a temporary detached Git worktree, simulate agent effects, execute the authored objective checker inside a read-only OS sandbox, and remove the worktree. No provider is called and this does not claim the task-specific objective passes or every branch was covered.",
+    "Helix will normalize the definition to a supported WorkflowDefinition, execute one deterministic path through the real Workflow Kernel in a temporary detached Git worktree, simulate agent effects, execute the authored objective checker inside a read-only OS sandbox, and remove the worktree. No provider is called and this does not claim the task-specific objective passes or every branch was covered.",
   );
   if (!approved) {
     ctx.ui.notify("Runtime smoke test skipped; definition and deployment checks remain valid", "info");
@@ -1411,6 +1694,11 @@ async function showSettings(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
 }
 
 export default function helixCommand(pi: ExtensionAPI) {
+  let runSupervisor = createRunSupervisor();
+  const lifecycle = {
+    closing: false,
+    generation: 0,
+  };
   if (typeof pi.registerMessageRenderer === "function") {
     pi.registerMessageRenderer("helix-command", (message, _options, theme) => {
       const details = message.details as { title?: string; status?: string } | undefined;
@@ -1430,12 +1718,28 @@ export default function helixCommand(pi: ExtensionAPI) {
   }
 
   pi.on("session_start", async (event, ctx) => {
+    const generation = lifecycle.generation + 1;
+    lifecycle.generation = generation;
+    lifecycle.closing = true;
+    const closingSupervisor = runSupervisor;
+    await closingSupervisor.shutdown();
+    if (lifecycle.generation !== generation) return;
+    runSupervisor = createRunSupervisor();
+    lifecycle.closing = false;
+    ctx.ui.setStatus?.("helix-runs", undefined);
     if (event.reason !== "startup") return;
     try {
       await maybeShowFirstRunOnboarding(ctx);
     } catch {
       ctx.ui.notify("Helix onboarding could not open · run /helix-onboarding to retry", "warning");
     }
+  });
+  pi.on("session_shutdown", async (_event, ctx) => {
+    lifecycle.generation += 1;
+    lifecycle.closing = true;
+    const closingSupervisor = runSupervisor;
+    await closingSupervisor.shutdown();
+    ctx.ui.setStatus?.("helix-runs", undefined);
   });
 
   for (const command of COMMANDS) {
@@ -1460,11 +1764,23 @@ export default function helixCommand(pi: ExtensionAPI) {
           return;
         }
         if (command.name === "helix-run") {
-          await runWorkflow(pi, ctx, args);
+          await runWorkflow(pi, ctx, args, runSupervisor, lifecycle);
+          return;
+        }
+        if (command.controlUi) {
+          if (ctx.mode !== "tui" || typeof ctx.ui?.select !== "function") {
+            ctx.ui.notify("Open Pi in TUI mode to use /helix-control", "warning");
+            return;
+          }
+          await showRunControl(pi, ctx, runSupervisor, lifecycle);
+          return;
+        }
+        if (command.runStopUi) {
+          stopRun(pi, ctx, args, runSupervisor);
           return;
         }
         if (command.resumeUi) {
-          await resumeWorkflow(pi, ctx, args);
+          await resumeWorkflow(pi, ctx, args, runSupervisor, lifecycle);
           return;
         }
         if (command.name === "helix-workflows" && await testWorkflowCommand(pi, ctx, args)) return;

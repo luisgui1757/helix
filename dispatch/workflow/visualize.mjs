@@ -1,7 +1,7 @@
 // Public-safe planned and observed graph projections. Stable node ids join the
 // two views; prompts, tasks, provider payloads, and account ids never render.
 
-import { validateWorkflowDefinition, workflowDefinitionHash } from "./schema.mjs";
+import { validateWorkflowDefinition, workflowDefinitionHash, WORKFLOW_LIMITS } from "./schema.mjs";
 import {
   compileWorkflowGraph,
   DEFAULT_WORKFLOW_EXECUTION_MODE,
@@ -13,6 +13,7 @@ import {
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const EVENT_KINDS = new Set([
   "run-start", "run-resume", "run-end", "node-start", "node-end", "transition", "gate",
+  "human-choice",
   "effect-plan", "effect-start", "effect-end", "effect-resumed", "effect-recovered", "effect-cache-hit", "effect-repair", "effect-retry",
   "subworkflow-event",
 ]);
@@ -61,6 +62,7 @@ function eventFields(kind, mode, { legacy = false } = {}) {
     optional: mode === "graph-mode" ? [] : ["edge_id", "edge_kind"],
   };
   if (kind === "gate") return { required: ["result", "final"], optional: ["evidence_ref"] };
+  if (kind === "human-choice") return { required: ["selection"], optional: [] };
   if (["effect-start", "effect-cache-hit"].includes(kind)) {
     return { required: ["instance_id", "effect_ref"], optional: [] };
   }
@@ -146,6 +148,10 @@ function validKnownEvent(event, nodeIds, mode, definitionRef = null, {
     return ["pass", "fail"].includes(event.result) && typeof event.final === "boolean"
       && (event.evidence_ref == null || HASH.test(event.evidence_ref));
   }
+  if (event.kind === "human-choice") {
+    return validIdentifier(event.selection, WORKFLOW_LIMITS.max_id_length + 7)
+      && (event.selection === "custom" || event.selection.startsWith("option:"));
+  }
   if (["effect-start", "effect-cache-hit"].includes(event.kind)) {
     return validIdentifier(event.instance_id) && HASH.test(event.effect_ref ?? "");
   }
@@ -191,6 +197,7 @@ function childEvent(event) {
     "definition_ref", "execution_mode", "target", "edge_id", "edge_kind", "visit", "instance_id",
     "effect_ref", "slot_count", "result", "final", "evidence_ref", "repair_attempt", "attempt", "next_attempt",
     "prior_instance_id", "status", "code", "failure_class",
+    "selection",
   ];
   for (const field of fields) {
     const childField = `child_${field}`;
@@ -317,6 +324,7 @@ function validEventLifecycle(events, definition, { legacy = false } = {}) {
   let expectedNode = definition.start;
   let expectedVisit = 1;
   let gateResult = null;
+  let humanSelection = null;
   let finalPassTraversed = false;
   let nodeEnd = null;
   let hasRunResume = false;
@@ -369,6 +377,7 @@ function validEventLifecycle(events, definition, { legacy = false } = {}) {
       visit = event.visit;
       if (resumeNodeId === nodeId && resumeVisit == null) resumeVisit = visit;
       gateResult = null;
+      humanSelection = null;
       nodeEnd = null;
       if (!continuingResume) childLastEvent = null;
       effectPlanSlots = null;
@@ -383,18 +392,27 @@ function validEventLifecycle(events, definition, { legacy = false } = {}) {
       continue;
     }
     if ([
-      "gate", "effect-plan", "effect-start", "effect-end", "effect-resumed", "effect-recovered", "effect-cache-hit",
+      "gate", "human-choice", "effect-plan", "effect-start", "effect-end", "effect-resumed", "effect-recovered", "effect-cache-hit",
       "effect-repair", "effect-retry", "subworkflow-event",
     ].includes(event.kind)) {
       const authoredNode = definition.nodes[nodeId];
       if (phase !== "active" || event.node_id !== nodeId
         || (event.kind === "gate" && definition.nodes[nodeId]?.kind !== "gate")
+        || (event.kind === "human-choice" && definition.nodes[nodeId]?.kind !== "human-choice")
         || (event.kind === "subworkflow-event" && definition.nodes[nodeId]?.kind !== "subworkflow")
         || (event.kind.startsWith("effect-")
           && !["agent", "pipeline", "parallel", "map"].includes(authoredNode?.kind))) return false;
       if (event.kind === "gate") {
         if (gateResult != null || event.final !== (authoredNode.final === true)) return false;
         gateResult = event.result;
+      }
+      if (event.kind === "human-choice") {
+        if (humanSelection != null) return false;
+        const optionId = event.selection.startsWith("option:") ? event.selection.slice("option:".length) : null;
+        if (event.selection === "custom") {
+          if (authoredNode.allow_custom !== true) return false;
+        } else if (!authoredNode.choices.some((choice) => choice.id === optionId)) return false;
+        humanSelection = event.selection;
       }
       if (event.kind === "effect-plan") {
         const expected = authoredNode.kind === "agent" ? 1
@@ -539,6 +557,7 @@ function validEventLifecycle(events, definition, { legacy = false } = {}) {
             definition, nodeId, visit, effectPlanSlots, invocationCounts, completedEffects,
           ))
         || (definition.nodes[nodeId]?.kind === "gate" && event.status === "ok" && gateResult == null)
+        || (definition.nodes[nodeId]?.kind === "human-choice" && event.status === "ok" && humanSelection == null)
         || (!legacy && definition.nodes[nodeId]?.kind === "subworkflow" && event.status === "ok"
           && (childLastEvent?.child_kind !== "run-end" || childLastEvent.child_status !== "succeeded"))) return false;
       nodeEnd = { status: event.status, code: event.code ?? null };
@@ -559,11 +578,23 @@ function validEventLifecycle(events, definition, { legacy = false } = {}) {
           finalPassTraversed = true;
         }
       }
+      if (authoredNode.kind === "human-choice") {
+        const optionId = humanSelection?.startsWith("option:") ? humanSelection.slice("option:".length) : null;
+        const expected = humanSelection === "custom"
+          ? { target: authoredNode.custom_target, kinds: ["custom"] }
+          : {
+            target: authoredNode.choices.find((choice) => choice.id === optionId)?.target,
+            kinds: ["choice"],
+          };
+        if (event.target !== expected.target
+          || (event.edge_kind != null && !expected.kinds.includes(event.edge_kind))) return false;
+      }
       expectedNode = event.target;
       expectedVisit = (visits.get(expectedNode) ?? 0) + 1;
       nodeId = null;
       visit = null;
       gateResult = null;
+      humanSelection = null;
       nodeEnd = null;
       resumeNodeId = null;
       resumeVisit = null;
@@ -629,6 +660,10 @@ export function plannedWorkflowGraph(definition) {
       ...(node.kind === "parallel" ? { branches: node.branches.length, max_concurrency: node.max_concurrency } : {}),
       ...(node.kind === "map" ? { max_items: node.max_items } : {}),
       ...(node.kind === "gate" ? { final: node.final === true } : {}),
+      ...(node.kind === "human-choice" ? {
+        choices: node.choices.length,
+        allow_custom: node.allow_custom,
+      } : {}),
       ...(node.kind === "terminal" ? { status: node.status } : {}),
     }; }),
     edges: projected.edges,

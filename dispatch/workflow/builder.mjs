@@ -1,4 +1,4 @@
-// Pure programmatic WorkflowDefinition v4 builder. The returned document is
+// Pure programmatic WorkflowDefinition v5 builder. The returned document is
 // ordinary JSON data and still passes through the same closed validator as UI
 // or imported definitions. Helix never executes the program that constructed it.
 
@@ -74,6 +74,18 @@ export function objectiveGate(on_pass, on_fail, value = {}) {
 export function checkpoint(reason, next, value = {}) {
   const { label } = options(value);
   return { kind: "checkpoint", reason, next, ...(label ? { label } : {}) };
+}
+
+export function humanChoice(question, choices, value = {}) {
+  const { label, allow_custom = false, custom_target } = options(value);
+  return {
+    kind: "human-choice",
+    question,
+    choices,
+    allow_custom,
+    ...(allow_custom ? { custom_target } : {}),
+    ...(label ? { label } : {}),
+  };
 }
 
 export function subworkflow(workflow_id, version, next, value = {}) {
@@ -194,19 +206,30 @@ function targetSlots(node) {
   if (node.kind === "gate") return [
     "on_pass", "on_fail", ...(Object.hasOwn(node, "loops_off") ? ["loops_off"] : []),
   ];
+  if (node.kind === "human-choice") {
+    if (!Array.isArray(node.choices)) return null;
+    return [
+      ...node.choices.map((_entry, index) => `choices[${index}].target`),
+      ...(node.allow_custom === true ? ["custom_target"] : []),
+    ];
+  }
   if (node.kind === "terminal") return [];
   return null;
 }
 
 function targetValue(node, field) {
-  if (field === "next" || field === "on_pass" || field === "on_fail" || field === "loops_off") return node[field];
+  if (field === "next" || field === "on_pass" || field === "on_fail"
+    || field === "loops_off" || field === "custom_target") return node[field];
   if (field === "default.target") return node.default?.target;
-  const match = /^transitions\[([0-9]+)\]\.target$/.exec(field);
-  return match ? node.transitions?.[Number(match[1])]?.target : undefined;
+  const transition = /^transitions\[([0-9]+)\]\.target$/.exec(field);
+  if (transition) return node.transitions?.[Number(transition[1])]?.target;
+  const choice = /^choices\[([0-9]+)\]\.target$/.exec(field);
+  return choice ? node.choices?.[Number(choice[1])]?.target : undefined;
 }
 
 function setTarget(node, field, value) {
-  if (field === "next" || field === "on_pass" || field === "on_fail" || field === "loops_off") {
+  if (field === "next" || field === "on_pass" || field === "on_fail"
+    || field === "loops_off" || field === "custom_target") {
     node[field] = value;
     return true;
   }
@@ -214,10 +237,16 @@ function setTarget(node, field, value) {
     node.default.target = value;
     return true;
   }
-  const match = /^transitions\[([0-9]+)\]\.target$/.exec(field);
-  const transition = match ? node.transitions?.[Number(match[1])] : null;
-  if (!transition || typeof transition !== "object") return false;
-  transition.target = value;
+  const transitionMatch = /^transitions\[([0-9]+)\]\.target$/.exec(field);
+  const transition = transitionMatch ? node.transitions?.[Number(transitionMatch[1])] : null;
+  if (transition && typeof transition === "object") {
+    transition.target = value;
+    return true;
+  }
+  const choiceMatch = /^choices\[([0-9]+)\]\.target$/.exec(field);
+  const choice = choiceMatch ? node.choices?.[Number(choiceMatch[1])] : null;
+  if (!choice || typeof choice !== "object") return false;
+  choice.target = value;
   return true;
 }
 

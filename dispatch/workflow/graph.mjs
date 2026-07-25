@@ -1,4 +1,4 @@
-// Canonical provider-neutral control-flow graph for WorkflowDefinition v4.
+// Canonical provider-neutral control-flow graph for WorkflowDefinition v4/v5.
 //
 // This module deliberately does not import schema.mjs: schema validation owns
 // admission, while graph compilation owns a total, deterministic projection of
@@ -13,6 +13,7 @@ export const DEFAULT_WORKFLOW_EXECUTION_MODE = "original-mode";
 
 export const WORKFLOW_GRAPH_EDGE_KINDS = Object.freeze([
   "next", "condition", "default", "loops-off", "pass", "fail",
+  "choice", "custom",
 ]);
 
 export const WORKFLOW_GRAPH_EDGE_VIEWS = Object.freeze([
@@ -36,7 +37,7 @@ const MAX_CONDITION_BYTES = 256 * 1024;
 const NEXT_KINDS = new Set([
   "agent", "pipeline", "parallel", "map", "reduce", "checkpoint", "subworkflow",
 ]);
-const NODE_KINDS = new Set([...NEXT_KINDS, "decision", "gate", "terminal"]);
+const NODE_KINDS = new Set([...NEXT_KINDS, "decision", "gate", "human-choice", "terminal"]);
 
 function plain(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
@@ -162,6 +163,13 @@ function edgeIdentity(from, kind, metadata) {
   if (kind === "fail") return { id: `${from}:fail`, field: "on_fail" };
   if (kind === "loops-off") return { id: `${from}:loops-off`, field: "loops_off" };
   if (kind === "next") return { id: `${from}:next`, field: "next" };
+  if (kind === "choice") {
+    const index = metadata.choice_index;
+    const choiceId = metadata.choice_id;
+    if (!Number.isSafeInteger(index) || index < 0 || typeof choiceId !== "string") return null;
+    return { id: `${from}:choice:${choiceId}`, field: `choices[${index}].target` };
+  }
+  if (kind === "custom") return { id: `${from}:custom`, field: "custom_target" };
   return null;
 }
 
@@ -179,6 +187,16 @@ function extractNodeEdgesUnchecked(nodeId, node) {
     return selected ? [selected] : null;
   }
   if (node.kind === "terminal") return [];
+  if (node.kind === "human-choice") {
+    if (!Array.isArray(node.choices) || node.choices.length < 1
+      || node.choices.length > MAX_DECISION_TRANSITIONS || typeof node.allow_custom !== "boolean") return null;
+    const choices = node.choices.map((choice, index) =>
+      plain(choice) && typeof choice.id === "string"
+        ? edge(nodeId, choice.target, "choice", index, { choice_index: index, choice_id: choice.id })
+        : null);
+    if (node.allow_custom === true) choices.push(edge(nodeId, node.custom_target, "custom", choices.length));
+    return choices.every(Boolean) ? choices : null;
+  }
   if (node.kind === "gate") {
     const edges = [
       edge(nodeId, node.on_pass, "pass", 0),
@@ -510,6 +528,20 @@ export function routeWorkflowGate(graph, nodeId, { result, loops = true } = {}) 
   }
 }
 
+export function routeWorkflowHumanChoice(graph, nodeId, { kind, option_id = null } = {}) {
+  try {
+    if (!compiled(graph) || nodeKind(graph, nodeId) !== "human-choice"
+      || !["option", "custom"].includes(kind)) return routeFailure();
+    const outgoing = graph.adjacency[nodeId];
+    const candidates = kind === "custom"
+      ? outgoing.filter((candidate) => candidate.kind === "custom")
+      : outgoing.filter((candidate) => candidate.kind === "choice" && candidate.choice_id === option_id);
+    return candidates.length === 1 ? routeSuccess(candidates[0]) : routeFailure();
+  } catch {
+    return routeFailure();
+  }
+}
+
 function publicCondition(candidate) {
   return Object.freeze({
     operator: candidate.condition.op,
@@ -540,6 +572,10 @@ export function projectPublicWorkflowGraph(graph) {
           condition: publicCondition(candidate),
         } : {}),
         ...(candidate.kind === "default" ? { loop: candidate.loop } : {}),
+        ...(candidate.kind === "choice" ? {
+          choice_index: candidate.choice_index,
+          choice_id: candidate.choice_id,
+        } : {}),
       }))),
     });
   } catch {

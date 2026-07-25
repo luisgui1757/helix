@@ -36,15 +36,6 @@ export function buildOptions(input) {
   return options;
 }
 
-/**
- * The deterministic default choice (used in non-interactive mode): the top
- * recommendation.
- * @param {Array<{ isRecommended: boolean }>} options
- */
-export function defaultChoice(options) {
-  return options.find((o) => o.isRecommended) ?? options[0];
-}
-
 /** Human-readable label for a menu row. */
 export function formatOption(o) {
   const rec = o.isRecommended ? " (recommended)" : "";
@@ -59,20 +50,45 @@ export function optionFromLabel(options, selectedLabel) {
 }
 
 /**
- * Resolve the user's choice. Interactive mode calls `select(labels)` (Pi's
- * ctx.ui.select) and maps the result back; non-interactive returns the top
- * recommendation deterministically (the documented deterministic path). A
- * cancelled selection falls back to the recommendation so the agent always gets
- * a concrete answer.
+ * Resolve the user's choice. A concrete answer exists only after an explicit
+ * interactive selection. Non-interactive mode, cancellation, and invalid UI
+ * output remain unresolved. When custom answers are enabled, selecting the
+ * dedicated row invokes `input()` and accepts one bounded non-empty value.
  * @param {Array<object>} options
- * @param {{ interactive?: boolean, select?: (labels: string[]) => Promise<string|null> }} io
+ * @param {{
+ *   interactive?: boolean,
+ *   allowCustom?: boolean,
+ *   maxCustomLength?: number,
+ *   select?: (labels: string[]) => Promise<string|null>,
+ *   input?: () => Promise<string|null>,
+ * }} io
  */
 export async function resolveAnswer(options, io = {}) {
-  if (io.interactive && typeof io.select === "function") {
-    const labels = options.map(formatOption);
-    const selected = await io.select(labels);
-    const chosen = optionFromLabel(options, selected);
-    return { chosen: chosen ?? defaultChoice(options), interactive: true, cancelled: chosen === null };
+  if (!io.interactive || typeof io.select !== "function") {
+    return { status: "unavailable", chosen: null, custom: null, interactive: false };
   }
-  return { chosen: defaultChoice(options), interactive: false, cancelled: false };
+  const customLabel = "Write a custom answer…";
+  const labels = [...options.map(formatOption), ...(io.allowCustom ? [customLabel] : [])];
+  const selected = await io.select(labels);
+  if (selected === null) {
+    return { status: "cancelled", chosen: null, custom: null, interactive: true };
+  }
+  if (selected === customLabel) {
+    if (typeof io.input !== "function") {
+      return { status: "unavailable", chosen: null, custom: null, interactive: true };
+    }
+    const custom = (await io.input())?.trim() ?? "";
+    const maximum = Number.isSafeInteger(io.maxCustomLength)
+      && io.maxCustomLength >= 1 && io.maxCustomLength <= 4_096
+      ? io.maxCustomLength
+      : 4_096;
+    if (custom.length < 1 || custom.length > maximum) {
+      return { status: "cancelled", chosen: null, custom: null, interactive: true };
+    }
+    return { status: "answered", chosen: null, custom, interactive: true };
+  }
+  const chosen = optionFromLabel(options, selected);
+  return chosen == null
+    ? { status: "invalid-selection", chosen: null, custom: null, interactive: true }
+    : { status: "answered", chosen, custom: null, interactive: true };
 }

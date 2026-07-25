@@ -925,7 +925,8 @@ test("v4 import is attended, validated, atomic, and immediately graphable", () =
     objective_gate: objective,
   });
   assert.equal(built.ok, true);
-  writeFileSync(join(cwd, "flow.json"), JSON.stringify(built.definition));
+  const definition = { ...built.definition, schema_version: 4 };
+  writeFileSync(join(cwd, "flow.json"), JSON.stringify(definition));
   const options = { stateRoot, cwd };
   const refused = executeHelixCommand("workflows import flow.json", { mode: "print" }, options);
   assert.equal(refused.code, "helix-mutation-requires-tui-confirm");
@@ -956,7 +957,7 @@ test("schema-4 run watch preserves opaque child history and ignores an unauthori
     objective_gate: { type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000 },
   });
   assert.equal(built.ok, true);
-  const definition = built.definition;
+  const definition = { ...built.definition, schema_version: 4 };
   const definitionRef = workflowDefinitionHash(definition);
   const events = [
     { kind: "run-start", node_id: "child", definition_ref: definitionRef },

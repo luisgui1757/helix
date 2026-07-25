@@ -1082,3 +1082,103 @@ Rejected alternative:
 - “Expect a worktree add whenever both raw names can be created”: rejected. On
   Linux, invalid-UTF-8 names may be created while byte-path `realpath` refuses;
   production must then stop before registration.
+
+## 2026-07-25 — Pi control-plane extension invariants
+
+- A Pi session owns exactly one in-memory run supervisor, process supervisor,
+  and Helix tool-turn inflight journal. Shutdown closes confirmation-in-flight
+  starts, aborts or terminates active work, suppresses late delivery, and waits
+  for settlement. A later session starts with fresh in-memory state; durable
+  HWK state alone crosses sessions.
+- A model-callable tool effect begins only after a hash-only intent is appended.
+  Exactly one hash-only result settles it. Raw arguments, file contents,
+  process output, user questions, and answers do not enter the tool journal.
+  Process-start result persistence failure terminates the started process.
+- A native UI result has no authority after its session or tool signal is
+  cancelled. This applies to ranked answers, workflow start confirmation, and
+  resumed human choices.
+- WorkflowDefinition v5 is the current builder output. V4 remains directly
+  admitted with its existing canonical identity and rejects v5-only
+  `human-choice`. Every human choice binds the exact definition, run namespace,
+  node, visit, question, ordered choices, and custom route before pausing.
+- A pinned child human choice is prompted from its persisted child definition
+  and exact child run namespace. A settled choice is checkpointed before its
+  structural event and transition and is reused after interruption.
+- Graph-fragment composition owns every target-bearing field, including each
+  human-choice option and custom target. Namespace rewriting may not leave a
+  v5-only routing field outside composition authority.
+- Structured file search is dependency-free and literal. It admits only a
+  contained repository-relative root, skips observed symlinks and excluded
+  directories, opens final files with `O_NOFOLLOW` where supported, rejects
+  non-regular, oversized, or invalid-UTF-8 input, and enforces file and
+  aggregate bytes from the opened descriptor.
+- Process supervision is not HWK and is not an OS sandbox. Its authority is the
+  attended user's local Pi authority, narrowed by explicit
+  executable/argv/cwd confirmation, a fixed credential-free environment,
+  bounded lifecycle, and complete process-group termination.
+
+Rejected alternatives:
+
+- “Port the upstream workflow extension”: rejected. A second engine would split
+  checkpoint, event, budget, journal, workspace, and objective-gate authority.
+- “Add Claude/Codex/Pi subagent backends”: rejected. It recreates fallback and
+  runtime-identity ambiguity already excluded by the exact Pi seam; existing
+  typed panels and pinned subworkflows cover bounded delegation.
+- “Install or download `rg`/`fd` on demand”: rejected. Hidden network and binary
+  provenance are not justified for a bounded literal search that Node can
+  implement directly.
+- “Add Firecrawl to Helix”: rejected. It creates a new credentialed egress path
+  outside the existing browser/search connector boundary and no-live policy.
+- “Generate summaries automatically”: rejected. It adds an unbudgeted model
+  turn and transcript-disclosure surface; deterministic structural completion
+  and watch output remain authoritative.
+- “Keep session records for convenience after session switch”: rejected.
+  Durable `/helix-runs` state owns cross-session history; carrying in-memory
+  controllers and tool identities across sessions creates stale authority.
+- “Let a late UI answer win because the user clicked it”: rejected. Once
+  cancellation wins, later interaction cannot authorize workflow routing or a
+  tool result.
+- “Trust enumeration size for the aggregate search cap”: rejected. The opened
+  descriptor owns the bytes actually read.
+
+## 2026-07-25 — Adversarial Pi interaction invariants
+
+- Session replacement is a close boundary even when no distinct shutdown event
+  arrived first. Old workflow and process supervisors must settle before fresh
+  session authority is installed; uncertain process-group cleanup preserves the
+  old supervisor, keeps process start closed, and leaves status/stop available
+  for remediation. The tool-call ledger rotates independently at the session
+  boundary; opaque intent tokens fence late prior-session settlement.
+- Tool-call ids are unique for the complete Pi session, not merely while a call
+  is in flight. Each intent also binds an opaque in-memory token, so a late
+  session-A result cannot settle a same-tool, same-id session-B intent after the
+  shared journal facade resets. The remembered-id ledger is capped at 4,096
+  calls per session; exhaustion refuses before another intent is persisted.
+- Native selection and confirmation are open concurrency boundaries. Run
+  control re-reads the selected record after the menu and interprets the actual
+  cancellation result after confirmation. A same-session workflow resume
+  reconciles the paused session record; durable run state remains authoritative
+  across sessions. Session replacement clears the old run-status projection,
+  and late resume settlement cannot write it back.
+- An active attended resume is owned by the same session run supervisor as its
+  original launch. Direct stop, control cancellation, context abort, and session
+  close reach that exact operation. Kernel-, effect-, and command-layer
+  cancellation failures all project as `cancelled`, never `failed`; a
+  contradictory successful pause/cancellation shape fails closed.
+
+Rejected alternatives:
+
+- “Admit symlink executables because `/bin/sh` is conventional”: rejected.
+  Process admission binds an exact regular executable, while Ubuntu exposes
+  `/bin/sh` as a symlink. Cross-platform tests must select a regular executable
+  present in the supported environment rather than weakening production path
+  identity.
+- “Assume Pi always emits shutdown before session start”: rejected. Cleanup
+  authority must remain correct under direct replacement and test harnesses
+  must exercise that sequence.
+- “Call ids only need to be unique while in flight”: rejected. Reuse makes the
+  append-only audit ambiguous and enables cross-session ABA settlement through
+  a mutable shared facade.
+- “The run selected by `/helix-control` cannot change while the UI is open”:
+  rejected. Background execution is the purpose of that surface; every awaited
+  interaction must treat its prior snapshot as stale.

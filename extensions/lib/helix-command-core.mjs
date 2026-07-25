@@ -37,6 +37,7 @@ import {
 } from "../../dispatch/lib/workflows.mjs";
 import {
   childInputSchemaAcceptsParent,
+  isWorkflowDefinitionDocument,
   normalizeWorkflowDefinition,
   WORKFLOW_LIMITS,
   workflowChildDefinitionArtifactName,
@@ -96,7 +97,7 @@ import {
   builtInWorkflows,
   resolveWorkflow,
   saveUserWorkflow,
-  saveUserWorkflowV4,
+  saveUserWorkflowDefinition,
   workflowCatalog,
 } from "./helix-workflows.mjs";
 
@@ -116,12 +117,14 @@ export const HELIX_USAGE = `Usage:
   /helix-runs
   /helix-run-status <run-id>
   /helix-run-watch <run-id>
+  /helix-control
+  /helix-run-stop <run-id>
   /helix-run-resume <run-id>
   /helix-run-prune <run-id>
   /helix-models
   /helix-chains
   /helix-workflows [list | show <id> | test <id>]
-  /helix-workflows import <repository-relative-v4.json>
+  /helix-workflows import <repository-relative-definition.json>
   /helix-workflow-create <id> [implement-review|plan-implement|tdd-fix] [gate-path] [gate-text] [max-iterations]
   /helix-workflow-edit [id]
   /helix-workflow-clone [id]
@@ -242,7 +245,7 @@ const REFUSAL_GUIDANCE = Object.freeze({
     next: "Inspect /helix-workflows show <id>, then fix the named stage or transition.",
   },
   "invalid-workflow-v4": {
-    reason: "The WorkflowDefinition v4 document is malformed or violates a closed workflow invariant.",
+    reason: "The WorkflowDefinition v4/v5 document is malformed or violates a closed workflow invariant.",
     next: "Run /helix-workflows test <id> for a saved workflow, or fix the reported import field and retry.",
   },
   "workflow-deployment-invalid": {
@@ -709,7 +712,7 @@ function preflightCastEfforts(cast, deps) {
 }
 
 function workflowBindingChildren(workflow, deps) {
-  if (workflow?.schema_version !== 4) return { ok: true, definitions: [] };
+  if (!isWorkflowDefinitionDocument(workflow)) return { ok: true, definitions: [] };
   const definitions = [];
   const seen = new Set();
   for (const node of Object.values(workflow.nodes)) {
@@ -789,7 +792,7 @@ function buildPreflight(
     }
   }
 
-  // Resolve the v4 workflow projection and complete pinned child closure so the
+  // Resolve the workflow-definition projection and complete pinned child closure so the
   // cast, provider inventory, and consent reflect what the kernel will run.
   const chainResult = workflowChain
     ? { ok: true, chain: workflowChain }
@@ -829,7 +832,7 @@ function buildPreflight(
   });
   if (!castResult.ok) return { ok: false, code: castResult.code, detail: castResult.detail, config, profile_applied: profileApplied };
   const effectiveCast = [...castResult.cast];
-  let requireLiveCertification = workflow?.schema_version === 4
+  let requireLiveCertification = isWorkflowDefinitionDocument(workflow)
     && workflow.provider_policy.require_live_certification === true;
   for (const child of bindingChildren.definitions) {
     const childExecution = workflowToExecution(child);
@@ -899,7 +902,7 @@ function buildPreflight(
     objective_gate_boundary: gatePreflight.sandbox_mode ?? "contained-file-read-v1",
     execution_binding_ref: executionBindingRef,
     runtime_limits: workflow
-      ? workflow.schema_version === 4
+      ? isWorkflowDefinitionDocument(workflow)
         ? { max_runtime_ms: workflow.limits.max_run_ms, call_timeout_ms: workflow.limits.max_call_ms }
         : { max_runtime_ms: workflow.stop.max_runtime_ms, call_timeout_ms: workflow.deployment.call_timeout_ms }
       : { max_runtime_ms: 10 * 60 * 1000, call_timeout_ms: 2 * 60 * 1000 },
@@ -1317,9 +1320,9 @@ function renderChains(deps) {
 }
 
 function workflowLines(workflow) {
-  if (workflow.schema_version === 4) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     const graph = plannedWorkflowGraph(workflow);
-    if (!graph.ok) return ["Invalid WorkflowDefinition v4"];
+    if (!graph.ok) return [`Invalid WorkflowDefinition v${workflow.schema_version}`];
     const nodeLines = graph.nodes.flatMap((node, index) => [
       `${index + 1}. ${node.id} (${node.kind})`,
       `   ${node.targets.length ? `next: ${node.targets.join(" | ")}` : `terminal: ${node.status}`}`,
@@ -1355,9 +1358,9 @@ function workflowLines(workflow) {
 }
 
 function workflowGraphLines(workflow, events = [], graphOptions = {}) {
-  if (workflow.schema_version === 4) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     const graph = observedWorkflowGraph(workflow, events, graphOptions);
-    if (!graph.ok) return ["Flow: invalid WorkflowDefinition v4"];
+    if (!graph.ok) return [`Flow: invalid WorkflowDefinition v${workflow.schema_version}`];
     const nodeLines = graph.nodes.map((node) => {
       const marker = node.status === "running" ? "●" : node.status === "pending" ? "○" : node.status === "ok" || node.status === "succeeded" ? "✓" : "!";
       const visits = node.visits > 0 ? ` · ${node.visits} visit${node.visits === 1 ? "" : "s"}` : "";
@@ -1416,10 +1419,10 @@ function workflowGraphLines(workflow, events = [], graphOptions = {}) {
 
 function structuralWorkflow(workflow) {
   const requiredHostEffects = workflowRequiredHostEffects(workflow);
-  if (workflow.schema_version === 4) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     const graph = plannedWorkflowGraph(workflow);
     return {
-      schema_version: 4,
+      schema_version: workflow.schema_version,
       id: workflow.id,
       name: workflow.name,
       source: workflow.source,
@@ -1465,7 +1468,7 @@ function structuralWorkflow(workflow) {
 }
 
 function workflowSummary(workflow) {
-  if (workflow.schema_version === 4) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     const graph = plannedWorkflowGraph(workflow);
     return `${workflow.id} [${workflow.source}] v${workflow.version}: ${graph.ok ? `${graph.nodes.length} nodes from ${graph.start}` : "invalid graph"} · max ${workflow.limits.max_total_effects} effects`;
   }
@@ -1473,7 +1476,7 @@ function workflowSummary(workflow) {
 }
 
 function workflowStopLines(workflow) {
-  if (workflow.schema_version === 4) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     return [
       `Stop: objective gate passes or max ${workflow.limits.max_total_effects} effects / ${workflow.limits.max_run_ms}ms`,
       `Provider call timeout: ${workflow.limits.max_call_ms}ms`,
@@ -1517,7 +1520,7 @@ function renderWorkflows(deps, tokens, ctx = {}) {
     if (!deployment.ok) return fail(deployment.code, deployment.detail ?? normalized.definition.id, "Helix workflow import refused");
     const mutationRefusal = authorizeMutation("workflow", ctx);
     if (mutationRefusal) return mutationRefusal;
-    const saved = saveUserWorkflowV4(deps.stateRoot, normalized.definition, {
+    const saved = saveUserWorkflowDefinition(deps.stateRoot, normalized.definition, {
       builtInIds: builtInWorkflows(deps.chainRegistry, deps.runRegistry).map((workflow) => workflow.id),
     });
     if (!saved.ok) return fail(saved.code, saved.detail, "Helix workflow import refused");
@@ -1609,7 +1612,7 @@ function renderWorkflows(deps, tokens, ctx = {}) {
       return fail("helix-model-inventory-unavailable", id, "Helix workflow deployment check failed");
     }
     const simulated = tested.simulation;
-    const nativeV4 = resolved.workflow.schema_version === 4;
+    const nativeDefinition = isWorkflowDefinitionDocument(resolved.workflow);
     return result({
       title: "Helix workflow checks passed",
       lines: [
@@ -1618,10 +1621,10 @@ function renderWorkflows(deps, tokens, ctx = {}) {
         "Deployment: cast, providers, objective-check executable, and environment resolved",
         "Runtime effects: not executed (run the workflow for task-specific proof)",
         "Provider calls: 0",
-        nativeV4
+        nativeDefinition
           ? `Transitions structurally validated: ${tested.transitions_validated}/${tested.transitions_total}`
           : `Transitions behavior-tested: ${tested.transitions_tested}/${tested.transitions_total}`,
-        nativeV4
+        nativeDefinition
           ? `Node ceilings structurally validated: ${tested.ceilings_validated}`
           : `Stage ceilings behavior-tested: ${tested.ceilings_tested}`,
         `Durable outputs declared: ${tested.artifacts_declared}`,
@@ -1633,7 +1636,7 @@ function renderWorkflows(deps, tokens, ctx = {}) {
       details: {
         workflow_id: id,
         provider_calls: 0,
-        ...(nativeV4
+        ...(nativeDefinition
           ? { transitions_validated: tested.transitions_validated, ceilings_validated: tested.ceilings_validated }
           : { transitions_tested: tested.transitions_tested, ceilings_tested: tested.ceilings_tested }),
         transitions_total: tested.transitions_total,
@@ -2560,7 +2563,7 @@ export function getHelixArgumentCompletions(argumentPrefix = "", options = {}) {
       { value: "workflows show ", label: "show", description: "Inspect stages and transitions" },
       { value: "workflows test ", label: "test", description: "Simulate without provider calls" },
       { value: "workflows create ", label: "create", description: "Create a workflow from a guided template" },
-      { value: "workflows import ", label: "import", description: "Validate and deploy a WorkflowDefinition v4 JSON file" },
+      { value: "workflows import ", label: "import", description: "Validate and deploy a WorkflowDefinition v4/v5 JSON file" },
     ].filter((item) => item.value.slice("workflows ".length).startsWith(query));
   }
   return null;

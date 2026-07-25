@@ -1660,3 +1660,215 @@ passes 919/919 plus worktree 12/12 and objective loop 8/8. Resources,
 documentation truth, repository policy, static no-live-egress, public-safety
 diff, and `git diff --check` pass. A fresh exact-head review and remote matrix
 remain required.
+
+## 2026-07-25 — Pi control-plane feature audit and clean closure
+
+The implementation comparison used upstream
+`davis7dotsh/my-pi-setup@2657bae6e054a2817e4483f6cdce8ab9c9eafcfd`
+and the current Helix tree. The selection criterion was not feature parity:
+include a capability only when it removes a frequent user/tool bottleneck
+without introducing a second execution engine, ambient provider call,
+unbounded effect, hidden installer, or weaker identity/persistence boundary.
+
+Included and independently implemented:
+
+- fail-closed model-callable `answer`, with ranked choices, optional bounded
+  custom input, hash-only turn journaling, and no noninteractive/default
+  selection;
+- session-scoped background execution for the existing one HWK through
+  `/helix-control` and `/helix-run-stop`, with durable run state remaining the
+  cross-session authority;
+- WorkflowDefinition v5 `human-choice`, directly compatible with unchanged v4
+  admission, durable parent/child pause/resume identity, private custom text,
+  structural events, graph-mode parity, and graph-fragment composition;
+- bounded dependency-free literal file search with structured
+  path/line/column/preview results; and
+- attended argv-only process supervision with a minimal credential-free
+  environment, complete process-group lifecycle, bounded
+  output/runtime/concurrency/records, and session cleanup.
+
+Explicitly excluded:
+
+- Firecrawl or another network-search credential/egress path: browser/search
+  connectors already own that outer capability, while Helix's no-live policy
+  must remain closed;
+- the upstream workflow runner: Helix already has one durable typed kernel, so
+  a second runner would split resume, budget, journal, gate, and worktree
+  authority;
+- Claude/Codex/Pi subagent backend multiplexing: Helix already models bounded
+  agent, pipeline, parallel, map, and pinned-child work through its exact Pi
+  seam, and backend fallback is forbidden;
+- automatic model summaries: they add an unbudgeted provider turn and raw
+  transcript surface where Helix already exposes deterministic structural
+  status/watch output;
+- self-downloading `rg`/`fd`, global theme/status-bar takeover, transcript-copy
+  helpers, and duplicate model/git dashboards: these add hidden network or
+  ambient UI state without enough value over the bounded native search and
+  existing Pi/Helix surfaces.
+
+Audit Round 1 returned **HOLD — C0/H0/M5/L0**:
+
+1. nested subworkflow human choices were not discoverable by the resume UI;
+2. durable pauses rendered as failed in session control;
+3. concurrent process timeout/stop/shutdown could replace the first causal
+   stop reason;
+4. run completion delivery could race session shutdown; and
+5. file-search schema and implementation disagreed on the extension-count
+   limit.
+
+Those findings were closed with pinned child-definition discovery and exact
+child run namespaces, explicit `paused` control state, coalesced first-causal
+process termination, shutdown delivery suppression, one 16-entry schema/runtime
+limit, and cancellation/deadline arbitration after both human-choice
+checkpoints.
+
+Audit Round 2 returned **HOLD — C0/H0/M4/L0**:
+
+1. run/process supervisors and tool-turn inflight identity could survive a Pi
+   session switch;
+2. a late native UI selection could settle after cancellation;
+3. public graph-fragment composition did not rewrite v5 human-choice targets;
+   and
+4. file-search aggregate bytes trusted a directory-enumeration stat rather
+   than the opened descriptor.
+
+Those findings were closed with per-session supervisor/journal generations,
+confirmation/shutdown race refusal, post-interaction cancellation checks,
+complete choice/custom target composition, and descriptor-time aggregate byte
+admission.
+
+Audit Round 3 rechecked security/containment, session and process lifecycle,
+durable parent/child resume identity, public-event privacy, boundedness,
+keyboard/native UI behavior, narrow rendering, theming, package contents, and
+added-line anti-patterns. No finding remained. Scores:
+
+| Area | Score | Evidence |
+|---|---:|---|
+| Accessibility | 4/4 | Native select/input/confirm controls, textual status alongside glyphs, cancellation paths |
+| Performance | 4/4 | Four-run/eight-process caps, bounded records/output/search bytes, background HWK |
+| Theming | 4/4 | Existing Pi theme tokens and native controls; no global theme override |
+| Responsive terminal UI | 4/4 | Existing width-aware renderer plus narrow-width regression |
+| Anti-patterns | 4/4 | No second engine, hidden download, provider fallback, ambient credential inheritance, or raw tool journal |
+
+Final verdict: **SHIP — C0/H0/M0/L0**.
+
+Final exact-tree verification:
+
+- focused remediation suite: 57/57;
+- `npm test`: 884/884 primary, 72/72 graph-mode kernel, worktree 12/12,
+  objective loop 8/8;
+- workflow conformance: 183/183 primary plus 72/72 graph-mode kernel;
+- provider contracts: 35/35;
+- extracted package: 106 files, Pi RPC pass, shipped default session factory
+  pass;
+- runtime RPC: all 22 Helix commands discovered from isolated offline state;
+- active Docker no-egress: 5/5, including the localhost mock-provider Pi
+  session;
+- docs truth, package resources, repository policy, static no-live-egress,
+  public-safety diff, and `git diff --check`: pass.
+
+The live-provider certification gate was not run because it requires explicit
+out-of-band approval; no provider code, route, model, account, or live
+attestation behavior changed in this scope.
+
+## 2026-07-25 — Adversarial command/tool interaction audit and clean closure
+
+This follow-up attacked the complete shipped Pi control plane as one loaded
+package: all 22 commands and five model-callable tools, direct session
+replacement without a preceding shutdown, repeated tool-call ids, late native
+UI results, process groups, paused and resumed workflows, cancellation,
+concurrent control menus, and command/tool chaining through generated files.
+
+Audit Round 4 returned **HOLD — C0/H0/M10/L0**:
+
+1. a completed tool-call id could be replayed, and a late prior-session result
+   could settle a reused same-id intent through the shared journal facade;
+2. an answer selected after shutdown or session replacement retained authority;
+3. direct session replacement did not perform the process supervisor's complete
+   shutdown boundary;
+4. direct session replacement did not abort and await active workflow resumes;
+5. process-session shutdown terminated active groups serially;
+6. `/helix-control` acted on selection-time state and reported cancellation
+   without interpreting the post-confirmation result;
+7. a same-session resumed pause did not reconcile its control record, while a
+   late resume could restore stale prior-session status UI;
+8. the lifetime tool-call replay ledger had no session cardinality ceiling;
+9. `/helix-run-stop` treated an actively executing attended resume as an
+   already-closed pause; and
+10. kernel/effect cancellation and contradictory successful
+    pause/cancellation shapes could disagree between control state and the
+    completion renderer.
+
+The corrections make tool-call ids one-use in a 4,096-entry session ledger and
+bind settlement to an opaque per-intent token; revoke late answer authority;
+treat session start as a full close boundary; terminate process groups
+concurrently; re-read run state after every open UI boundary; clear stale
+status on session replacement; admit attended resume through the same run
+supervisor as launch; and fail closed on contradictory terminal shapes.
+
+Audit Round 5 repeated the production diff, added-line anti-pattern scan,
+session and UI generation boundaries, run/process capacity boundaries,
+command/result classification, documentation truth, package contents, and
+active no-egress boundary. No material finding remained.
+
+Final verdict: **SHIP — C0/H0/M0/L0**.
+
+Final exact-tree verification:
+
+- focused command/tool/process/run remediation suite: 64/64;
+- repeated race and interaction stress: 365/365;
+- `npm test`: 898/898 primary, 72/72 graph-mode kernel, worktree 12/12,
+  objective loop 8/8;
+- provider contracts: 35/35;
+- extracted package: 106 files, Pi RPC pass, shipped default session factory
+  pass;
+- runtime RPC: all 22 Helix commands discovered from isolated offline state;
+- active Docker no-egress: 5/5, including the localhost mock-provider Pi
+  session;
+- docs truth, package resources, repository policy, static no-live-egress,
+  public-safety diff, and `git diff --check`: pass.
+
+The live-provider certification gate was not run because it requires explicit
+out-of-band approval; this follow-up changes no provider, route, model, account,
+or live attestation behavior.
+
+## 2026-07-25 — PR #19 Linux executable-fixture closure
+
+Exact head `dabc6815bf5ad7f164df1ac87935b70bc17f6546` failed the four
+Node/Pi matrix combinations in the same three process-start tests. All three
+fixtures selected `/bin/sh`; Ubuntu 24.04 exposes that path as a symlink, so
+Helix correctly refused it before spawn under the exact-regular-executable
+admission contract.
+
+The fixtures now select `/bin/bash`, which is a regular executable on both the
+local macOS host and an exact Ubuntu 24.04 container. Production admission is
+unchanged. The detached-descendant Linux reproduction passed with an init
+reaper; running Node as container PID 1 intentionally remained unable to
+confirm closure because the killed descendant could not be reaped.
+
+The closure review rechecked the production diff, all remaining process
+fixtures, exact Ubuntu path types, the complete test and workflow kernels,
+provider contracts, extracted-package runtime, command discovery, static
+policy, and active no-egress boundary.
+
+Final verdict: **SHIP — C0/H0/M0/L0**.
+
+Final exact-tree verification:
+
+- focused local process/command/tool chain: 14/14;
+- focused Linux process/command/tool chain with init: 14/14;
+- `npm test`: 898/898 primary, 72/72 graph-mode kernel, worktree 12/12,
+  objective loop 8/8;
+- workflow conformance: 183/183 primary plus 72/72 graph-mode kernel;
+- provider contracts: 35/35;
+- extracted package: 106 files, Pi RPC pass, shipped default session factory
+  pass;
+- runtime RPC: all 22 Helix commands discovered from isolated offline state;
+- active Docker no-egress: 5/5, including the localhost mock-provider Pi
+  session; and
+- docs truth, package resources, repository policy, static no-live-egress,
+  public-safety diff, deterministic smokes, and `git diff --check`: pass.
+
+The live-provider certification gate was not run because it requires explicit
+out-of-band approval; this fixture-only correction changes no provider, route,
+model, account, or live attestation behavior.

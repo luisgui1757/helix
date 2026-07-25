@@ -1,11 +1,13 @@
-# WorkflowDefinition v4 guide
+# WorkflowDefinition v5 guide
 
-Helix runs one closed intermediate representation: WorkflowDefinition v4. The
+Helix runs one closed intermediate-representation family: WorkflowDefinition
+v4/v5. The
 guided builder and kernel-compatible legacy personal definitions are
 compatibility inputs that normalize before hashing, consent, persistence, and
 execution; host-only legacy steps refuse rather than being dropped. JSON import
-and the programmatic builder produce v4 directly. User programs generate data;
-Helix never executes them as workflow code.
+admits either version, while the programmatic builder produces v5 directly.
+V4 stays byte/hash compatible and cannot author v5-only human choices. User
+programs generate data; Helix never executes them as workflow code.
 
 ## Fast path
 
@@ -23,9 +25,9 @@ you need parallel, map/reduce, checkpoint, or subworkflow nodes.
 
 ## Required document
 
-A v4 definition has exactly these top-level fields and no unknown fields:
+A v5 definition has exactly these top-level fields and no unknown fields:
 
-- `schema_version: 4`, safe `id`, display `name`, `description`, positive
+- `schema_version: 5`, safe `id`, display `name`, `description`, positive
   `version`, and `source` (`user` or `built-in`);
 - a closed `inputs` JSON schema, `start`, and keyed `nodes` object;
 - explicit `limits`, `provider_policy`, `workspace_policy`, and
@@ -38,9 +40,13 @@ reachable non-terminal must be able to reach it. The final gate has no local
 targets, unreachable nodes, recursive/nested-depth-two subworkflows, and
 unbounded cycles refuse.
 
+V4 has the same top-level contract and remains directly admitted. Its node set
+does not include `human-choice`; changing a v4 document to v5 without satisfying
+the v5 node contract refuses rather than migrating or rewriting it.
+
 ## Graph interpretation and execution modes
 
-WorkflowDefinition v4 already is the definition graph. Helix compiles admitted
+WorkflowDefinition v4/v5 already is the definition graph. Helix compiles admitted
 definitions into a canonical graph with locale-independent Unicode code-unit
 node-id order and authored-order outgoing edges. Stable edge ids encode the source and authored
 port: `node:next`, `node:condition:<index>`, `node:default`, `node:pass`,
@@ -217,6 +223,7 @@ boundaries.
 | Gate marker / command / arguments | — | 256 chars / 128 chars / 32 × 256 chars |
 | Gate timeout | — | 10 minutes |
 | Reduce separator / checkpoint reason | — | 32 / 128 characters |
+| Human question / option label / choices / response | — | 1,024 / 128 characters / 16 choices / 4,096 characters |
 | Structured repair | 2 declared | 2 |
 | Scheduler payload / private checkpoint document | — | 15 MiB / 16 MiB |
 | Effect journal | — | 8 MiB, identical write/read ceiling |
@@ -327,10 +334,11 @@ parent/direct-child deployment before asking for mutation confirmation:
 ```
 
 The builder also exports non-final `gate`, plus `parallel`, `map`, `reduce`,
-`checkpoint`, and `subworkflow`. Pure graph construction helpers include
+`humanChoice`, `checkpoint`, and `subworkflow`. Pure graph construction helpers include
 `fragment`, `sequence`, `conditional`, `evaluatorOptimizerLoop`,
 `fanOutReduce`, and `composeFragments`. They namespace and rewrite supported
-control targets and local output pointers, and refuse collisions, unknown
+control targets—including every option and custom target on a `humanChoice`—
+and local output pointers, and refuse collisions, unknown
 ports, dangling targets/pointers, accessors, proxies, cycles, excessive depth,
 executable values, and size limits without invoking author input. Proxy inputs
 are detected before reflection, and canonical UTF-8 input is admitted only
@@ -386,11 +394,23 @@ every normalized parent input; incompatible closed schemas refuse before
 import, consent, or run creation. Gate-only parents and parents whose model
 work exists only in a child are valid deployments.
 
+### Human choice
+
+V5 `humanChoice(question, choices, options)` authors one durable attended
+decision. Each ordered choice has a stable id, display label, and explicit
+target. `allow_custom: true` additionally requires `custom_target`; custom text
+is bounded to 4,096 characters. Entering the node checkpoints an exact
+run/definition/node/visit/question/choices identity and returns paused without
+routing. `/helix-run-resume` prompts only for that exact in-flight boundary,
+checkpoints the selected option or custom text before routing, and reuses a
+settled result after later interruption. Public events expose `option:<id>` or
+`custom`, never custom text. V4 rejects this node kind.
+
 Journal-ahead in-flight results retain their exact node, instance, base
 invocation, and mutation bindings. Moving a result identity between parallel or
 map members refuses before any continuation call.
 
-The 256 KiB definition ceiling applies to canonical JSON. Helix saves v4 files
+The 256 KiB definition ceiling applies to canonical JSON. Helix saves v4/v5 files
 in that canonical form plus one trailing newline. Readers allow a separate
 bounded 512 KiB transport envelope so historical or imported pretty-printed
 JSON can be parsed and then checked against the canonical limit. Run copies,
@@ -465,8 +485,8 @@ evidence.
 
 `/helix-workflows test` proves the closed definition, reachability, targets,
 bounds, cast resolution, and objective-gate availability with zero provider
-calls. It reports v4 edges as structurally validated, never as executed. The
-optional smoke normalizes to v4 and executes the same deterministic path in
+calls. It reports definition edges as structurally validated, never as executed. The
+optional smoke normalizes to the admitted v4/v5 definition and executes the same deterministic path in
 both execution modes through the real Workflow Kernel from independent
 identical disposable worktrees. Complete normalized result, output, visit,
 budget, ordered trace, journal-structure, and final-workspace drift refuses;

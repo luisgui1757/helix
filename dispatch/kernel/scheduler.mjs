@@ -1,4 +1,4 @@
-// Helix Workflow Kernel scheduler. It interprets only validated v4 nodes,
+// Helix Workflow Kernel scheduler. It interprets only validated v4/v5 nodes,
 // delegates model/provider and workspace effects, and emits structural events.
 
 import { createBudgetLedger, createScopedBudgetLedger } from "./budgets.mjs";
@@ -17,6 +17,7 @@ import {
   DEFAULT_WORKFLOW_EXECUTION_MODE,
   routeWorkflowDecision,
   routeWorkflowGate,
+  routeWorkflowHumanChoice,
   routeWorkflowNext,
   validateWorkflowExecutionMode,
 } from "../workflow/graph.mjs";
@@ -51,6 +52,32 @@ function freezeTree(value, seen = new Set()) {
 
 function safeCode(value, fallback) {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value) && value.length <= 160 ? value : fallback;
+}
+
+function normalizedHumanChoice(value, node, { runId, nodeId, visit }) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)
+    || value.run_id !== runId || value.node_id !== nodeId || value.visit !== visit) return null;
+  const result = { ...value };
+  delete result.run_id;
+  delete result.node_id;
+  delete result.visit;
+  return normalizedStoredHumanChoice(result, node);
+}
+
+function normalizedStoredHumanChoice(value, node) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value.kind === "option" && Object.keys(value).length === 2
+    && node.choices.some((choice) => choice.id === value.option_id)) {
+    return { kind: "option", option_id: value.option_id };
+  }
+  if (value.kind === "custom" && Object.keys(value).length === 2
+    && node.allow_custom === true
+    && typeof value.text === "string"
+    && value.text.trim() !== ""
+    && value.text.length <= WORKFLOW_LIMITS.max_human_response_length) {
+    return { kind: "custom", text: value.text };
+  }
+  return null;
 }
 
 export function bindWorkflowKernelRuntimeRef(runtimeRef, executionMode = DEFAULT_WORKFLOW_EXECUTION_MODE) {
@@ -380,12 +407,24 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
       const boundaryObjective = boundaryNode?.kind === "gate"
         ? boundaryNode.final === true ? definition.objective_gate : boundaryNode.gate
         : null;
-      const expectedBoundaryIdentity = boundaryObjective == null ? null : tryJournalRef({
-        kind: "gate", run_id: runId, definition_ref: definitionRef,
-        node_id: resume.active.node_id, visit: resume.active.visit, objective: boundaryObjective,
-      });
-      if (resume.active.boundary.kind !== "gate"
-        || resume.active.boundary.identity !== expectedBoundaryIdentity) {
+      const expectedBoundaryIdentity = boundaryNode?.kind === "human-choice"
+        ? tryJournalRef({
+          kind: "human-choice", run_id: runId, definition_ref: definitionRef,
+          node_id: resume.active.node_id, visit: resume.active.visit,
+          question: boundaryNode.question, choices: boundaryNode.choices,
+          allow_custom: boundaryNode.allow_custom,
+          ...(boundaryNode.allow_custom ? { custom_target: boundaryNode.custom_target } : {}),
+        })
+        : boundaryObjective == null ? null : tryJournalRef({
+          kind: "gate", run_id: runId, definition_ref: definitionRef,
+          node_id: resume.active.node_id, visit: resume.active.visit, objective: boundaryObjective,
+        });
+      if (!["gate", "human-choice"].includes(resume.active.boundary.kind)
+        || resume.active.boundary.kind !== boundaryNode?.kind
+        || resume.active.boundary.identity !== expectedBoundaryIdentity
+        || (resume.active.boundary.kind === "human-choice"
+          && resume.active.boundary.status === "settled"
+          && normalizedStoredHumanChoice(resume.active.boundary.result, boundaryNode) == null)) {
         return { ok: false, status: "refused", code: "kernel-checkpoint-boundary-invalid" };
       }
     }
@@ -1614,6 +1653,101 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
           next = routed.target;
           transitionEdge = routed.edge;
         } else next = !pass && deps.loops === false && node.loops_off ? node.loops_off : (pass ? node.on_pass : node.on_fail);
+      } else if (node.kind === "human-choice") {
+        const boundaryIdentity = tryJournalRef({
+          kind: "human-choice", run_id: runId, definition_ref: definitionRef,
+          node_id: current, visit: visits[current],
+          question: node.question, choices: node.choices,
+          allow_custom: node.allow_custom,
+          ...(node.allow_custom ? { custom_target: node.custom_target } : {}),
+        });
+        if (boundaryIdentity == null) {
+          return { ok: false, status: "failed", code: "kernel-human-choice-invalid", events, outputs, budget: budget.snapshot() };
+        }
+        if (active.boundary != null
+          && (active.boundary.kind !== "human-choice" || active.boundary.identity !== boundaryIdentity)) {
+          return { ok: false, status: "refused", code: "kernel-checkpoint-boundary-invalid", events, outputs, budget: budget.snapshot() };
+        }
+        if (active.boundary == null) {
+          active.boundary = { kind: "human-choice", identity: boundaryIdentity, status: "inflight" };
+          const opened = await checkpoint();
+          if (!opened.ok) {
+            delete active.boundary;
+            return { ok: false, status: "failed", code: opened.code, events, outputs, budget: budget.snapshot() };
+          }
+          const interrupted = arbitrateInterruption();
+          if (interrupted) {
+            return { ok: false, ...interrupted, events, outputs, budget: budget.snapshot() };
+          }
+          return {
+            ok: false,
+            status: "paused",
+            code: "kernel-human-choice-required",
+            node_id: current,
+            events,
+            outputs,
+            budget: budget.snapshot(),
+          };
+        }
+        let choice;
+        if (active.boundary.status === "settled") {
+          choice = normalizedStoredHumanChoice(active.boundary.result, node);
+          if (choice == null) {
+            return { ok: false, status: "refused", code: "kernel-checkpoint-boundary-invalid", events, outputs, budget: budget.snapshot() };
+          }
+        } else {
+          choice = normalizedHumanChoice(deps.human_choice, node, {
+            runId,
+            nodeId: current,
+            visit: visits[current],
+          });
+          if (choice == null) {
+            return {
+              ok: false,
+              status: "paused",
+              code: "kernel-human-choice-required",
+              node_id: current,
+              events,
+              outputs,
+              budget: budget.snapshot(),
+            };
+          }
+          active.boundary = {
+            kind: "human-choice",
+            identity: boundaryIdentity,
+            status: "settled",
+            result: structuredClone(choice),
+          };
+          const settledChoice = await checkpoint();
+          if (!settledChoice.ok) {
+            return { ok: false, status: "failed", code: settledChoice.code, events, outputs, budget: budget.snapshot() };
+          }
+          const interrupted = arbitrateInterruption();
+          if (interrupted) {
+            return { ok: false, ...interrupted, events, outputs, budget: budget.snapshot() };
+          }
+        }
+        if (!storeOutput(current, choice)) {
+          return { ok: false, status: "failed", code: "kernel-output-capacity-exceeded", events, outputs, budget: budget.snapshot() };
+        }
+        const selection = choice.kind === "custom" ? "custom" : `option:${choice.option_id}`;
+        if (!emit("human-choice", { node_id: current, selection })) {
+          const interrupted = interruption();
+          return { ok: false, ...interrupted, events, outputs, budget: budget.snapshot() };
+        }
+        if (executionMode === "graph-mode") {
+          const routed = routeWorkflowHumanChoice(workflowGraph, current, choice);
+          if (!routed.ok) return { ok: false, status: routed.status, code: routed.code, events, outputs, budget: budget.snapshot() };
+          next = routed.target;
+          transitionEdge = routed.edge;
+        } else {
+          next = choice.kind === "custom"
+            ? node.custom_target
+            : node.choices.find((candidate) => candidate.id === choice.option_id)?.target;
+        }
+        if (typeof next !== "string") {
+          return { ok: false, status: "refused", code: "kernel-human-choice-invalid", events, outputs, budget: budget.snapshot() };
+        }
       } else if (node.kind === "checkpoint") {
         let result;
         try {
@@ -1719,6 +1853,7 @@ export async function runWorkflowKernel(definition, input, deps = {}) {
             ...(event.status ? { child_status: event.status } : {}),
             ...(event.code ? { child_code: event.code } : {}),
             ...(event.failure_class ? { child_failure_class: event.failure_class } : {}),
+            ...(event.selection ? { child_selection: event.selection } : {}),
             })) throw new Error("kernel-event-write-failed");
           },
         }) : null;

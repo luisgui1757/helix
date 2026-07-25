@@ -1761,3 +1761,82 @@ Exact all-scope Review 26 session
 only material branch finding and returned **HOLD — C0/H0/M1/L0** on commit
 `00d4a4e`. Its prescribed root-and-file `realpath` repair is the correction
 above. A fresh exact-head review remains mandatory alongside the matrix.
+
+## 2026-07-25 — Canonical Pi control-plane extensions
+
+Status: **DONE — implementation and three-round audit complete at
+C0/H0/M0/L0**.
+
+Delivered on top of the one workflow kernel:
+
+- fail-closed ranked `answer` with optional bounded custom input;
+- session background workflow registration, `/helix-control`, and
+  `/helix-run-stop`;
+- WorkflowDefinition v5 durable `human-choice`, with direct v4 compatibility,
+  graph-mode parity, pinned-child resume, and fragment composition;
+- dependency-free bounded `helix_file_search`;
+- attended session-scoped `helix_process_start/status/stop`; and
+- hash-only Pi-session tool-turn intent/result journaling.
+
+The onboarding tour, README, manual, workflow guide, architecture, AGENTS
+invariants, package/resource checks, Pi discovery smoke, unit tests, product
+E2E tests, and append-only workflow review ledgers are synchronized.
+
+Not included: a second workflow engine, Firecrawl or credentialed search,
+Claude/Codex/Pi backend multiplexing, automatic model summaries, hidden binary
+downloads, global theme/status takeover, or duplicate git/model dashboards.
+The first-principles rationale and rejected alternatives are recorded in
+`reviews/workflows/ASSUMPTIONS.md`; the complete audit evidence is in
+`reviews/workflows/SUMMARY.md`.
+
+Final verification:
+
+- `npm test`: 884 primary + 72 graph kernel + 12 worktree + 8 loop;
+- workflow conformance: 183 primary + 72 graph kernel;
+- provider contracts: 35;
+- package: 106 files, Pi RPC and shipped default factory pass;
+- active Docker no-egress: 5/5;
+- runtime Pi discovery: 22/22 commands;
+- resources, docs truth, repository policy, static no-live-egress,
+  public-safety diff, and diff whitespace: pass.
+
+Live-provider certification remains intentionally not run because that separate
+gate requires explicit approval and this delivery changes no provider path.
+
+## 2026-07-25 — Adversarial Pi interaction hardening
+
+Status: **DONE — five-round feature/review loop closed at C0/H0/M0/L0**.
+
+The final pass loaded the complete shipped extension set and exercised human
+and agent chains across answer, file search, attended process start/status/stop,
+help/control/status/watch/stop/resume commands, direct session replacement,
+late UI settlement, process-group interruption, tool-id replay, paused durable
+workflows, active resume cancellation, and contradictory terminal results.
+
+Closed gaps:
+
+- one-use, token-bound, 4,096-call session tool journals;
+- session-bound answers and direct replacement cleanup;
+- concurrent complete process-group shutdown;
+- post-selection/post-confirmation run-state revalidation;
+- fresh-session status clearing and late-delivery suppression;
+- active resume ownership by the session run supervisor, including direct stop,
+  control, context abort, and shutdown; and
+- consistent fail-closed pause/cancellation classification.
+
+Verification: 64/64 focused, 365/365 repeated stress, 898/898 primary,
+72/72 graph kernel, 12/12 worktree, 8/8 objective loop, 35/35 provider
+contracts, 106-file extracted package with real Pi RPC/default-factory proof,
+22/22 runtime command discovery, and 5/5 active Docker no-egress.
+
+## 2026-07-25 — PR #19 Linux executable-fixture portability
+
+Status: **DONE — fail-closed product contract preserved; exact-tree review
+C0/H0/M0/L0**.
+
+The three process-start tests that selected Ubuntu's symlinked `/bin/sh` now
+select the regular `/bin/bash`. Exact Ubuntu 24.04 path-type inspection, focused
+local and Linux execution, the complete test and workflow kernels, packaging,
+runtime discovery, policy checks, and active no-egress smoke all pass.
+
+The replacement exact-head `test` check remains mandatory before merge.

@@ -19,7 +19,7 @@ function write(root, rel, text) {
 function fixtureRoot() {
   const root = mkdtempSync(join(tmpdir(), "helix-docs-truth-"));
   write(root, "package.json", JSON.stringify({
-    pi: { extensions: ["a", "b", "c"] },
+    pi: { extensions: ["a", "b", "c", "d"] },
     peerDependencies: { "@earendil-works/pi-coding-agent": ">=0.80.7 <0.81.0" },
   }));
   write(root, "README.md", [
@@ -30,7 +30,7 @@ function fixtureRoot() {
     "/helix-onboarding",
     "/helix-settings",
     "~/.pi/agent/helix",
-    "WorkflowDefinition v4",
+    "WorkflowDefinition v5",
     "/helix-run-resume",
     "",
   ].join("\n"));
@@ -73,7 +73,7 @@ test("docs truth rejects a skill or theme package surface", () => {
   const root = fixtureRoot();
   try {
     write(root, "package.json", JSON.stringify({
-      pi: { extensions: ["a", "b", "c"], skills: ["skill"], themes: ["theme"] },
+      pi: { extensions: ["a", "b", "c", "d"], skills: ["skill"], themes: ["theme"] },
       peerDependencies: { "@earendil-works/pi-coding-agent": ">=0.80.7 <0.81.0" },
     }));
     const result = checkDocsTruth(root);

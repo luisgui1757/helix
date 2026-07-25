@@ -35,7 +35,8 @@ export const ONBOARDING_PAGES = Object.freeze([
   Object.freeze({
     title: "Run and inspect",
     body: Object.freeze([
-      "Use /helix-run to preflight a workflow. Inspect progress with /helix-runs and /helix-run-watch.",
+      "Use /helix-run to preflight and start a background workflow. Open /helix-control to inspect or cancel session runs.",
+      "Durable human choices pause safely and resume through /helix-run-resume. Use /helix-run-watch for persisted progress.",
       "Open /helix-help for the full command map. Rerun this tour any time with /helix-onboarding.",
     ]),
   }),

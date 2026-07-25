@@ -8,6 +8,7 @@ const errors = [];
 const expectedExtensions = [
   "./extensions/helix-fence.ts",
   "./extensions/helix-answer.ts",
+  "./extensions/helix-tools.ts",
   "./extensions/helix-command.ts",
 ];
 const expectedPackageFiles = [
@@ -77,7 +78,7 @@ function checkPackage() {
   if (pkg.type !== "module") fail("package.json: type must be module");
   if (pkg.engines?.node !== ">=22.19.0") fail("package.json: Node engine must match Pi's supported floor");
   if (!sameArray(pkg.pi?.extensions, expectedExtensions)) {
-    fail("package.json: pi.extensions drifted from the three Helix extensions");
+    fail("package.json: pi.extensions drifted from the four Helix extensions");
   }
   if (pkg.pi?.skills !== undefined || pkg.pi?.themes !== undefined) {
     fail("package.json: Helix must ship as native extensions, not as a skill or theme");

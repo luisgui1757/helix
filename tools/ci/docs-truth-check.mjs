@@ -16,6 +16,8 @@ export const HELIX_COMMANDS = Object.freeze([
   "/helix-runs",
   "/helix-run-status",
   "/helix-run-watch",
+  "/helix-control",
+  "/helix-run-stop",
   "/helix-run-resume",
   "/helix-run-prune",
   "/helix-models",
@@ -58,6 +60,7 @@ export const DOCS_WORKFLOW_LIMIT_ROWS = Object.freeze([
   `| Gate marker / command / arguments | — | ${count(WORKFLOW_LIMITS.max_gate_marker_length)} chars / ${count(WORKFLOW_LIMITS.max_gate_command_length)} chars / ${count(WORKFLOW_LIMITS.max_gate_args)} × ${count(WORKFLOW_LIMITS.max_gate_arg_length)} chars |`,
   `| Gate timeout | — | ${WORKFLOW_LIMITS.max_gate_timeout_ms / 60 / 1000} minutes |`,
   `| Reduce separator / checkpoint reason | — | ${count(WORKFLOW_LIMITS.max_reduce_separator_length)} / ${count(WORKFLOW_LIMITS.max_checkpoint_reason_length)} characters |`,
+  `| Human question / option label / choices / response | — | ${count(WORKFLOW_LIMITS.max_human_question_length)} / ${count(WORKFLOW_LIMITS.max_human_choice_label_length)} characters / ${count(WORKFLOW_LIMITS.max_human_choices)} choices / ${count(WORKFLOW_LIMITS.max_human_response_length)} characters |`,
   `| Structured repair | 2 declared | ${count(WORKFLOW_LIMITS.max_structured_repair_attempts)} |`,
 ]);
 export const DOCS_WORKSPACE_LIMIT_SNIPPETS = Object.freeze([
@@ -109,7 +112,7 @@ export function checkDocsTruth(root = ROOT) {
     "/helix-onboarding",
     "/helix-settings",
     "~/.pi/agent/helix",
-    "WorkflowDefinition v4",
+    "WorkflowDefinition v5",
     "/helix-run-resume",
   ]) requireSnippet(errors, readme, "README.md", snippet);
 
@@ -127,8 +130,8 @@ export function checkDocsTruth(root = ROOT) {
   if (pkg.pi?.skills !== undefined || pkg.pi?.themes !== undefined) {
     errors.push("package.json: docs contract requires an extension-only Pi package");
   }
-  if ((pkg.pi?.extensions ?? []).length !== 3) {
-    errors.push("package.json: docs contract requires exactly three Pi extensions");
+  if ((pkg.pi?.extensions ?? []).length !== 4) {
+    errors.push("package.json: docs contract requires exactly four Pi extensions");
   }
   if (pkg.peerDependencies?.["@earendil-works/pi-coding-agent"] !== ">=0.80.7 <0.81.0") {
     errors.push("package.json: documented Pi runtime range drifted");
