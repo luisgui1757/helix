@@ -3,10 +3,10 @@
 Helix has one product workflow engine: the Helix Workflow Kernel (HWK).
 
 ```text
-guided UI / v1 compatibility / v4 JSON / pure builder
+guided UI / v1 compatibility / v4-v5 JSON / pure builder
                          |
                          v
-             WorkflowDefinition v4 validator
+           WorkflowDefinition v4/v5 validator
                          |
                          v
  canonical typed graph compiler + selected transition resolver
@@ -19,8 +19,11 @@ guided UI / v1 compatibility / v4 JSON / pure builder
            deterministic final objective gate
 ```
 
-`extensions/helix-command.ts` owns Pi UI, onboarding, attended consent, and
-run/watch/resume commands. `extensions/lib/helix-command-core.mjs` is the
+`extensions/helix-command.ts` owns Pi UI, onboarding, attended consent,
+session-scoped background run supervision, and run/control/watch/resume
+commands. `extensions/helix-tools.ts` owns the bounded model-callable search
+and attended process surfaces plus their hash-only session journal.
+`extensions/lib/helix-command-core.mjs` is the
 Pi-runtime-free rendering/preflight boundary. `dispatch/workflow` owns the
 closed IR, migration, pure constructors/fragments, conditions, hashing, typed
 graph compilation, analyses, routing, and graph views.
@@ -37,6 +40,44 @@ fields directly; `graph-mode` resolves the corresponding canonical typed edge.
 This is one engine with two transition resolvers, not a second runner or a
 multi-ready-node dataflow scheduler.
 
+The session run supervisor is a UI/control-plane adapter, not a scheduler. It
+starts one ordinary HWK invocation asynchronously, permits at most four active
+runs and 128 retained records, retains only bounded
+structural status for `/helix-control`, preserves a durable pause as `paused`,
+and delivers one completion while the session remains active. Session shutdown
+closes any confirmation-in-flight start, suppresses late status/completion
+delivery, then aborts and awaits active runs. Session replacement performs the
+same close even without a preceding shutdown event. A resumed paused run
+reconciles its matching session record, and control re-reads selected state
+after open UI boundaries rather than acting on a stale snapshot. A new Pi
+session receives a fresh supervisor and a cleared run-status projection; late
+resume completion cannot restore prior-session UI. Durable public/private run state remains
+owned by the existing execution/checkpoint path and survives the session.
+An attended resume is admitted back into the same supervisor before kernel
+execution. Direct stop, control cancellation, command abort, and session close
+therefore share its exact controller and settlement rather than treating the
+durably paused record as already closed.
+
+The process supervisor is deliberately outside HWK. It accepts only an
+attended start, literal argv, contained repository cwd, fixed minimal
+credential-free environment, and bounded concurrency/runtime/output/records.
+It treats the complete process group as the lifecycle unit, so parent exit
+cannot hide a live descendant. Concurrent timeout, attended stop, and shutdown
+requests share one termination operation and retain the first causal stop
+reason. Session shutdown also closes any confirmation-in-flight start; a new
+session receives a fresh supervisor only after concurrent termination of all
+old process groups is confirmed. The session journal rotates independently at
+the session boundary, with opaque tokens fencing late prior-session results.
+Cleanup uncertainty keeps process start closed and preserves the old supervisor
+for status and stop remediation instead of discarding it. It never
+becomes a workflow node, provider runtime, fallback route, or command-gate
+sandbox. Every shipped tool wrapper must persist a hash-only intent before its
+implementation runs and one result after it settles; persistence failure
+refuses, with process-start rollback when needed. Tool-call ids are one-use per
+session within a 4,096-call ledger ceiling. Each in-flight turn also owns an
+opaque non-persisted token, so journal
+reset plus id reuse cannot let a late prior-session result settle a new turn.
+
 At each parent or child scheduler entry, the validated definition is cloned
 into deeply immutable run-owned data. Graph compilation, direct routing,
 hashing, checkpoints, and execution all use that one copy. Injected expansion,
@@ -45,8 +86,17 @@ cannot mutate original-mode routing while graph-mode retains a compiled route.
 
 ## Definition and scheduling
 
-WorkflowDefinition v4 is closed and byte-bounded. Reachability validation
-requires exactly one successful terminal whose only incoming edge is the
+WorkflowDefinition v4/v5 is closed and byte-bounded. V5 adds a durable
+`human-choice` node; v4 remains admitted without hash or lifecycle migration
+and rejects that node kind. Human-choice entry checkpoints one exact
+run/definition/node/visit boundary before returning paused. Resume discovers
+the choice from the persisted parent definition or exact pinned child
+companion and supplies it to that run namespace. It checkpoints the bounded
+selected option/custom response before routing, while public events retain only
+the option id or `custom` marker. Cancellation and the run deadline are
+re-arbitrated after both choice checkpoints, and the command adapter rejects a
+UI choice that settles after its session signal. Reachability validation requires
+exactly one successful terminal whose only incoming edge is the
 unique final objective gate's `on_pass`. That node cannot carry a second gate;
 the scheduler executes the top-level `objective_gate`, and terminal success
 also requires recorded final-gate pass evidence. Cycles are explicit and

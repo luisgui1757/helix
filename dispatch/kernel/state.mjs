@@ -2,7 +2,7 @@
 // resume must present the original task and re-prove its hash.
 
 import { createHash } from "node:crypto";
-import { stableWorkflowStringify } from "../workflow/schema.mjs";
+import { stableWorkflowStringify, WORKFLOW_LIMITS } from "../workflow/schema.mjs";
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const CODE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
@@ -64,6 +64,28 @@ function validGateBoundary(boundary) {
     && (boundary.result.evidence_ref == null || HASH.test(boundary.result.evidence_ref));
 }
 
+function validHumanChoiceBoundary(boundary) {
+  if (!plain(boundary) || boundary.kind !== "human-choice" || !HASH.test(boundary.identity ?? "")
+    || !["inflight", "settled"].includes(boundary.status)) return false;
+  if (boundary.status === "inflight") return exact(boundary, ["kind", "identity", "status"]);
+  if (!exact(boundary, ["kind", "identity", "status", "result"]) || !plain(boundary.result)) return false;
+  if (boundary.result.kind === "option") {
+    return exact(boundary.result, ["kind", "option_id"])
+      && typeof boundary.result.option_id === "string"
+      && boundary.result.option_id.length >= 1
+      && boundary.result.option_id.length <= WORKFLOW_LIMITS.max_id_length;
+  }
+  return boundary.result.kind === "custom"
+    && exact(boundary.result, ["kind", "text"])
+    && typeof boundary.result.text === "string"
+    && boundary.result.text.trim() !== ""
+    && boundary.result.text.length <= WORKFLOW_LIMITS.max_human_response_length;
+}
+
+function validBoundary(boundary) {
+  return validGateBoundary(boundary) || validHumanChoiceBoundary(boundary);
+}
+
 function eventHash(value) {
   const serialized = stableWorkflowStringify(value);
   return typeof serialized === "string"
@@ -95,6 +117,7 @@ const CHILD_EVENT_FIELDS = Object.freeze([
   "definition_ref", "execution_mode", "target", "edge_id", "edge_kind", "visit", "instance_id",
   "effect_ref", "slot_count", "result", "final", "evidence_ref", "repair_attempt", "attempt", "next_attempt",
   "prior_instance_id", "status", "code", "failure_class",
+  "selection",
 ]);
 
 export function kernelChildEventPrefix(parentEvents, childRunId, childEventSeq) {
@@ -206,7 +229,7 @@ export function validateKernelCheckpoint(checkpoint, {
         || !plain(result) || !["ok", "failed", "refused", "cancelled"].includes(result.status))) {
       return { valid: false, code: "kernel-checkpoint-active-invalid" };
     }
-    if (Object.hasOwn(checkpoint.active, "boundary") && !validGateBoundary(checkpoint.active.boundary)) {
+    if (Object.hasOwn(checkpoint.active, "boundary") && !validBoundary(checkpoint.active.boundary)) {
       return { valid: false, code: "kernel-checkpoint-boundary-invalid" };
     }
     if (elapsedCheckpoint

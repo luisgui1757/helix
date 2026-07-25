@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildOptions,
-  defaultChoice,
   formatOption,
   optionFromLabel,
   resolveAnswer,
@@ -34,11 +33,6 @@ test("buildOptions skips malformed alternatives and requires a recommendation", 
   assert.throws(() => buildOptions({ alternatives: [] }), /recommendation/);
 });
 
-test("defaultChoice returns the recommended option", () => {
-  const opts = buildOptions(input);
-  assert.equal(defaultChoice(opts).label, "Docker");
-});
-
 test("formatOption + optionFromLabel round-trip", () => {
   const opts = buildOptions(input);
   const label = formatOption(opts[1]);
@@ -47,27 +41,54 @@ test("formatOption + optionFromLabel round-trip", () => {
   assert.equal(optionFromLabel(opts, "not a real label"), null);
 });
 
-test("resolveAnswer is deterministic (top recommendation) when non-interactive", async () => {
+test("resolveAnswer fails closed when non-interactive", async () => {
   const opts = buildOptions(input);
   const r = await resolveAnswer(opts, { interactive: false });
-  assert.equal(r.chosen.label, "Docker");
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.chosen, null);
   assert.equal(r.interactive, false);
-  assert.equal(r.cancelled, false);
 });
 
 test("resolveAnswer returns the user's interactive pick", async () => {
   const opts = buildOptions(input);
   const select = async (labels) => labels[1]; // pick the second row (Podman)
   const r = await resolveAnswer(opts, { interactive: true, select });
+  assert.equal(r.status, "answered");
   assert.equal(r.chosen.label, "Podman");
   assert.equal(r.interactive, true);
-  assert.equal(r.cancelled, false);
 });
 
-test("resolveAnswer falls back to the recommendation on cancel", async () => {
+test("resolveAnswer remains unresolved on cancel", async () => {
   const opts = buildOptions(input);
   const select = async () => null; // user cancelled
   const r = await resolveAnswer(opts, { interactive: true, select });
-  assert.equal(r.chosen.label, "Docker");
-  assert.equal(r.cancelled, true);
+  assert.equal(r.status, "cancelled");
+  assert.equal(r.chosen, null);
+});
+
+test("resolveAnswer accepts one explicit bounded custom answer", async () => {
+  const opts = buildOptions(input);
+  const r = await resolveAnswer(opts, {
+    interactive: true,
+    allowCustom: true,
+    select: async (labels) => labels.at(-1),
+    input: async () => "  Lima  ",
+  });
+  assert.equal(r.status, "answered");
+  assert.equal(r.custom, "Lima");
+  assert.equal(r.chosen, null);
+});
+
+test("resolveAnswer rejects invalid selections and empty custom answers", async () => {
+  const opts = buildOptions(input);
+  assert.equal((await resolveAnswer(opts, {
+    interactive: true,
+    select: async () => "fabricated",
+  })).status, "invalid-selection");
+  assert.equal((await resolveAnswer(opts, {
+    interactive: true,
+    allowCustom: true,
+    select: async (labels) => labels.at(-1),
+    input: async () => " ",
+  })).status, "cancelled");
 });

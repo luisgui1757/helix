@@ -179,9 +179,12 @@ function promptHandoff(ctx) {
   const priorNode = ctx.outputs?.[ctx.node_id] ?? null;
   const gates = Object.fromEntries(Object.entries(ctx.outputs ?? {}).filter(([, value]) =>
     value && typeof value === "object" && ["pass", "fail"].includes(value.result)));
+  const humanChoices = Object.fromEntries(Object.entries(ctx.outputs ?? {}).filter(([, value]) =>
+    value && typeof value === "object" && ["option", "custom"].includes(value.kind)));
   const value = {
     upstream: ctx.local.upstream ?? null,
     item: ctx.local.item ?? null,
+    human_choices: humanChoices,
     revision: ctx.visit > 1 ? { prior_node_output: priorNode, gate_outputs: gates } : null,
   };
   try { return frameContent("agent-output", value); }
@@ -189,6 +192,7 @@ function promptHandoff(ctx) {
     return frameContent("agent-output", {
       upstream_ref: hashRef(stableStringify(value.upstream ?? null)),
       item_ref: hashRef(stableStringify(value.item ?? null)),
+      human_choices_ref: hashRef(stableStringify(value.human_choices)),
       revision_ref: hashRef(stableStringify(value.revision ?? null)),
     });
   }
@@ -303,6 +307,7 @@ async function executeKernelDefinition({
   definition, definitionRef, execution, config, presets, toggles, adapter, input, runId, cwd,
   prepared, packageRoot, stateRoot, signal, onEvent, castContexts,
   executionMode = DEFAULT_WORKFLOW_EXECUTION_MODE, resumeDocument = null, resumeEvents = null, subworkflows = [],
+  humanChoice = null,
   writeText = writeTextAtomic,
 }) {
   if (!validateWorkflowExecutionMode(executionMode).ok) {
@@ -676,6 +681,7 @@ async function executeKernelDefinition({
       if (allowed) checkpointConsentAvailable = false;
       return { continue: allowed };
     },
+    ...(humanChoice == null ? {} : { human_choice: structuredClone(humanChoice) }),
     resolveSubworkflow: (workflowId, version) => definitionsByKey.get(`${workflowId}@${version}`) ?? null,
     depth: 0,
     loops: toggles.loops !== false,
@@ -919,6 +925,7 @@ async function resumeNamedWorkflowLeased({
   adapter = null,
   expected_binding_ref,
   expected_exact_ref = null,
+  human_choice = null,
   signal = null,
   onEvent = null,
   write_text_atomic = writeTextAtomic,
@@ -1166,6 +1173,7 @@ async function resumeNamedWorkflowLeased({
     castContexts: castResolution.contexts,
     resumeDocument: { ...resumeDocument, public_state: publicState },
     resumeEvents: authenticatedEvents.prefix,
+    humanChoice: human_choice,
     subworkflows: childWorkflows.bundles,
     writeText: write_text_atomic,
   });

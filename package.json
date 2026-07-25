@@ -63,6 +63,7 @@
     "extensions": [
       "./extensions/helix-fence.ts",
       "./extensions/helix-answer.ts",
+      "./extensions/helix-tools.ts",
       "./extensions/helix-command.ts"
     ]
   }

@@ -17,6 +17,8 @@ export const EXPECTED_HELIX_COMMANDS = Object.freeze([
   "helix-runs",
   "helix-run-status",
   "helix-run-watch",
+  "helix-control",
+  "helix-run-stop",
   "helix-run-resume",
   "helix-run-prune",
   "helix-models",
@@ -34,6 +36,7 @@ export const EXPECTED_HELIX_COMMANDS = Object.freeze([
 const EXPECTED_EXTENSIONS = Object.freeze([
   "./extensions/helix-fence.ts",
   "./extensions/helix-answer.ts",
+  "./extensions/helix-tools.ts",
   "./extensions/helix-command.ts",
 ]);
 const REQUIRED_PACKAGE_FILES = Object.freeze([
@@ -46,7 +49,12 @@ const REQUIRED_PACKAGE_FILES = Object.freeze([
   "docs/workflows.md",
   "extensions/helix-fence.ts",
   "extensions/helix-answer.ts",
+  "extensions/helix-tools.ts",
   "extensions/helix-command.ts",
+  "extensions/lib/helix-file-search.mjs",
+  "extensions/lib/helix-process-supervisor.mjs",
+  "extensions/lib/helix-run-supervisor.mjs",
+  "extensions/lib/helix-tool-journal.mjs",
   "extensions/lib/helix-command-core.mjs",
   "extensions/lib/helix-onboarding.mjs",
   "extensions/lib/helix-execution.mjs",

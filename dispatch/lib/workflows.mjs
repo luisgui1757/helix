@@ -1,7 +1,7 @@
 // Helix workflows — canonical user-facing workflow building blocks.
 //
 // A workflow owns its ordered stages, explicit transition conditions, bounded
-// stopping criteria, and deployment defaults. WorkflowDefinition v4 and HWK are
+// stopping criteria, and deployment defaults. WorkflowDefinition v4/v5 and HWK are
 // the product runtime; `workflowToExecution` projects deployment/cast inputs
 // only. Legacy tracked chains are accepted as import material and normalized
 // before named execution.
@@ -14,7 +14,7 @@ import { hashRef, stableStringify } from "./run-record.mjs";
 import { stageStepSchedule } from "./stage-schedule.mjs";
 import { isSafeWorktreeFilePath } from "./persistence.mjs";
 import {
-  WORKFLOW_SCHEMA_VERSION,
+  isWorkflowDefinitionDocument,
   validateWorkflowDefinition,
   workflowDefinitionHash,
 } from "../workflow/schema.mjs";
@@ -217,7 +217,7 @@ function validateCondition(condition, path, roleSteps, errors) {
 }
 
 export function validateWorkflow(workflow) {
-  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) return validateWorkflowDefinition(workflow);
+  if (isWorkflowDefinitionDocument(workflow)) return validateWorkflowDefinition(workflow);
   const errors = [];
   if (!keysAre(workflow, ["schema_version", "id", "description", "task_class", "source", "stages", "stop", "deployment"])) {
     errors.push(issue("$", "must be a workflow object with no unknown fields"));
@@ -494,7 +494,7 @@ export function workflowStageUsesGate(stage) {
 }
 
 export function workflowLifecycleSnapshot(workflow) {
-  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     const graph = plannedWorkflowGraph(workflow);
     if (!graph.ok) return null;
     return {
@@ -608,7 +608,7 @@ export function validateWorkflowLifecycleSnapshot(snapshot) {
 
 /** Host effects required beyond role execution; the Pi workflow runner injects none. */
 export function workflowRequiredHostEffects(workflow) {
-  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     return [];
   }
   return [...new Set((workflow?.stages ?? []).flatMap((stage) =>
@@ -634,7 +634,7 @@ function successSignals(workflow) {
 
 /** Validate the definition. This performs no runtime, deployment, or artifact effects. */
 export function testWorkflow(workflow) {
-  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     const valid = validateWorkflowDefinition(workflow);
     if (!valid.valid) return { ok: false, code: "invalid-workflow-v4", errors: valid.errors };
     const graph = plannedWorkflowGraph(workflow);
@@ -714,7 +714,7 @@ export function testWorkflow(workflow) {
 
 /** Deterministic, provider-free workflow test. Signals are consumed in order. */
 export function simulateWorkflow(workflow, signals = [], { final_gate = "pass", loops = true } = {}) {
-  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     const valid = validateWorkflowDefinition(workflow);
     if (!valid.valid) return { ok: false, code: "invalid-workflow-v4", errors: valid.errors };
     return {
@@ -874,7 +874,7 @@ export function createWorkflowFromTemplate({
 
 /** Convert canonical blocks to the existing hardened staged-runner boundary. */
 export function workflowToExecution(workflow) {
-  if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+  if (isWorkflowDefinitionDocument(workflow)) {
     const valid = validateWorkflowDefinition(workflow);
     if (!valid.valid) return { ok: false, code: "invalid-workflow-v4", errors: valid.errors };
     const stages = [];

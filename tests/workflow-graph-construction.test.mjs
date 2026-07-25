@@ -9,6 +9,7 @@ import {
   fanOutReduce,
   fragment,
   gate,
+  humanChoice,
   map,
   objectiveGate,
   sequence,
@@ -108,6 +109,30 @@ test("composition rewrites every control target and supported output pointer hyg
   assert.equal(nodes["unit-route"].transitions[0].when.path, "/outputs/unit-start/result");
   assert.equal(nodes["unit-fanout"].items_path, "/outputs/unit-start/items");
   assert.equal(nodes["unit-collect"].items_path, "/outputs/unit-fanout");
+});
+
+test("composition rewrites every human-choice target hygienically", () => {
+  const source = fragment({
+    entry: "choose",
+    nodes: {
+      choose: humanChoice("Choose a route", [
+        { id: "yes", label: "Yes", target: "done" },
+        { id: "no", label: "No", target: "done" },
+      ], { allow_custom: true, custom_target: "done" }),
+      done: terminal("failed", "done"),
+    },
+  });
+  assert.equal(source.ok, true, JSON.stringify(source));
+  const composed = composeFragments({
+    fragments: [{ namespace: "unit", fragment: source.fragment }],
+    entry: "unit",
+  });
+  assert.equal(composed.ok, true, JSON.stringify(composed));
+  assert.deepEqual(
+    composed.fragment.nodes["unit-choose"].choices.map((choice) => choice.target),
+    ["unit-done", "unit-done"],
+  );
+  assert.equal(composed.fragment.nodes["unit-choose"].custom_target, "unit-done");
 });
 
 test("fragment construction rejects dangling output pointers and executable values", () => {
@@ -266,7 +291,7 @@ test("composition output is deterministic across fragment and connection orderin
   ]);
 });
 
-test("bounded evaluator/optimizer helper composes into a valid ordinary v4 workflow", () => {
+test("bounded evaluator/optimizer helper composes into a valid ordinary workflow", () => {
   const loop = evaluatorOptimizerLoop({
     optimizer: { id: "optimize", node: agent({ role: "builder", stage_id: "optimize", mutation: "shared-serialized", timeout_ms: 1_000 }) },
     evaluator: { id: "evaluate", node: reviewer("evaluate") },
@@ -289,7 +314,7 @@ test("bounded evaluator/optimizer helper composes into a valid ordinary v4 workf
   assert.equal(built.ok, true, JSON.stringify(built.errors));
 });
 
-test("bounded fan-out/reduce helper composes into a valid ordinary v4 workflow", () => {
+test("bounded fan-out/reduce helper composes into a valid ordinary workflow", () => {
   const fanout = fanOutReduce({
     fan_out: {
       id: "fanout",

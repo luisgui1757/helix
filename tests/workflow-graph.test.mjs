@@ -90,7 +90,9 @@ test("execution modes are a closed enum and omission selects original-mode", () 
 });
 
 test("typed extraction covers every node kind with stable ids, fields, kinds, and ordinals", () => {
-  assert.deepEqual(WORKFLOW_GRAPH_EDGE_KINDS, ["next", "condition", "default", "loops-off", "pass", "fail"]);
+  assert.deepEqual(WORKFLOW_GRAPH_EDGE_KINDS, [
+    "next", "condition", "default", "loops-off", "pass", "fail", "choice", "custom",
+  ]);
   for (const kind of ["agent", "pipeline", "parallel", "map", "reduce", "checkpoint", "subworkflow"]) {
     const extracted = extractWorkflowNodeEdges("work", { kind, next: "done" });
     assert.equal(extracted.ok, true, kind);
@@ -111,6 +113,23 @@ test("typed extraction covers every node kind with stable ids, fields, kinds, an
     { id: "gate:pass", kind: "pass", ordinal: 0, field: "on_pass" },
     { id: "gate:fail", kind: "fail", ordinal: 1, field: "on_fail" },
     { id: "gate:loops-off", kind: "loops-off", ordinal: 2, field: "loops_off" },
+  ]);
+  const choice = extractWorkflowNodeEdges("human", {
+    kind: "human-choice",
+    question: "Choose",
+    choices: [
+      { id: "one", label: "One", target: "yes" },
+      { id: "two", label: "Two", target: "no" },
+    ],
+    allow_custom: true,
+    custom_target: "stop",
+  });
+  assert.deepEqual(choice.edges.map(({ id, kind, ordinal, field, choice_id: choiceId }) => ({
+    id, kind, ordinal, field, choice_id: choiceId,
+  })), [
+    { id: "human:choice:one", kind: "choice", ordinal: 0, field: "choices[0].target", choice_id: "one" },
+    { id: "human:choice:two", kind: "choice", ordinal: 1, field: "choices[1].target", choice_id: "two" },
+    { id: "human:custom", kind: "custom", ordinal: 2, field: "custom_target", choice_id: undefined },
   ]);
   assert.deepEqual(extractWorkflowNodeEdges("done", { kind: "terminal" }), { ok: true, edges: [] });
 });

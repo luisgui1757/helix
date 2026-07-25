@@ -6,7 +6,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import helixCommand from "../extensions/helix-command.ts";
 import { createWorkflowFromTemplate } from "../dispatch/lib/workflows.mjs";
-import { agent, checkpoint, objectiveGate, pipeline, terminal, workflow } from "../dispatch/workflow/builder.mjs";
+import {
+  agent,
+  checkpoint,
+  humanChoice,
+  objectiveGate,
+  pipeline,
+  subworkflow,
+  terminal,
+  workflow,
+} from "../dispatch/workflow/builder.mjs";
 import { saveUserWorkflow, saveUserWorkflowV4 } from "../extensions/lib/helix-workflows.mjs";
 import { saveProfile, switchProfile } from "../extensions/lib/helix-local.mjs";
 
@@ -18,6 +27,8 @@ const COMMAND_NAMES = [
   "helix-runs",
   "helix-run-status",
   "helix-run-watch",
+  "helix-control",
+  "helix-run-stop",
   "helix-run-resume",
   "helix-run-prune",
   "helix-models",
@@ -58,6 +69,16 @@ function loadHelixCommands(overrides = {}) {
 
 function commandByName(commands, name) {
   return commands.find((command) => command.name === name);
+}
+
+async function waitForMessage(messages, title, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = messages.find((entry) => entry.message.details?.title === title);
+    if (found) return found.message;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`message-timeout:${title}`);
 }
 
 function onboardingUi({ choice = "Start the 4-step tour", inputs = ["ENTER", "ENTER", "ENTER", "ENTER"], width = 80 } = {}) {
@@ -457,34 +478,22 @@ test("helix-run executes the canonical workflow in-process with the exact user t
       },
     });
 
-    assert.equal(messages.length, 2);
+    const completed = await waitForMessage(messages, "Helix run complete");
+    assert.equal(messages.length, 3);
     assert.equal(messages[0].message.details.title, "Helix run preflight");
-    assert.equal(messages[1].message.details.title, "Helix run complete");
+    assert.equal(messages[1].message.details.title, "Helix run started");
+    assert.equal(completed.details.title, "Helix run complete");
     assert.equal(confirmation.title, "Start Helix workflow");
     assert.match(confirmation.body, /Execution mode: original-mode/);
     assert.equal(messages[0].message.details.execution_mode, "original-mode");
-    assert.equal(messages[1].message.details.execution_mode, "original-mode");
+    assert.equal(completed.details.execution_mode, "original-mode");
     assert.match(confirmation.body, /Exact cast:\n  plan \[composite:overlord\]/);
     assert.match(confirmation.body, /planner: mock\/mock-overlord-planner:max x1/);
     assert.match(confirmation.body, /Bound inputs: task/);
-    assert.match(messages[1].message.content, /Inspect: \/helix-run-status helix-/);
+    assert.match(completed.content, /Inspect: \/helix-run-status helix-/);
     assert.equal(invocation, null, "the extension keeps Pi ModelRegistry/AuthStorage in-process");
-    assert.deepEqual(working, [
-      "Helix is running mock-core-loop", true,
-      "Helix · plan · visit 1",
-      "Helix · plan-decision · visit 1",
-      "Helix · implement · visit 1",
-      "Helix · implement-decision · visit 1",
-      "Helix · objective-gate · visit 1",
-      "Helix · objective check fail",
-      "Helix · implement · visit 2",
-      "Helix · implement-decision · visit 2",
-      "Helix · objective-gate · visit 2",
-      "Helix · objective check pass",
-      "Helix · succeeded · visit 1",
-      false, null,
-    ]);
-    await commandByName(commands, "helix-run-watch").handler(messages[1].message.details.run_id, {
+    assert.deepEqual(working, [], "background workflows do not take over Pi's foreground working indicator");
+    await commandByName(commands, "helix-run-watch").handler(completed.details.run_id, {
       mode: "print", cwd, ui: {},
     });
     assert.equal(messages.at(-1).message.details.title, "Helix run watch");
@@ -494,6 +503,267 @@ test("helix-run executes the canonical workflow in-process with the exact user t
     if (previous === undefined) delete process.env.HELIX_STATE_DIR;
     else process.env.HELIX_STATE_DIR = previous;
     rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("helix-control inspects and cancels a session background run", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-control-ui-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-control-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Control Test"], { cwd });
+  writeFileSync(join(cwd, "proposal.txt"), "initial\n", "utf8");
+  execFileSync("git", ["add", "proposal.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const statuses = [];
+  const selections = [];
+  const notices = [];
+  let confirmations = 0;
+  const { commands, handlers, messages } = loadHelixCommands();
+  const ui = {
+    async confirm() {
+      confirmations += 1;
+      return true;
+    },
+    async select(title, options) {
+      selections.push({ title, options });
+      return options[0];
+    },
+    notify(message, level) { notices.push({ message, level }); },
+    setStatus(key, value) { statuses.push({ key, value }); },
+  };
+  try {
+    await commandByName(commands, "helix-run").handler(
+      "mock-core-loop -- Keep the run active until control cancels it",
+      { mode: "tui", cwd, ui },
+    );
+    const started = messages.find((entry) => entry.message.details?.title === "Helix run started")?.message;
+    assert.ok(started);
+    await commandByName(commands, "helix-control").handler("", { mode: "tui", cwd, ui });
+    const control = messages.find((entry) => entry.message.details?.title === "Helix run control")?.message;
+    assert.equal(control.details.run_id, started.details.run_id);
+    assert.equal(control.details.status, "running");
+    assert.equal(selections[0].title, "Helix run control");
+    assert.match(selections[0].options[0], new RegExp(started.details.run_id));
+    assert.equal(confirmations, 2);
+    const cancelled = await waitForMessage(messages, "Helix run cancelled");
+    assert.equal(cancelled.details.run_id, started.details.run_id);
+    assert.equal(statuses.some((entry) => entry.key === "helix-runs"
+      && /1 background run/.test(entry.value ?? "")), true);
+    assert.equal(statuses.at(-1).value, undefined);
+    await handlers.get("session_shutdown")({}, { ui });
+    await handlers.get("session_start")({ reason: "switch" }, { ui });
+    await commandByName(commands, "helix-control").handler("", { mode: "tui", cwd, ui });
+    assert.equal(notices.at(-1).message, "No workflows are managed by this Pi session");
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("helix-control re-reads a run that settles while its selection menu is open", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-control-settlement-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-control-settlement-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Control Settlement"], { cwd });
+  writeFileSync(join(cwd, "baseline.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "baseline.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const { commands, handlers, messages } = loadHelixCommands();
+  let confirmations = 0;
+  let releaseSelection;
+  let selectionStarted;
+  let selectedLabel = null;
+  const selecting = new Promise((resolve) => { selectionStarted = resolve; });
+  const ui = {
+    async confirm() {
+      confirmations += 1;
+      return true;
+    },
+    select(_title, options) {
+      selectedLabel = options[0];
+      selectionStarted();
+      return new Promise((resolve) => { releaseSelection = () => resolve(options[0]); });
+    },
+    notify() {},
+    setStatus() {},
+  };
+  try {
+    await commandByName(commands, "helix-run").handler(
+      "mock-core-loop -- Complete while the control menu remains open",
+      { mode: "tui", cwd, ui },
+    );
+    const pendingControl = commandByName(commands, "helix-control").handler(
+      "",
+      { mode: "tui", cwd, ui },
+    );
+    await selecting;
+    assert.match(selectedLabel, /· running$/);
+    await waitForMessage(messages, "Helix run complete");
+    releaseSelection();
+    await pendingControl;
+    assert.equal(messages.at(-1).message.details.title, "Helix run control");
+    assert.equal(messages.at(-1).message.details.status, "succeeded");
+    assert.equal(confirmations, 1, "a settled run never reaches cancellation confirmation");
+  } finally {
+    await handlers.get("session_shutdown")({}, { ui });
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("helix-control reports a run that settles while cancellation confirmation is open", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-control-confirmation-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-control-confirmation-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Control Confirmation"], { cwd });
+  writeFileSync(join(cwd, "baseline.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "baseline.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const { commands, handlers, messages } = loadHelixCommands();
+  const notices = [];
+  let releaseCancellation;
+  let cancellationStarted;
+  const confirmingCancellation = new Promise((resolve) => { cancellationStarted = resolve; });
+  const ui = {
+    confirm(title) {
+      if (title === "Start Helix workflow") return Promise.resolve(true);
+      cancellationStarted();
+      return new Promise((resolve) => { releaseCancellation = () => resolve(true); });
+    },
+    async select(_title, options) { return options[0]; },
+    notify(message, level) { notices.push({ message, level }); },
+    setStatus() {},
+  };
+  try {
+    await commandByName(commands, "helix-run").handler(
+      "mock-core-loop -- Complete while cancellation confirmation remains open",
+      { mode: "tui", cwd, ui },
+    );
+    const pendingControl = commandByName(commands, "helix-control").handler(
+      "",
+      { mode: "tui", cwd, ui },
+    );
+    await confirmingCancellation;
+    assert.equal(messages.at(-1).message.details.status, "running");
+    await waitForMessage(messages, "Helix run complete");
+    releaseCancellation();
+    await pendingControl;
+    assert.match(notices.at(-1).message, /already closed before cancellation$/);
+    assert.equal(notices.at(-1).level, "info");
+  } finally {
+    await handlers.get("session_shutdown")({}, { ui });
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("session rotation revokes a delayed run-control selection and closes the prior supervisor", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-control-rotation-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-control-rotation-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Control Rotation"], { cwd });
+  writeFileSync(join(cwd, "baseline.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "baseline.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const { commands, handlers, messages } = loadHelixCommands();
+  const notices = [];
+  const statuses = [];
+  let confirmations = 0;
+  let releaseSelection;
+  let selectionStarted;
+  const selecting = new Promise((resolve) => { selectionStarted = resolve; });
+  const ui = {
+    async confirm() {
+      confirmations += 1;
+      return true;
+    },
+    select(_title, options) {
+      selectionStarted();
+      return new Promise((resolve) => { releaseSelection = () => resolve(options[0]); });
+    },
+    notify(message, level) { notices.push({ message, level }); },
+    setStatus(key, value) { statuses.push({ key, value }); },
+  };
+  try {
+    await commandByName(commands, "helix-run").handler(
+      "mock-core-loop -- Cancel this run when the Pi session rotates",
+      { mode: "tui", cwd, ui },
+    );
+    assert.equal(messages.at(-1).message.details.title, "Helix run started");
+
+    const pendingControl = commandByName(commands, "helix-control").handler(
+      "",
+      { mode: "tui", cwd, ui },
+    );
+    await selecting;
+    await handlers.get("session_start")({ reason: "switch" }, { mode: "tui", ui });
+    releaseSelection();
+    await pendingControl;
+    assert.deepEqual(statuses.at(-1), { key: "helix-runs", value: undefined });
+    assert.equal(
+      messages.some((entry) => entry.message.details?.title === "Helix run control"),
+      false,
+    );
+    assert.equal(confirmations, 1, "the stale control selection never reaches cancellation confirmation");
+
+    await commandByName(commands, "helix-control").handler("", { mode: "tui", cwd, ui });
+    assert.equal(notices.at(-1).message, "No workflows are managed by this Pi session");
+  } finally {
+    await handlers.get("session_shutdown")({}, { ui });
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("session shutdown prevents a confirmation-delayed workflow from starting", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "helix-run-shutdown-race-"));
+  const { commands, handlers, messages } = loadHelixCommands();
+  let releaseConfirmation;
+  let confirmationStarted;
+  const started = new Promise((resolve) => { confirmationStarted = resolve; });
+  const ui = {
+    confirm() {
+      confirmationStarted();
+      return new Promise((resolve) => { releaseConfirmation = resolve; });
+    },
+    notify() {},
+    setStatus() {},
+  };
+  try {
+    const pending = commandByName(commands, "helix-run").handler(
+      "mock-core-loop -- Never start after shutdown",
+      { mode: "tui", cwd, ui },
+    );
+    await started;
+    const shutdown = handlers.get("session_shutdown")({}, { ui });
+    releaseConfirmation(true);
+    await Promise.all([pending, shutdown]);
+    assert.equal(
+      messages.some((entry) => entry.message.details?.title === "Helix run started"),
+      false,
+    );
+  } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
@@ -579,10 +849,15 @@ test("attended graph-mode executes, watches, pauses, resumes, and cleans up its 
   assert.equal(built.ok, true, JSON.stringify(built.errors));
   assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
   const confirmations = [];
+  const controlSelections = [];
   const { commands, messages } = loadHelixCommands();
   const task = "Exercise the attended graph path";
   const ui = {
     async input() { return task; },
+    async select(title, options) {
+      controlSelections.push({ title, options });
+      return options[0];
+    },
     async confirm(title, body) {
       confirmations.push({ title, body });
       return true;
@@ -596,8 +871,7 @@ test("attended graph-mode executes, watches, pauses, resumes, and cleans up its 
       `graph-attended --execution-mode graph-mode -- ${task}`,
       { mode: "tui", cwd, ui },
     );
-    const paused = messages.find((entry) => entry.message.details?.title === "Helix run paused")?.message;
-    assert.ok(paused, JSON.stringify(messages));
+    const paused = await waitForMessage(messages, "Helix run paused");
     assert.equal(paused.details.execution_mode, "graph-mode");
     const runId = paused.details.run_id;
     const statePath = join(stateRoot, "runs", runId, `${runId}.state.json`);
@@ -611,6 +885,10 @@ test("attended graph-mode executes, watches, pauses, resumes, and cleans up its 
     ));
     assert.equal(privateCheckpoint.scheduler.schema_version, 5);
     assert.equal(privateCheckpoint.scheduler.execution_mode, "graph-mode");
+
+    await commandByName(commands, "helix-control").handler("", { mode: "tui", cwd, ui });
+    assert.equal(messages.at(-1).message.details.title, "Helix run control");
+    assert.equal(messages.at(-1).message.details.status, "paused");
 
     await commandByName(commands, "helix-run-watch").handler(runId, { mode: "print", cwd, ui: {} });
     const pausedWatch = messages.at(-1).message;
@@ -626,6 +904,15 @@ test("attended graph-mode executes, watches, pauses, resumes, and cleans up its 
     assert.equal(completedState.completed, true);
     assert.equal(completedState.execution_mode, "graph-mode");
 
+    await commandByName(commands, "helix-control").handler("", { mode: "tui", cwd, ui });
+    assert.equal(messages.at(-1).message.details.title, "Helix run control");
+    assert.equal(messages.at(-1).message.details.status, "succeeded");
+    assert.match(controlSelections.at(-1).options[0], /· succeeded$/);
+
+    await commandByName(commands, "helix-run-stop").handler(runId, { mode: "tui", cwd, ui });
+    assert.equal(messages.at(-1).message.details.title, "Helix run already closed");
+    assert.match(messages.at(-1).message.content, /Run already closed/);
+
     await commandByName(commands, "helix-run-watch").handler(runId, { mode: "print", cwd, ui: {} });
     const completedWatch = messages.at(-1).message;
     assert.equal(completedWatch.details.current_node, null);
@@ -635,6 +922,318 @@ test("attended graph-mode executes, watches, pauses, resumes, and cleans up its 
       && /Execution mode: graph-mode/.test(entry.body)), true);
     assert.equal(confirmations.some((entry) => entry.title === "Resume Helix workflow"
       && /Execution mode: graph-mode/.test(entry.body)), true);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("helix-run-stop interrupts an active attended resume through the shared run supervisor", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-resume-stop-e2e-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-resume-stop-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Resume Stop E2E"], { cwd });
+  writeFileSync(join(cwd, "baseline.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "baseline.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const built = workflow({
+    id: "resume-stop-e2e",
+    name: "Resume stop E2E",
+    description: "An attended resume remains interruptible through run control.",
+    start: "approval",
+    nodes: {
+      approval: checkpoint("operator-approval", "objective"),
+      objective: objectiveGate("succeeded", "failed"),
+      succeeded: terminal("succeeded"),
+      failed: terminal("failed", "resume-stop-objective-failed"),
+    },
+    objective_gate: {
+      type: "command-exit-zero",
+      command: "node",
+      args: ["-e", "setTimeout(() => process.exit(0), 3000)"],
+      timeout_ms: 10_000,
+    },
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const { commands, messages } = loadHelixCommands();
+  const task = "Interrupt the active resume";
+  let markResumeActive;
+  const resumeActive = new Promise((resolve) => { markResumeActive = resolve; });
+  const ui = {
+    async input() { return task; },
+    async select(_title, options) { return options[0]; },
+    async confirm() { return true; },
+    notify() {},
+    setStatus() {},
+    setWorkingMessage() {},
+    setWorkingVisible(visible) {
+      if (visible) markResumeActive();
+    },
+  };
+  try {
+    await commandByName(commands, "helix-run").handler(
+      `resume-stop-e2e --execution-mode graph-mode -- ${task}`,
+      { mode: "tui", cwd, ui },
+    );
+    const paused = await waitForMessage(messages, "Helix run paused");
+    const runId = paused.details.run_id;
+    const pendingResume = commandByName(commands, "helix-run-resume").handler(
+      runId,
+      { mode: "tui", cwd, ui },
+    );
+    await resumeActive;
+
+    await commandByName(commands, "helix-run-stop").handler(runId, { mode: "tui", cwd, ui });
+    assert.equal(messages.at(-1).message.details.title, "Helix run cancellation");
+    await pendingResume;
+
+    const cancelled = messages.filter(
+      (entry) => entry.message.details?.title === "Helix run cancelled",
+    ).at(-1)?.message;
+    assert.ok(cancelled);
+    assert.equal(cancelled.details.run_id, runId);
+    await commandByName(commands, "helix-control").handler("", { mode: "tui", cwd, ui });
+    assert.equal(messages.at(-1).message.details.status, "cancelled");
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("v5 human choice pauses durably and resumes only from the attended bound selection", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-human-choice-e2e-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-human-choice-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Choice E2E"], { cwd });
+  writeFileSync(join(cwd, "baseline.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "baseline.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const built = workflow({
+    id: "human-choice-e2e",
+    name: "Human choice E2E",
+    description: "Durable attended human choice coverage.",
+    start: "decision",
+    nodes: {
+      decision: humanChoice(
+        "Continue to the objective check?",
+        [
+          { id: "proceed", label: "Proceed", target: "objective" },
+          { id: "decline", label: "Decline", target: "declined" },
+        ],
+        { allow_custom: true, custom_target: "declined" },
+      ),
+      objective: objectiveGate("succeeded", "failed"),
+      succeeded: terminal("succeeded"),
+      failed: terminal("failed", "objective-failed"),
+      declined: terminal("cancelled", "operator-declined"),
+    },
+    objective_gate: {
+      type: "command-exit-zero",
+      command: "node",
+      args: ["-e", "process.exit(0)"],
+      timeout_ms: 1_000,
+    },
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(built.definition.schema_version, 5);
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const { commands, handlers, messages } = loadHelixCommands();
+  const task = "Exercise durable human choice";
+  const selections = [];
+  const ui = {
+    async input() { return task; },
+    async select(question, options) {
+      selections.push({ question, options });
+      return "Proceed [proceed]";
+    },
+    async confirm() { return true; },
+    notify() {},
+    setStatus() {},
+  };
+  try {
+    await commandByName(commands, "helix-run").handler(
+      `human-choice-e2e --execution-mode graph-mode -- ${task}`,
+      { mode: "tui", cwd, ui },
+    );
+    const paused = await waitForMessage(messages, "Helix run paused");
+    const runId = paused.details.run_id;
+    const privatePath = join(stateRoot, "private", "runs", runId, "kernel-checkpoint.json");
+    const before = JSON.parse(readFileSync(privatePath, "utf8"));
+    assert.equal(before.scheduler.current, "decision");
+    assert.equal(before.scheduler.active.node_id, "decision");
+    assert.equal(before.scheduler.active.boundary.kind, "human-choice");
+    assert.equal(before.scheduler.active.boundary.status, "inflight");
+
+    let releaseSessionChoice;
+    let sessionChoiceStarted;
+    const sessionChoiceOpen = new Promise((resolve) => { sessionChoiceStarted = resolve; });
+    const sessionNotices = [];
+    const rotatingResume = commandByName(commands, "helix-run-resume").handler(runId, {
+      mode: "tui",
+      cwd,
+      ui: {
+        ...ui,
+        async select() {
+          sessionChoiceStarted();
+          return new Promise((resolve) => {
+            releaseSessionChoice = () => resolve("Proceed [proceed]");
+          });
+        },
+        notify(message, level) {
+          sessionNotices.push({ message, level });
+        },
+      },
+    });
+    await sessionChoiceOpen;
+    await handlers.get("session_start")({ reason: "switch" }, { mode: "tui", ui });
+    releaseSessionChoice();
+    await rotatingResume;
+    const afterSessionSwitch = JSON.parse(readFileSync(privatePath, "utf8"));
+    assert.equal(afterSessionSwitch.scheduler.active.boundary.status, "inflight");
+    assert.equal(sessionNotices.at(-1).message, "Helix resume cancelled; the checkpoint was not changed");
+
+    const cancelled = new AbortController();
+    const cancellationNotices = [];
+    await commandByName(commands, "helix-run-resume").handler(runId, {
+      mode: "tui",
+      cwd,
+      signal: cancelled.signal,
+      ui: {
+        ...ui,
+        async select() {
+          cancelled.abort();
+          return "Proceed [proceed]";
+        },
+        notify(message, level) {
+          cancellationNotices.push({ message, level });
+        },
+      },
+    });
+    const unchanged = JSON.parse(readFileSync(privatePath, "utf8"));
+    assert.equal(unchanged.scheduler.active.boundary.status, "inflight");
+    assert.equal(cancellationNotices.at(-1).message, "Helix resume cancelled; the checkpoint was not changed");
+
+    await commandByName(commands, "helix-run-resume").handler(runId, { mode: "tui", cwd, ui });
+    const completed = messages.at(-1).message;
+    assert.equal(completed.details.title, "Helix run complete");
+    assert.equal(completed.details.converged, true);
+    assert.deepEqual(selections, [{
+      question: "Continue to the objective check?",
+      options: ["Proceed [proceed]", "Decline [decline]", "Custom answer…"],
+    }]);
+    const after = JSON.parse(readFileSync(privatePath, "utf8"));
+    assert.deepEqual(after.scheduler.outputs.decision, { kind: "option", option_id: "proceed" });
+    const eventText = readFileSync(join(stateRoot, "runs", runId, `${runId}.kernel.events.jsonl`), "utf8");
+    assert.match(eventText, /"kind":"human-choice".*"selection":"option:proceed"/);
+    assert.equal(eventText.includes(task), false);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("a pinned child human choice resumes from its persisted nested checkpoint", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-child-choice-e2e-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-child-choice-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Child Choice E2E"], { cwd });
+  writeFileSync(join(cwd, "baseline.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "baseline.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const objective = {
+    type: "command-exit-zero",
+    command: "node",
+    args: ["-e", "process.exit(0)"],
+    timeout_ms: 1_000,
+  };
+  const child = workflow({
+    id: "nested-choice-child",
+    name: "Nested choice child",
+    description: "Pinned child with a durable choice.",
+    start: "route",
+    nodes: {
+      route: humanChoice("Choose the child route", [
+        { id: "continue", label: "Continue child", target: "objective" },
+        { id: "decline", label: "Decline child", target: "declined" },
+      ]),
+      objective: objectiveGate("succeeded", "failed"),
+      succeeded: terminal("succeeded"),
+      failed: terminal("failed", "child-objective-failed"),
+      declined: terminal("cancelled", "child-declined"),
+    },
+    objective_gate: objective,
+  });
+  const parent = workflow({
+    id: "nested-choice-parent",
+    name: "Nested choice parent",
+    description: "Parent that pins the durable-choice child.",
+    start: "child",
+    nodes: {
+      child: subworkflow("nested-choice-child", 1, "objective"),
+      objective: objectiveGate("succeeded", "failed"),
+      succeeded: terminal("succeeded"),
+      failed: terminal("failed", "parent-objective-failed"),
+    },
+    objective_gate: objective,
+  });
+  assert.equal(child.ok, true, JSON.stringify(child.errors));
+  assert.equal(parent.ok, true, JSON.stringify(parent.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, child.definition).ok, true);
+  assert.equal(saveUserWorkflowV4(stateRoot, parent.definition).ok, true);
+  const { commands, messages } = loadHelixCommands();
+  const task = "Exercise a nested durable choice";
+  const selections = [];
+  const ui = {
+    async input() { return task; },
+    async select(question, options) {
+      selections.push({ question, options });
+      return "Continue child [continue]";
+    },
+    async confirm() { return true; },
+    notify() {},
+    setStatus() {},
+    setWorkingMessage() {},
+    setWorkingVisible() {},
+  };
+  try {
+    await commandByName(commands, "helix-run").handler(
+      `nested-choice-parent --execution-mode graph-mode -- ${task}`,
+      { mode: "tui", cwd, ui },
+    );
+    const paused = await waitForMessage(messages, "Helix run paused");
+    const runId = paused.details.run_id;
+    const privatePath = join(stateRoot, "private", "runs", runId, "kernel-checkpoint.json");
+    const before = JSON.parse(readFileSync(privatePath, "utf8"));
+    assert.equal(before.scheduler.active.node_id, "child");
+    assert.equal(before.scheduler.active.child.scheduler.active.boundary.kind, "human-choice");
+
+    await commandByName(commands, "helix-run-resume").handler(runId, { mode: "tui", cwd, ui });
+    const completed = messages.at(-1).message;
+    assert.equal(completed.details.title, "Helix run complete");
+    assert.equal(completed.details.converged, true);
+    assert.deepEqual(selections, [{
+      question: "Choose the child route",
+      options: ["Continue child [continue]", "Decline child [decline]"],
+    }]);
+    const eventText = readFileSync(join(stateRoot, "runs", runId, `${runId}.kernel.events.jsonl`), "utf8");
+    assert.match(eventText, /"child_kind":"human-choice".*"child_selection":"option:continue"/);
+    assert.equal(eventText.includes(task), false);
   } finally {
     if (previous === undefined) delete process.env.HELIX_STATE_DIR;
     else process.env.HELIX_STATE_DIR = previous;

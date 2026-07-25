@@ -13,6 +13,7 @@ import {
 const extensionPaths = [
   "./extensions/helix-fence.ts",
   "./extensions/helix-answer.ts",
+  "./extensions/helix-tools.ts",
   "./extensions/helix-command.ts",
 ];
 const required = [
@@ -25,7 +26,12 @@ const required = [
   "docs/workflows.md",
   "extensions/helix-fence.ts",
   "extensions/helix-answer.ts",
+  "extensions/helix-tools.ts",
   "extensions/helix-command.ts",
+  "extensions/lib/helix-file-search.mjs",
+  "extensions/lib/helix-process-supervisor.mjs",
+  "extensions/lib/helix-run-supervisor.mjs",
+  "extensions/lib/helix-tool-journal.mjs",
   "extensions/lib/helix-command-core.mjs",
   "extensions/lib/helix-onboarding.mjs",
   "extensions/lib/helix-execution.mjs",

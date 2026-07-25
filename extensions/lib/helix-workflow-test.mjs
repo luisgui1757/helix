@@ -1,5 +1,5 @@
 // Provider-free runtime smoke test for one user workflow. Every accepted shape
-// is normalized to WorkflowDefinition v4 and executed by the real workflow
+// is normalized to a supported WorkflowDefinition and executed by the real workflow
 // kernel in a temporary detached Git worktree. Model and objective effects are
 // deterministic test boundaries; routing, limits, events, and cleanup are real.
 

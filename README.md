@@ -3,7 +3,8 @@
 Helix adds typed, multi-model workflows to [Pi](https://pi.dev). A single
 provider-neutral kernel runs guided, imported, and programmatically generated
 workflows with bounded loops, deterministic objective gates, exact casts,
-isolated Git worktrees, crash-safe checkpoints, and planned/observed graphs.
+isolated Git worktrees, crash-safe checkpoints, durable human choices,
+background run control, and planned/observed graphs.
 
 ## Install
 
@@ -26,12 +27,13 @@ it at any time. For checkout development, use `pi -e .`.
 |---|---|
 | `/helix-help` | First steps and refusal guidance |
 | `/helix-onboarding` | Rerun the getting-started tour |
-| `/helix-run [workflow] [--execution-mode original-mode\|graph-mode] -- <task>` | Confirm and start an exact workflow |
+| `/helix-run [workflow] [--execution-mode original-mode\|graph-mode] -- <task>` | Confirm and start an exact background workflow |
 | `/helix-workflows` | List, show, graph, and test workflows |
-| `/helix-workflows import <file.json>` | Validate and atomically deploy v4 JSON |
+| `/helix-workflows import <file.json>` | Validate and atomically deploy v4/v5 JSON |
 | `/helix-workflow-create` | Guided template-based workflow builder |
 | `/helix-workflow-edit`, `-clone`, `-delete` | Manage personal workflows |
-| `/helix-runs`, `/helix-run-watch <id>` | Inspect structural run progress |
+| `/helix-control`, `/helix-run-stop <id>` | Inspect or cancel this Pi session's background runs |
+| `/helix-runs`, `/helix-run-watch <id>` | Inspect durable structural run progress |
 | `/helix-run-resume <id>` | Revalidate and resume a private checkpoint |
 | `/helix-settings`, `/helix-profiles`, `/helix-setup` | Configure features and casts |
 
@@ -57,13 +59,13 @@ tool-free provider turn with transport retries disabled; tool-bearing or
 mutating real definitions remain exact-disabled until every internal provider turn can be independently owned and journaled. Other provider families remain visibly
 exact-disabled until their official surfaces satisfy the same proof contract.
 
-The guided builder covers common loops. Advanced users generate the same closed WorkflowDefinition v4 with pure helpers and deploy its JSON through
-`/helix-workflows import`; Helix never executes builder code. Graph fragments compose
+The guided builder covers common loops. Advanced users generate the closed WorkflowDefinition v5 with pure helpers and deploy its JSON through
+`/helix-workflows import`; v4 definitions remain directly supported. Helix never executes builder code. Graph fragments compose
 common patterns with collision/dangling-port refusal. Author input is non-executing
 bounded JSON: proxy/accessor input refuses before reflection and size refuses before cloning.
 
 The kernel supports agent, pipeline, bounded parallel/map, reduce, decision,
-gate, checkpoint, version-pinned subworkflow, and terminal nodes. Successful
+gate, durable human-choice, checkpoint, version-pinned subworkflow, and terminal nodes. Successful
 completion is reachable only through one final deterministic objective gate;
 its `on_pass` is the successful terminal's only incoming edge, and it executes
 the single top-level objective definition.
@@ -96,8 +98,7 @@ child event prefixes before effects; omission, drift, or projection-debt clearin
 failure refuses. Every active watch ignores a bounded tail that resume truncates.
 Legacy shapes remain history; Git worktrees are not OS sandboxes.
 
-Helix adds no percentage-based compaction trigger. Each runtime keeps its native
-default compaction behavior.
+The model-callable `answer` tool never auto-selects when interaction is unavailable. `helix_file_search` returns bounded literal path/line/column records. Opt-in `helix_process_*` tools require attended start confirmation, direct literal argv with no implicit shell parsing or ambient credentials, and session-shutdown cleanup. Every Helix-owned tool turn records hash-only intent before execution and one settled result; call ids are one-use within a bounded 4,096-call session ledger, prior-session results cannot settle reused ids, and raw arguments/output are not journaled.
 
 See [the manual](docs/manual.md), [workflow guide](docs/workflows.md), [provider truth table](docs/providers.md), and [architecture](docs/architecture.md).
 

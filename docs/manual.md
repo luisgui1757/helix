@@ -25,10 +25,10 @@ save. `/helix-workflow-edit`, `/helix-workflow-clone`, and
 `/helix-workflow-delete` manage personal definitions; built-ins are immutable.
 
 `/helix-workflows [list | show <id> | test <id>]` lists or graphs definitions
-and performs provider-free schema checks plus deployment preflight. V4 edges
+and performs provider-free schema checks plus deployment preflight. WorkflowDefinition edges
 are reported as structurally validated, not executed. In TUI mode, `test` may
 also normalize the definition and run one deterministic path through the real
-v4 kernel from an independent identical disposable worktree in each execution
+workflow kernel from an independent identical disposable worktree in each execution
 mode. It refuses unless complete normalized results match: status, output,
 visits, budgets, ordered structural trace, journal structure, and final
 workspace fingerprint. Only mode/run/time-derived identity fields are removed.
@@ -59,9 +59,9 @@ closed at preflight.
 It reports that one path and never claims every branch or real model/task
 objective passed.
 
-`/helix-workflows import <repository-relative-v4.json>` is the expert deploy
+`/helix-workflows import <repository-relative-definition.json>` is the expert deploy
 surface. It requires attended confirmation, a regular contained JSON transport
-file no larger than 512 KiB, schema version 4, `source: "user"`, a runnable objective gate, a
+file no larger than 512 KiB, supported schema version 4 or 5, `source: "user"`, a runnable objective gate, a
 closed single-gated graph, deployment-valid assignments, a non-conflicting id,
 and an atomic destination. All structural, deployment, gate, and workspace
 checks pass before the user definition is written. Its canonical representation
@@ -69,7 +69,9 @@ must fit 256 KiB; Helix persists that canonical form plus one newline.
 Pi's current model inventory is supplied to import/create preflight, including
 every pinned direct child's cast; invalid or undeployable input refuses before
 the mutation confirmation dialog.
-The pure API in `dispatch/workflow/builder.mjs` produces the same validated JSON.
+The pure API in `dispatch/workflow/builder.mjs` produces v5 JSON. V4 remains a
+directly admitted compatibility version; it cannot author v5-only human-choice
+nodes and its canonical hash is not rewritten during admission.
 Its fragment combinators cover sequence, conditional, bounded
 evaluator/optimizer, fan-out/reduce, and explicit namespaced composition;
 Helix does not execute the program that generated it. Combinator input is
@@ -94,8 +96,29 @@ cast. Named workflows require canonical worktrees; disabling the worktree
 feature produces a pre-consent refusal rather than changing the approved
 mutation location.
 
+An approved `/helix-run` returns immediately after registering the run with the
+Pi-session supervisor. It does not occupy Pi's foreground working indicator.
+`/helix-control` shows the session's active and completed runs, last structural
+event, and an attended cancel action; `/helix-run-stop <run-id>` requests the
+same cancellation directly. A durable workflow pause is shown as **paused**,
+not failed. Exactly one completion message is delivered per session run while
+the session remains active; session shutdown suppresses late UI/completion
+delivery, aborts active workflows, and waits for them to settle. A session
+replacement performs that same close even if Pi did not first emit a separate
+shutdown event. Resume updates any matching same-session paused control record,
+so `/helix-control` reflects the new terminal or paused outcome. The control
+center re-reads a selected run after every open menu and reports an already
+closed run if it settles while cancellation confirmation is open. Session
+replacement clears the old background-run status, and late resume completion
+cannot restore it. Durable
+`/helix-runs`, status, watch, resume, and prune remain the source of truth
+across sessions.
+While attended resume execution is active, the session supervisor projects it
+as running. `/helix-run-stop`, `/helix-control`, the command abort signal, and
+session close all cancel and await that exact operation.
+
 Omitting the flag selects `original-mode`. `graph-mode` is opt-in and changes
-only transition lookup: a canonical typed graph resolves the same admitted v4
+only transition lookup: a canonical typed graph resolves the same admitted
 edges inside the same kernel. Unknown, duplicated, missing, or misplaced mode
 arguments refuse before consent or run creation. Preflight, confirmation,
 completion, list/status, and watch show the mode. Graph transitions additionally
@@ -108,8 +131,9 @@ but cannot resume. A caller-supplied runtime hash, altered retained event, or
 cross-mode checkpoint cannot authorize continuation.
 
 Every kernel-compatible named workflow, including legacy saved definitions and
-tracked built-ins, normalizes into WorkflowDefinition v4 and runs through the
-same kernel. A legacy definition that declares host-only check/handoff steps
+tracked built-ins, normalizes into a supported WorkflowDefinition and runs
+through the same kernel. Legacy stage documents migrate to v4; current builders
+author v5. A legacy definition that declares host-only check/handoff steps
 refuses migration rather than silently dropping them. The
 kernel reserves effects, propagates cancellation, serializes shared writers,
 promotes isolated proposals only from an unchanged base, records an append-only
@@ -158,7 +182,7 @@ observed the stop.
   Historical schema-4 subworkflow wrappers remain watchable as opaque
   original-mode parent progress; schema-5 runs require pinned child definitions
   for nested projection. Later edits cannot rewrite history.
-- `/helix-run-resume <run-id>` is attended for v4 runs. It asks for the original
+- `/helix-run-resume <run-id>` is attended for workflow-kernel runs. It asks for the original
   task and declared typed inputs, verifies their hash, reloads the pinned definition, revalidates policy and
   exact cast, restores the retained worktree from the last private bounded
 snapshot, reconciles any provable journal-ahead result, and resumes completed
@@ -202,6 +226,20 @@ exact `/helix-run-resume <run-id>` continue command. That attended consent is
 consumed by the exact recorded node visit; revisiting the checkpoint pauses
 again. Checkpoints inside a pinned child workflow carry namespaced child state
 and consume the same one-shot parent-resume consent.
+
+A v5 `human-choice` node is a durable pause, not a model verdict or default.
+Its question, ordered option ids/labels/targets, and optional custom target are
+part of the definition hash. Resume discovers the pending choice from the
+persisted parent definition or its exact pinned child companion, then prompts
+against that run namespace after reloading the private in-flight node/visit
+boundary. Cancellation or unavailable interaction leaves the checkpoint
+unchanged. The selected option id, or the literal `custom` marker, is the only
+public event field; custom response text stays in the bounded private
+checkpoint. The settled choice checkpoints before routing and is reused rather
+than asked again after a later interruption. Cancellation and the run deadline
+are re-arbitrated after both choice checkpoints, so an interruption cannot be
+bypassed by a pause or a late selection.
+
 Workspace, journal, or scheduler-checkpoint recovery failures with a durable
 private checkpoint remain incomplete and render as **interrupted** with the
 same explicit resume action. A failure before the first checkpoint remains an
@@ -305,6 +343,49 @@ Foundry Claude, and Azure OpenAI adapter contracts are installed but remain
 exact-disabled until a short-lived capability attestation proves every required
 field. CLIProxyAPI and Anthropic consumer OAuth are policy-blocked.
 
+## Model-callable tools
+
+- `answer` presents ranked canonical choices in the TUI and returns an explicit
+  selection. Noninteractive use, cancellation, invalid UI output, and missing
+  custom input return an unresolved status; Helix never chooses a default or
+  accepts a selection that settles after cancellation or session replacement.
+- `helix_file_search` performs bounded literal search under the current
+  repository and returns structured relative path, line, column, and preview
+  records. It skips `.git`, `node_modules`, symlinks, invalid UTF-8, oversized
+  files, and any path outside the canonical root. The descriptor-time file
+  check enforces the aggregate 32 MiB read ceiling even if a file changes after
+  directory enumeration.
+- `helix_process_start` starts a session-scoped process only after an attended
+  confirmation showing executable, literal argv, and relative working
+  directory. It uses `shell: false`, a fixed minimal credential-free
+  environment, a 64 KiB output ceiling, at most eight active processes and 128
+  retained records, bounded runtime, and a contained cwd. An explicitly chosen
+  executable may itself interpret its argv; the supervisor never inserts or
+  parses a shell command.
+  `helix_process_status` reads its state/output and `helix_process_stop`
+  terminates its complete process group, including descendants that outlive
+  their parent. Concurrent timeout, attended stop, and shutdown requests
+  coalesce behind one termination and preserve the first causal stop reason.
+Session shutdown or replacement closes any confirmation-in-flight start,
+stops every active process concurrently, and only then gives the next Pi
+session a fresh supervisor. Unconfirmed cleanup refuses the replacement
+instead of orphaning the old process group; process start remains closed while
+status and stop can remediate the preserved supervisor.
+
+Each shipped model-callable tool invocation appends a hash-only intent to Pi
+session state before its implementation runs and exactly one hash-only result afterward. Raw
+arguments, file contents, and process output are not copied into that journal.
+If intent persistence fails, no tool effect runs. If result persistence fails
+after process start, Helix stops that process before returning the refusal.
+Each tool-call id is one-use for the complete Pi session, whose ledger admits at
+most 4,096 calls. An opaque in-memory
+intent token prevents a late result from an earlier session from settling a
+reused id in the next one. Those identities reset at the session boundary;
+process-supervisor replacement remains separately conditional on confirmed
+cleanup.
+These tools use the user's local Pi authority and are not the command-gate OS
+sandbox or an alternative workflow engine.
+
 ## Security and limits
 
 Workflows are closed JSON; conditions cannot execute code. Command gates are
@@ -340,6 +421,17 @@ npm run check:public-safety-diff
 npm run check:workflow-conformance
 npm run check:provider-contracts
 npm run check:package
+```
+
+For a focused human/agent interaction regression while developing the Pi
+control plane:
+
+```sh
+node --test \
+  tests/helix-control-plane-e2e.test.mjs \
+  tests/helix-command-extension.test.mjs \
+  tests/helix-tools-extension.test.mjs \
+  tests/answer-extension.test.mjs
 ```
 
 Local `check:package` verifies the extracted artifact structurally. CI passes

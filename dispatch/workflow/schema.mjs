@@ -1,8 +1,8 @@
-// WorkflowDefinition v4 — the closed, provider-neutral workflow IR.
+// WorkflowDefinition v4/v5 — the closed, provider-neutral workflow IR.
 //
-// The v4 document is the only user-deployable runtime definition. Existing
+// V4 and v5 documents are directly deployable runtime definitions. Existing
 // schema-v1 workflow documents are accepted as migration input and normalized
-// into this shape before validation, hashing, consent, persistence, or run.
+// to v4 before validation, hashing, consent, persistence, or run.
 // Runtime code never evaluates user JavaScript or expressions.
 
 import { createHash } from "node:crypto";
@@ -46,6 +46,10 @@ export const WORKFLOW_LIMITS = Object.freeze({
   max_implicit_node_visits: 1_256,
   max_reduce_separator_length: 32,
   max_checkpoint_reason_length: 128,
+  max_human_question_length: 1_024,
+  max_human_choice_label_length: 128,
+  max_human_choices: 16,
+  max_human_response_length: 4_096,
   max_gate_marker_length: 256,
   max_gate_command_length: 128,
   max_gate_args: 32,
@@ -70,7 +74,8 @@ const {
   max_call_ms: MAX_CALL_MS,
 } = WORKFLOW_LIMITS;
 
-export const WORKFLOW_SCHEMA_VERSION = 4;
+export const WORKFLOW_SCHEMA_VERSION = 5;
+export const WORKFLOW_SCHEMA_VERSIONS = Object.freeze([4, 5]);
 export const WORKFLOW_DEFAULTS = Object.freeze({
   max_total_effects: 32,
   max_concurrency: 4,
@@ -84,7 +89,12 @@ export const WORKFLOW_DEFAULTS = Object.freeze({
 export const WORKFLOW_NODE_KINDS = Object.freeze([
   "agent", "parallel", "map", "pipeline", "reduce",
   "decision", "gate", "checkpoint", "subworkflow", "terminal",
+  "human-choice",
 ]);
+
+export function isWorkflowDefinitionDocument(value) {
+  return plain(value) && WORKFLOW_SCHEMA_VERSIONS.includes(value.schema_version);
+}
 
 export function workflowChildDefinitionArtifactName(runId, workflowId, version) {
   if (typeof runId !== "string" || !RUN_ID.test(runId) || runId === "." || runId === ".."
@@ -476,7 +486,7 @@ function validateInlineAgent(agent, path, errors) {
   else validateAgent(agent, path, errors, { inline: true });
 }
 
-function validateNode(node, id, path, errors) {
+function validateNode(node, id, path, errors, schemaVersion) {
   if (!plain(node) || !WORKFLOW_NODE_KINDS.includes(node.kind)) {
     errors.push(issue(path, "must be a supported workflow node"));
     return;
@@ -584,6 +594,34 @@ function validateNode(node, id, path, errors) {
       || node.reason.length > WORKFLOW_LIMITS.max_checkpoint_reason_length) errors.push(issue(path, "checkpoint requires a stable reason and next"));
     return;
   }
+  if (node.kind === "human-choice") {
+    if (schemaVersion !== 5) {
+      errors.push(issue(path, "human-choice requires WorkflowDefinition v5"));
+      return;
+    }
+    if (!exactKeys(node, ["kind", "question", "choices", "allow_custom"], ["custom_target", "label"])
+      || typeof node.question !== "string" || node.question.trim() === ""
+      || node.question.length > WORKFLOW_LIMITS.max_human_question_length
+      || !Array.isArray(node.choices) || node.choices.length < 1
+      || node.choices.length > WORKFLOW_LIMITS.max_human_choices
+      || typeof node.allow_custom !== "boolean"
+      || (node.allow_custom !== true && node.custom_target != null)
+      || (node.allow_custom === true && !safeId(node.custom_target, NODE_ID))) {
+      errors.push(issue(path, "human-choice requires a bounded question, choices, and explicit custom routing"));
+      return;
+    }
+    const ids = new Set();
+    node.choices.forEach((choice, index) => {
+      if (!exactKeys(choice, ["id", "label", "target"])
+        || !safeId(choice.id) || choice.id === "custom" || ids.has(choice.id)
+        || typeof choice.label !== "string" || choice.label.trim() === ""
+        || choice.label.length > WORKFLOW_LIMITS.max_human_choice_label_length) {
+        errors.push(issue(`${path}.choices[${index}]`, "must contain a unique safe id, bounded label, and target"));
+      }
+      ids.add(choice?.id);
+    });
+    return;
+  }
   if (node.kind === "subworkflow") {
     if (!exactKeys(node, ["kind", "workflow_id", "version", "next"], ["label"])
       || !safeId(node.workflow_id) || !safeInteger(node.version, 1, WORKFLOW_LIMITS.max_version)) {
@@ -620,6 +658,14 @@ function nodeEdges(node) {
       ...(node.loops_off == null ? [] : [{ field: "loops_off", target: node.loops_off }]),
     ];
   }
+  if (node.kind === "human-choice") {
+    return [
+      ...(Array.isArray(node.choices)
+        ? node.choices.map((entry, index) => ({ field: `choices[${index}].target`, target: entry?.target }))
+        : []),
+      ...(node.allow_custom === true ? [{ field: "custom_target", target: node.custom_target }] : []),
+    ];
+  }
   return [];
 }
 
@@ -649,9 +695,11 @@ export function validateWorkflowDefinition(definition) {
     "limits", "provider_policy", "workspace_policy", "objective_gate",
   ];
   if (!exactKeys(definition, required)) {
-    return { valid: false, errors: [issue("$", "must contain every WorkflowDefinition v4 field and no unknown fields")] };
+    return { valid: false, errors: [issue("$", "must contain every WorkflowDefinition v4/v5 field and no unknown fields")] };
   }
-  if (definition.schema_version !== WORKFLOW_SCHEMA_VERSION) errors.push(issue("$.schema_version", "must equal 4"));
+  if (!WORKFLOW_SCHEMA_VERSIONS.includes(definition.schema_version)) {
+    errors.push(issue("$.schema_version", "must equal 4 or 5"));
+  }
   if (!safeId(definition.id)) errors.push(issue("$.id", "must be a safe workflow id"));
   if (typeof definition.name !== "string" || definition.name.trim() === ""
     || definition.name.length > WORKFLOW_LIMITS.max_name_length) errors.push(issue("$.name", "must be non-empty and at most 128 characters"));
@@ -668,7 +716,7 @@ export function validateWorkflowDefinition(definition) {
   const nodeIds = Object.keys(nodes);
   for (const id of nodeIds) {
     if (!safeId(id, NODE_ID)) errors.push(issue(`$.nodes.${id}`, "node id is unsafe"));
-    validateNode(nodes[id], id, `$.nodes.${id}`, errors);
+    validateNode(nodes[id], id, `$.nodes.${id}`, errors, definition.schema_version);
   }
   if (!Object.hasOwn(nodes, definition.start)) errors.push(issue("$.start", "must reference an existing node"));
   for (const [id, node] of Object.entries(nodes)) {
@@ -930,7 +978,7 @@ function migrateWorkflowV1Checked(workflow) {
     else if (cyclic.length === 0) delete node.loops_off;
   }
   const definition = {
-    schema_version: WORKFLOW_SCHEMA_VERSION,
+    schema_version: 4,
     id: workflow.id,
     name: workflow.description.split(/[.!?]/, 1)[0].slice(0, WORKFLOW_LIMITS.max_name_length) || workflow.id,
     description: workflow.description,
@@ -972,7 +1020,7 @@ function migrateWorkflowV1Checked(workflow) {
   return valid.valid ? { ok: true, definition } : { ok: false, code: "workflow-migration-invalid", errors: valid.errors };
 }
 
-/** Losslessly normalize the current saved workflow shape into v4. */
+/** Losslessly normalize the legacy saved workflow shape into v4. */
 export function migrateWorkflowV1(workflow) {
   if (!plain(workflow) || workflow.schema_version !== 1 || !Array.isArray(workflow.stages)) {
     return { ok: false, code: "workflow-migration-input-invalid" };
@@ -986,7 +1034,7 @@ export function migrateWorkflowV1(workflow) {
 
 export function normalizeWorkflowDefinition(workflow) {
   try {
-    if (workflow?.schema_version === WORKFLOW_SCHEMA_VERSION) {
+    if (WORKFLOW_SCHEMA_VERSIONS.includes(workflow?.schema_version)) {
       const valid = validateWorkflowDefinition(workflow);
       return valid.valid
         ? { ok: true, definition: structuredClone(workflow), migrated: false }
@@ -995,7 +1043,7 @@ export function normalizeWorkflowDefinition(workflow) {
     const migrated = migrateWorkflowV1(workflow);
     return migrated.ok ? { ...migrated, migrated: true } : migrated;
   } catch {
-    return { ok: false, code: workflow?.schema_version === WORKFLOW_SCHEMA_VERSION
+    return { ok: false, code: WORKFLOW_SCHEMA_VERSIONS.includes(workflow?.schema_version)
       ? "invalid-workflow-v4"
       : "workflow-migration-input-invalid" };
   }
