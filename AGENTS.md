@@ -518,10 +518,12 @@ The single source for test rules.
   confirmation-in-flight starts, suppresses late status/completion delivery,
   then aborts and awaits every active run. Session replacement performs the
   same close without requiring a preceding shutdown event. Resume reconciles a
-  matching same-session paused record, and run control re-reads state after
-  every open selection/confirmation boundary before acting. The next Pi session
-  receives a fresh supervisor and cleared run-status projection; late resume
-  completion cannot restore prior-session UI.
+  matching settled same-session record only when its normalized outcome is
+  explicitly resumable; this includes durable pauses and recoverable kernel
+  failures, while completed and other nonresumable records remain closed. Run
+  control re-reads state after every open selection/confirmation boundary before
+  acting. The next Pi session receives a fresh supervisor and cleared run-status
+  projection; late resume completion cannot restore prior-session UI.
   An active attended resume is re-admitted to that supervisor, so direct stop,
   control cancellation, command abort, and session close cancel and await its
   exact execution.

@@ -47,9 +47,11 @@ structural status for `/helix-control`, preserves a durable pause as `paused`,
 and delivers one completion while the session remains active. Session shutdown
 closes any confirmation-in-flight start, suppresses late status/completion
 delivery, then aborts and awaits active runs. Session replacement performs the
-same close even without a preceding shutdown event. A resumed paused run
-reconciles its matching session record, and control re-reads selected state
-after open UI boundaries rather than acting on a stale snapshot. A new Pi
+same close even without a preceding shutdown event. A durable pause or
+recoverable kernel interruption reconciles its matching settled session record
+only when the normalized outcome is explicitly resumable; completed and other
+nonresumable records remain closed. Control re-reads selected state after open
+UI boundaries rather than acting on a stale snapshot. A new Pi
 session receives a fresh supervisor and a cleared run-status projection; late
 resume completion cannot restore prior-session UI. Durable public/private run state remains
 owned by the existing execution/checkpoint path and survives the session.
