@@ -105,12 +105,14 @@ not failed. Exactly one completion message is delivered per session run while
 the session remains active; session shutdown suppresses late UI/completion
 delivery, aborts active workflows, and waits for them to settle. A session
 replacement performs that same close even if Pi did not first emit a separate
-shutdown event. Resume updates any matching same-session paused control record,
-so `/helix-control` reflects the new terminal or paused outcome. The control
-center re-reads a selected run after every open menu and reports an already
-closed run if it settles while cancellation confirmation is open. Session
-replacement clears the old background-run status, and late resume completion
-cannot restore it. Durable
+shutdown event. Resume updates a matching settled same-session control record
+only when its normalized outcome is explicitly resumable, including both a
+durable pause and a recoverable kernel interruption. Completed and other
+nonresumable records remain closed. `/helix-control` therefore reflects the new
+terminal or paused outcome. The control center re-reads a selected run after
+every open menu and reports an already closed run if it settles while
+cancellation confirmation is open. Session replacement clears the old
+background-run status, and late resume completion cannot restore it. Durable
 `/helix-runs`, status, watch, resume, and prune remain the source of truth
 across sessions.
 While attended resume execution is active, the session supervisor projects it
@@ -242,10 +244,11 @@ bypassed by a pause or a late selection.
 
 Workspace, journal, or scheduler-checkpoint recovery failures with a durable
 private checkpoint remain incomplete and render as **interrupted** with the
-same explicit resume action. A failure before the first checkpoint remains an
-incomplete, nonresumable initialization record; it never claims completed
-checkpoint authority or advertises resume, but watch can still render its empty
-committed prefix.
+same explicit resume action. That action is accepted by a matching current
+Pi-session supervisor record as well as after a later session starts. A failure
+before the first checkpoint remains an incomplete, nonresumable initialization
+record; it never claims completed checkpoint authority or advertises resume,
+but watch can still render its empty committed prefix.
 - `/helix-run-prune <run-id>` removes a structural run directory only after TUI
   confirmation. It does not guess ownership of retained worktrees or private
   checkpoints.

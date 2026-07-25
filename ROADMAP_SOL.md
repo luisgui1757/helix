@@ -1840,3 +1840,22 @@ local and Linux execution, the complete test and workflow kernels, packaging,
 runtime discovery, policy checks, and active no-egress smoke all pass.
 
 The replacement exact-head `test` check remains mandatory before merge.
+
+## 2026-07-25 — Same-session recoverable-interruption resume
+
+Status: **DONE — independent C0/H0/M1 audit finding fixed and verified at
+C0/H0/M0/L0**.
+
+The Pi-session supervisor now re-admits a matching settled background-run
+record only when its normalized outcome is explicitly resumable. This closes
+the gap where a durable recoverable kernel interruption advertised
+`/helix-run-resume` but its retained `failed` session record rejected that
+same-session action. Completed, ordinarily cancelled, active, label-drifting,
+and all other nonresumable records remain closed.
+
+Verification: 2/2 focused, 42/42 command/supervisor integration, 900/900
+primary, 72/72 graph kernel, 12/12 worktree, 8/8 objective loop, 183/183
+workflow conformance plus 72/72 graph kernel, 35/35 provider contracts,
+106-file extracted package with installed Pi 0.80.10 RPC/default-factory proof,
+and 5/5 active Docker no-egress. Resources, documentation truth, repository
+policy, static no-live-egress, public-safety diff, and diff whitespace pass.

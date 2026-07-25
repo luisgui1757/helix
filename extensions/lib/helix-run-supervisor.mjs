@@ -145,7 +145,8 @@ export function createRunSupervisor({ now = Date.now } = {}) {
         return { ok: false, code: "run-supervisor-resume-invalid" };
       }
       let record = records.get(run_id);
-      if (record && (record.status !== "paused" || record.label !== label)) {
+      if (record && (record.label !== label
+        || !terminal(record.status) || record.result?.resumable !== true)) {
         return { ok: false, code: "run-supervisor-resume-invalid" };
       }
       const active = [...records.values()].filter((entry) => !terminal(entry.status)).length;

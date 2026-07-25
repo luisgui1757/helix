@@ -930,6 +930,77 @@ test("attended graph-mode executes, watches, pauses, resumes, and cleans up its 
   }
 });
 
+test("a recoverable background interruption resumes through the same Pi session supervisor", async () => {
+  const stateRoot = mkdtempSync(join(tmpdir(), "helix-interrupted-resume-e2e-"));
+  const previous = process.env.HELIX_STATE_DIR;
+  process.env.HELIX_STATE_DIR = stateRoot;
+  const cwd = mkdtempSync(join(tmpdir(), "helix-interrupted-resume-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.email", "helix@example.invalid"], { cwd });
+  execFileSync("git", ["config", "user.name", "Helix Interrupted Resume E2E"], { cwd });
+  writeFileSync(join(cwd, "baseline.txt"), "baseline\n", "utf8");
+  execFileSync("git", ["add", "baseline.txt"], { cwd });
+  execFileSync("git", ["commit", "-q", "-m", "baseline"], { cwd });
+  const built = workflow({
+    id: "interrupted-resume-e2e",
+    name: "Interrupted resume E2E",
+    description: "A recoverable background interruption remains resumable in the same Pi session.",
+    start: "objective",
+    nodes: {
+      objective: objectiveGate("succeeded", "failed"),
+      succeeded: terminal("succeeded"),
+      failed: terminal("failed", "interrupted-resume-objective-failed"),
+    },
+    objective_gate: {
+      type: "command-exit-zero", command: "node", args: ["-e", "process.exit(0)"], timeout_ms: 1_000,
+    },
+  });
+  assert.equal(built.ok, true, JSON.stringify(built.errors));
+  assert.equal(saveUserWorkflowV4(stateRoot, built.definition).ok, true);
+  const { commands, messages } = loadHelixCommands();
+  const task = "Resume this recoverable interruption";
+  let statusUpdates = 0;
+  let injectEventFailure = true;
+  const notices = [];
+  const ui = {
+    async input() { return task; },
+    async confirm() { return true; },
+    notify(message, level) { notices.push({ message, level }); },
+    setStatus() {
+      statusUpdates += 1;
+      if (injectEventFailure && statusUpdates === 3) {
+        injectEventFailure = false;
+        throw new Error("synthetic-event-sink-failure");
+      }
+    },
+    setWorkingMessage() {},
+    setWorkingVisible() {},
+  };
+  try {
+    await commandByName(commands, "helix-run").handler(
+      `interrupted-resume-e2e --execution-mode graph-mode -- ${task}`,
+      { mode: "tui", cwd, ui },
+    );
+    const interrupted = await waitForMessage(messages, "Helix run interrupted");
+    assert.match(interrupted.content, /Reason: kernel-event-write-failed/);
+    const runId = interrupted.details.run_id;
+    const statePath = join(stateRoot, "runs", runId, `${runId}.state.json`);
+    assert.equal(JSON.parse(readFileSync(statePath, "utf8")).completed, false);
+
+    await commandByName(commands, "helix-run-resume").handler(runId, { mode: "tui", cwd, ui });
+    const completed = messages.at(-1).message;
+    assert.equal(completed.details.title, "Helix run complete");
+    assert.equal(completed.details.run_id, runId);
+    assert.equal(JSON.parse(readFileSync(statePath, "utf8")).completed, true);
+    assert.equal(notices.some((entry) => /run-supervisor-resume-invalid/.test(entry.message)), false);
+  } finally {
+    if (previous === undefined) delete process.env.HELIX_STATE_DIR;
+    else process.env.HELIX_STATE_DIR = previous;
+    rmSync(stateRoot, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("helix-run-stop interrupts an active attended resume through the shared run supervisor", async () => {
   const stateRoot = mkdtempSync(join(tmpdir(), "helix-resume-stop-e2e-"));
   const previous = process.env.HELIX_STATE_DIR;

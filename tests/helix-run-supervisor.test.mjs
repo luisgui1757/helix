@@ -114,6 +114,44 @@ test("run supervisor preserves a durable workflow pause as a closed paused sessi
   await supervisor.shutdown();
 });
 
+test("run supervisor resumes an explicitly resumable failed session record", async () => {
+  const supervisor = createRunSupervisor();
+  const interrupted = supervisor.start({
+    run_id: "run-interrupted",
+    label: "workflow-interrupted",
+    async execute() {
+      return {
+        ok: false,
+        code: "kernel-event-write-failed",
+        stop_reason: "failed",
+        resumable: true,
+        state_path: "/private/path",
+      };
+    },
+  });
+  await interrupted.completion;
+  const settled = supervisor.status("run-interrupted").run;
+  assert.equal(settled.status, "failed");
+  assert.equal(settled.outcome.resumable, true);
+
+  const resumed = supervisor.resume({
+    run_id: "run-interrupted",
+    label: "workflow-interrupted",
+    async execute() {
+      return {
+        ok: true,
+        code: null,
+        converged: true,
+        state_path: "/private/path",
+      };
+    },
+  });
+  assert.equal(resumed.ok, true);
+  await resumed.completion;
+  assert.equal(supervisor.status("run-interrupted").run.status, "succeeded");
+  await supervisor.shutdown();
+});
+
 test("run supervisor owns cancellation for a resumed durable run absent from the session", async () => {
   const supervisor = createRunSupervisor();
   const resumed = supervisor.resume({

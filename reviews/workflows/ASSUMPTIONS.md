@@ -1182,3 +1182,26 @@ Rejected alternatives:
 - “The run selected by `/helix-control` cannot change while the UI is open”:
   rejected. Background execution is the purpose of that surface; every awaited
   interaction must treat its prior snapshot as stale.
+
+## 2026-07-25 — Same-session recoverable-interruption resume invariant
+
+- The Pi-session run supervisor is a bounded control-plane projection, not the
+  durable resume authority. A matching retained record may be re-admitted only
+  after it has settled and its normalized outcome explicitly carries
+  `resumable: true`.
+- `paused` is not the only resumable session status. A workspace, journal,
+  event, or scheduler-checkpoint failure after an earlier durable checkpoint
+  projects as `failed` while remaining explicitly resumable; the same-session
+  `/helix-run-resume` path must reconcile that record.
+- Completed success, ordinary terminal cancellation, active work, label drift,
+  and every other nonresumable outcome remain closed. Cross-session resume
+  continues to derive authority solely from the private/public durable run
+  state.
+
+Rejected alternatives:
+
+- “Only a `paused` record may resume”: rejected. Recoverable kernel failures
+  deliberately retain an incomplete durable checkpoint and advertise the same
+  resume command while their structural run status is `failed`.
+- “Any settled record may resume”: rejected. Settlement alone does not prove
+  resumability; the normalized outcome must explicitly carry the capability.

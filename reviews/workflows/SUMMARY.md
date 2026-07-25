@@ -1872,3 +1872,48 @@ Final exact-tree verification:
 The live-provider certification gate was not run because it requires explicit
 out-of-band approval; this fixture-only correction changes no provider, route,
 model, account, or live attestation behavior.
+
+## 2026-07-25 — Same-session recoverable-interruption resume closure
+
+Status: the independent Claude Code Opus 5 whole-repository audit returned
+**HOLD — C0/H0/M1** against `2142c801a792f933232341a49766f2bbc116d7c4`.
+The subsequent Codex review reproduced the core defect and rejected the
+report's broader ordinary-cancellation example: an ordinary cancellation is a
+completed terminal and is not resumable.
+
+Accepted finding and resolution:
+
+- A background workflow that stopped after an earlier durable checkpoint with
+  a recoverable event, workspace, journal, or scheduler-checkpoint failure
+  correctly rendered **interrupted** and advertised `/helix-run-resume`.
+  Its session supervisor record was structurally `failed`, however, and the
+  supervisor admitted only `paused`, so the advertised same-session action
+  always refused with `run-supervisor-resume-invalid`.
+- Resume admission now requires a matching label, a settled record, and an
+  explicitly normalized `resumable: true` outcome. This admits durable pauses
+  and recoverable failed interruptions without opening completed success,
+  ordinary terminal cancellation, active work, or any other nonresumable
+  record.
+- Focused unit coverage proves the supervisor re-admits an explicitly
+  resumable failed record. A complete command-path regression injects an event
+  sink failure immediately after the first durable checkpoint, observes the
+  interrupted public state, resumes through the same Pi-session supervisor,
+  and reaches the truthful successful terminal.
+
+Verification:
+
+- pre-fix focused regression: 0/2, both failing at the resume-admission defect;
+- post-fix focused regression: 2/2;
+- complete command/supervisor files: 42/42;
+- `npm test`: 900/900 primary, 72/72 graph-mode kernel, 12/12 worktree, and
+  8/8 objective loop;
+- workflow conformance: 183/183 primary plus 72/72 graph-mode kernel;
+- provider contracts: 35/35;
+- extracted package: 106 files, installed Pi 0.80.10 RPC and shipped default
+  factory pass;
+- active Docker no-egress: 5/5, including offline Pi 0.80.7 load and the
+  localhost-only mock session; and
+- resources, documentation truth, repository policy, static no-live-egress,
+  public-safety diff, and diff whitespace: pass.
+
+Final verdict: **SHIP — C0/H0/M0/L0**.
