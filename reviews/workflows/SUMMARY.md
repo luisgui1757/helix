@@ -1917,3 +1917,69 @@ Verification:
   public-safety diff, and diff whitespace: pass.
 
 Final verdict: **SHIP — C0/H0/M0/L0**.
+
+## 2026-07-25 — Exact-provider interruption cleanup closure
+
+Status: the independent Claude Code Opus 5 whole-repository audit returned
+**HOLD — C0/H0/M1** against `bb86c84b94e3f54673e8647d9d1b97eb1eca0311`.
+The subsequent Codex review reproduced the control-flow defect and confirmed
+the operator-cancellation, run-deadline, and per-effect-timeout reachability.
+
+Accepted finding and resolution:
+
+- The Pi adapter raced session disposal, audit settlement, and proxy close
+  against the same provider-call boundary that cancellation or timeout had
+  already rejected. Disposal or settlement could therefore throw out of
+  `finally` before proxy close, call-timer clear, and abort-listener removal,
+  retaining the localhost server and credential-bearing closure.
+- Cleanup now has one independent bounded window. Every teardown operation is
+  invoked even after an earlier step rejects or times out; proxy close is
+  initiated even when that cleanup window is already exhausted. The original
+  provider, session, or interruption error remains primary, with any cleanup
+  failure attached as the stable secondary `cleanup_code`.
+- Review of the acquisition side found the same race before assignment: an
+  audit proxy or Pi session could resolve after cancellation won, while no
+  assigned handle existed for `finally` to release. Pending acquisitions now
+  remain explicitly owned. Already-resolved resources are adopted into bounded
+  teardown; later resolutions close the proxy or abort and dispose the session.
+- The default production factory still owns the real OpenRouter audit proxy.
+  An explicit injected proxy factory exists only as the system-boundary test
+  seam needed to reproduce interrupted exact execution without a provider call.
+- A focused regression cancels a real exact-adapter invocation while provider
+  prompt, session disposal, and audit settlement remain pending. It proves the
+  returned cause stays `pi-agent-call-cancelled`, the cleanup failure remains
+  visible, and disposal, settlement, and proxy close are all invoked.
+- Two red-first acquisition regressions cover a proxy resolving after the
+  cancelled run has returned and the tighter microtask race where a session
+  resolves after cancellation but before `finally`; both prove the late
+  resources are released without starting a provider prompt.
+
+Verification:
+
+- pre-fix focused regression: 0/1, failing because audit settlement and proxy
+  close were skipped;
+- post-fix focused regression: 1/1;
+- pre-acquisition-fix follow-up regressions: 0/2, proving the late proxy and
+  session were both left unowned;
+- post-acquisition-fix follow-up regressions: 2/2;
+- complete adapter/proxy files: 24/24;
+- `npm test`: 903/903 primary, 72/72 graph-mode kernel, 12/12 worktree, and
+  8/8 objective loop;
+- workflow conformance: 183/183 primary plus 72/72 graph-mode kernel;
+- provider contracts: 38/38;
+- extracted package: 106 files, installed Pi 0.80.10 RPC and shipped default
+  factory pass;
+- active Docker no-egress: 5/5, including offline Pi 0.80.7 load and the
+  localhost-only mock session; and
+- deterministic dispatch/revision smokes, 22-command Pi discovery, resources,
+  documentation truth, repository policy, static no-live-egress, public-safety
+  diff, and diff whitespace: pass.
+
+Live-provider certification was not run because it requires separate explicit
+approval. The deterministic shipped-default-factory proof exercises the real
+localhost audit-proxy path without provider egress.
+
+Finding status: **CLOSED — reported scope C0/H0/M0**.
+Delivery status: locally verified on the dedicated fix branch. Exact-head
+protected-main pull-request checks determine merge readiness; merge remains
+operator-owned.

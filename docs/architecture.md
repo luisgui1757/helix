@@ -402,7 +402,12 @@ account, selecting one active ZDR route with the required token/reasoning
 parameters, injecting Pi's native `openRouterRouting` controls, and auditing
 the request and streamed identity through a session-local `127.0.0.1`
 byte-forwarding proxy. Exact real Pi execution is one read-only, tool-free
-provider turn with all Pi transport retries disabled. A real tool-bearing or
+provider turn with all Pi transport retries disabled. Its rejected
+cancellation/timeout boundary cannot short-circuit teardown: a separate bounded
+cleanup window attempts session disposal, audit settlement and close, timer
+clear, and listener removal before returning the first causal failure. A
+session or proxy whose acquisition loses that race is either adopted into the
+same cleanup or released when it resolves. A real tool-bearing or
 mutating definition refuses before credential/control-plane access until Helix
 can own and journal every internal turn; deterministic mocks still receive the
 validated tools and mutation mode. Consent binds the certificate; drift refuses

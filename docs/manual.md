@@ -335,7 +335,10 @@ model, endpoint tag, provider, and quantization, displays the route and account
 reference for consent, pins the tag and quantization, and audits the request and
 streamed identity through a session-local `127.0.0.1` proxy. Exact real Pi
 execution is one read-only, tool-free provider turn with transport retries
-disabled; tool-bearing or mutating real definitions refuse before credential
+disabled. Cancelling or timing out that turn retains the interruption as the
+reported cause, but does not skip bounded session/proxy teardown, timer clearing,
+abort-listener removal, or cleanup of a session/proxy acquisition that resolves
+after the interruption. Tool-bearing or mutating real definitions refuse before credential
 or provider-control access. Response and generation model/provider observations must both
 match their documented contracts: the streamed response model is mandatory,
 optional route metadata cannot drift, and generation model/provider proves the

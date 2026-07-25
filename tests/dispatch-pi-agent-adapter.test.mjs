@@ -483,6 +483,165 @@ test("Pi adapter bounds hung calls, aborts the session, and exposes only a stabl
   assert.equal(disposed, 1);
 });
 
+test("an interrupted exact Pi effect closes its audit proxy even when other cleanup remains pending", async () => {
+  const model = { provider: "openrouter", id: "vendor/exact:free", reasoning: false };
+  const registry = {
+    authStorage: { async getApiKey() { return "test-credential"; } },
+    find: () => model,
+    hasConfiguredAuth: () => true,
+  };
+  const fetchImpl = async (url) => url.endsWith("/key")
+    ? jsonResponse({ data: { creator_user_id: "account-id" } })
+    : jsonResponse({ data: [{
+      model_id: model.id, provider_name: "ExactRoute", tag: "exact-route/variant-a", quantization: "fp8", status: 0,
+      supported_parameters: ["max_tokens"],
+    }] });
+  const controller = new AbortController();
+  let promptStartedResolve;
+  const promptStarted = new Promise((resolve) => { promptStartedResolve = resolve; });
+  let disposeStarted = 0;
+  let settleStarted = 0;
+  let proxyClosed = 0;
+  const adapter = createPiAgentAdapter({
+    modelRegistry: registry,
+    exactMode: true,
+    fetchImpl,
+    callTimeoutMs: 20,
+    now: () => Date.parse("2026-07-16T00:00:00Z"),
+    auditProxyFactory: async () => ({
+      base_url: "http://127.0.0.1:1/api/v1",
+      settle() { settleStarted += 1; return new Promise(() => {}); },
+      verify() { return false; },
+      status() {
+        return {
+          calls: 1, completed: 0, finished: 0, invalid: true,
+          provider_observed: false, model_observed: false, upstream_status: null, failure_code: "proxy-stream-failed",
+        };
+      },
+      async close() { proxyClosed += 1; },
+    }),
+    sessionFactory: async () => ({
+      messages: [],
+      prompt() {
+        promptStartedResolve();
+        return new Promise(() => {});
+      },
+      async abort() {},
+      dispose() {
+        disposeStarted += 1;
+        return new Promise(() => {});
+      },
+    }),
+  });
+  const spec = {
+    role: "builder", provider: "openrouter", model: model.id, effort: "default", tools: [], mutation: "read-only",
+  };
+  assert.equal((await adapter.preflightExact([spec])).ok, true);
+  const run = adapter.runCandidate(spec, candidateContext({
+    run_id: "cancelled-exact", cwd: "/tmp", prompt: "work", signal: controller.signal,
+  }));
+  await promptStarted;
+  controller.abort("operator-cancelled");
+  await assert.rejects(run, (error) => {
+    assert.equal(error.message, "pi-agent-call-cancelled");
+    assert.equal(error.cleanup_code, "pi-agent-session-failed");
+    return true;
+  });
+  assert.equal(adapter.lastFailureCode(), "pi-agent-call-cancelled");
+  assert.equal(disposeStarted, 1);
+  assert.equal(settleStarted, 1);
+  assert.equal(proxyClosed, 1);
+});
+
+test("an interrupted exact Pi effect closes an audit proxy that resolves after cancellation", async () => {
+  const model = { provider: "openrouter", id: "vendor/exact:free", reasoning: false };
+  const registry = {
+    authStorage: { async getApiKey() { return "test-credential"; } },
+    find: () => model,
+    hasConfiguredAuth: () => true,
+  };
+  const fetchImpl = async (url) => url.endsWith("/key")
+    ? jsonResponse({ data: { creator_user_id: "account-id" } })
+    : jsonResponse({ data: [{
+      model_id: model.id, provider_name: "ExactRoute", tag: "exact-route/variant-a", quantization: "fp8", status: 0,
+      supported_parameters: ["max_tokens"],
+    }] });
+  const controller = new AbortController();
+  let factoryStartedResolve;
+  const factoryStarted = new Promise((resolve) => { factoryStartedResolve = resolve; });
+  let resolveProxy;
+  const proxyCreating = new Promise((resolve) => { resolveProxy = resolve; });
+  let proxyClosed = 0;
+  const adapter = createPiAgentAdapter({
+    modelRegistry: registry,
+    exactMode: true,
+    fetchImpl,
+    callTimeoutMs: 20,
+    now: () => Date.parse("2026-07-16T00:00:00Z"),
+    auditProxyFactory: () => {
+      factoryStartedResolve();
+      return proxyCreating;
+    },
+    sessionFactory: async () => {
+      assert.fail("a cancelled audit-proxy acquisition must not create a session");
+    },
+  });
+  const spec = {
+    role: "builder", provider: "openrouter", model: model.id, effort: "default", tools: [], mutation: "read-only",
+  };
+  assert.equal((await adapter.preflightExact([spec])).ok, true);
+  const run = adapter.runCandidate(spec, candidateContext({
+    run_id: "cancelled-proxy-create", cwd: "/tmp", prompt: "work", signal: controller.signal,
+  }));
+  await factoryStarted;
+  controller.abort("operator-cancelled");
+  await assert.rejects(run, { message: "pi-agent-call-cancelled" });
+  resolveProxy({
+    base_url: "http://127.0.0.1:1/api/v1",
+    async close() { proxyClosed += 1; },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(proxyClosed, 1);
+});
+
+test("an interrupted Pi effect aborts and disposes a session that resolves after cancellation", async () => {
+  const model = { provider: "openrouter", id: "free" };
+  const controller = new AbortController();
+  let factoryStartedResolve;
+  const factoryStarted = new Promise((resolve) => { factoryStartedResolve = resolve; });
+  let resolveSession;
+  const sessionCreating = new Promise((resolve) => { resolveSession = resolve; });
+  let aborted = 0;
+  let disposed = 0;
+  const adapter = createPiAgentAdapter({
+    modelRegistry: {
+      authStorage: {},
+      find: () => model,
+      hasConfiguredAuth: () => true,
+    },
+    callTimeoutMs: 20,
+    sessionFactory: () => {
+      factoryStartedResolve();
+      return sessionCreating;
+    },
+  });
+  const run = adapter.runCandidate(
+    { role: "builder", provider: "openrouter", model: "free" },
+    candidateContext({ run_id: "cancelled-session-create", cwd: "/tmp", prompt: "work", signal: controller.signal }),
+  );
+  await factoryStarted;
+  controller.abort("operator-cancelled");
+  resolveSession({
+    messages: [],
+    async prompt() { assert.fail("a cancelled session acquisition must not prompt"); },
+    async abort() { aborted += 1; },
+    async dispose() { disposed += 1; },
+  });
+  await assert.rejects(run, { message: "pi-agent-call-cancelled" });
+  assert.equal(aborted, 1);
+  assert.equal(disposed, 1);
+});
+
 test("the per-call deadline starts before session and resource loading", async () => {
   const model = { provider: "openrouter", id: "free" };
   const adapter = createPiAgentAdapter({

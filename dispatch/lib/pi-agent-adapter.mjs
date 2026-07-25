@@ -219,6 +219,7 @@ async function defaultSessionFactory({ cwd, model, modelRegistry, tools, thinkin
 export function createPiAgentAdapter({
   modelRegistry,
   sessionFactory = defaultSessionFactory,
+  auditProxyFactory = sessionFactory === defaultSessionFactory ? createOpenRouterAuditProxy : null,
   signal = null,
   callTimeoutMs = 10 * 60 * 1000,
   exactMode = false,
@@ -415,11 +416,17 @@ export function createPiAgentAdapter({
     }
     const activeSignals = [...new Set([signal, ctx.signal].filter(Boolean))];
     let session = null;
+    let sessionCreating = null;
+    let unclaimedSession = null;
+    let releaseUnclaimedSession = false;
     let auditProxy = null;
+    let auditProxyCreating = null;
+    let unclaimedAuditProxy = null;
+    let releaseUnclaimedAuditProxy = false;
     let auditVerified = false;
     let assistant;
     let timer = null;
-    let finished = false;
+    let pendingError = null;
     const abortSession = () => { void session?.abort?.(); };
     let rejectBoundary;
     const boundary = new Promise((_, reject) => { rejectBoundary = reject; });
@@ -441,8 +448,8 @@ export function createPiAgentAdapter({
     try {
       try {
         let sessionModel = model;
-        if (certificate && sessionFactory === defaultSessionFactory) {
-          auditProxy = await bounded(createOpenRouterAuditProxy({
+        if (certificate && auditProxyFactory) {
+          const creatingAuditProxy = Promise.resolve(auditProxyFactory({
             model: certificate.model.id,
             route: certificate.route,
             providerName: certificate.provider_name,
@@ -451,9 +458,20 @@ export function createPiAgentAdapter({
             signal: ctx.signal ?? signal,
             fetchImpl,
           }));
+          auditProxyCreating = creatingAuditProxy.then(async (createdProxy) => {
+            if (releaseUnclaimedAuditProxy) {
+              await createdProxy.close();
+              return null;
+            }
+            unclaimedAuditProxy = createdProxy;
+            return createdProxy;
+          });
+          auditProxy = await bounded(auditProxyCreating);
+          unclaimedAuditProxy = null;
+          if (!auditProxy) throw new Error("openrouter-audit-proxy-failed");
           sessionModel = { ...model, baseUrl: auditProxy.base_url };
         }
-        const creating = Promise.resolve(sessionFactory({
+        const creatingSession = Promise.resolve(sessionFactory({
           cwd: ctx.cwd,
           model: sessionModel,
           modelRegistry,
@@ -463,13 +481,26 @@ export function createPiAgentAdapter({
           thinkingLevel,
           ...(certificate ? { apiKey: certificate.apiKey } : {}),
         }));
-        creating.then((lateSession) => {
-          if (finished && lateSession) {
-            void lateSession.abort?.();
-            void lateSession.dispose?.();
+        sessionCreating = creatingSession.then(async (createdSession) => {
+          if (releaseUnclaimedSession) {
+            let releaseError = null;
+            let aborting;
+            let disposing;
+            try { aborting = Promise.resolve(createdSession.abort?.()); }
+            catch (error) { releaseError = error; aborting = Promise.resolve(); }
+            try { disposing = Promise.resolve(createdSession.dispose?.()); }
+            catch (error) { releaseError ??= error; disposing = Promise.resolve(); }
+            const releases = await Promise.allSettled([aborting, disposing]);
+            releaseError ??= releases.find(({ status }) => status === "rejected")?.reason;
+            if (releaseError) throw releaseError;
+            return null;
           }
-        }, () => {});
-        session = await bounded(creating);
+          unclaimedSession = createdSession;
+          return createdSession;
+        });
+        session = await bounded(sessionCreating);
+        unclaimedSession = null;
+        if (!session) throw new Error("pi-agent-session-failed");
       } catch (error) {
         if (!["pi-agent-call-timeout", "pi-agent-call-cancelled"].includes(error?.message)) {
           failureCode ??= "pi-agent-session-failed";
@@ -491,35 +522,81 @@ export function createPiAgentAdapter({
         throw failureWithUsage(failureCode, usageOfMessages(assistantMessages));
       }
       [assistant] = assistantMessages;
+    } catch (error) {
+      pendingError = error;
     } finally {
-      finished = true;
+      const cleanupTimeoutMs = Math.min(callTimeoutMs, 5_000);
+      let rejectCleanup;
+      const cleanupBoundary = new Promise((_, reject) => { rejectCleanup = reject; });
+      const cleanupTimer = setTimeout(
+        () => rejectCleanup(new Error("pi-agent-cleanup-timeout")),
+        cleanupTimeoutMs,
+      );
+      const cleanup = (operation) => {
+        let result;
+        try { result = operation(); }
+        catch (error) { return Promise.reject(error); }
+        return Promise.race([Promise.resolve(result), cleanupBoundary]);
+      };
+      let cleanupFailureCode = null;
+      if (!auditProxy && unclaimedAuditProxy) {
+        auditProxy = unclaimedAuditProxy;
+        unclaimedAuditProxy = null;
+      } else if (!auditProxy && auditProxyCreating) {
+        releaseUnclaimedAuditProxy = true;
+        try { await cleanup(() => auditProxyCreating); }
+        catch { cleanupFailureCode ??= "openrouter-audit-proxy-failed"; }
+      }
+      if (!session && unclaimedSession) {
+        session = unclaimedSession;
+        unclaimedSession = null;
+        try { await cleanup(() => session.abort?.()); }
+        catch { cleanupFailureCode ??= "pi-agent-session-failed"; }
+      } else if (!session && sessionCreating) {
+        releaseUnclaimedSession = true;
+        try { await cleanup(() => sessionCreating); }
+        catch { cleanupFailureCode ??= "pi-agent-session-failed"; }
+      }
       if (session) {
-        try {
-          await bounded(Promise.resolve(session.dispose()));
-        } catch (error) {
-          if (!["pi-agent-call-timeout", "pi-agent-call-cancelled"].includes(error?.message)) {
-            failureCode ??= "pi-agent-session-failed";
-          }
-          throw failureWithUsage(failureCode ?? "pi-agent-session-failed", usageOf(assistant));
-        }
+        try { await cleanup(() => session.dispose()); }
+        catch { cleanupFailureCode ??= "pi-agent-session-failed"; }
       }
       if (auditProxy) {
-        const auditSettled = await bounded(auditProxy.settle(Math.min(callTimeoutMs, 5_000)));
-        auditVerified = auditProxy.verify();
-        const auditStatus = auditProxy.status();
-        identityState = { ...auditStatus, settled: auditSettled };
-        identityCode = auditVerified
-          ? "openrouter-route-verified"
-          : !auditSettled ? "openrouter-audit-response-incomplete"
-            : auditStatus.calls === 0 ? "openrouter-audit-request-unobserved"
-            : auditStatus.completed !== auditStatus.calls ? "openrouter-audit-response-incomplete"
-              : "openrouter-audit-identity-mismatch";
-        try { await bounded(auditProxy.close()); }
-        catch { auditVerified = false; failureCode ??= "openrouter-audit-proxy-failed"; }
+        try {
+          const auditSettled = await cleanup(() => auditProxy.settle(cleanupTimeoutMs));
+          auditVerified = auditProxy.verify();
+          const auditStatus = auditProxy.status();
+          identityState = { ...auditStatus, settled: auditSettled };
+          identityCode = auditVerified
+            ? "openrouter-route-verified"
+            : !auditSettled ? "openrouter-audit-response-incomplete"
+              : auditStatus.calls === 0 ? "openrouter-audit-request-unobserved"
+              : auditStatus.completed !== auditStatus.calls ? "openrouter-audit-response-incomplete"
+                : "openrouter-audit-identity-mismatch";
+        } catch {
+          auditVerified = false;
+          cleanupFailureCode ??= "openrouter-audit-proxy-failed";
+        }
+        try { await cleanup(() => auditProxy.close()); }
+        catch { auditVerified = false; cleanupFailureCode ??= "openrouter-audit-proxy-failed"; }
       }
+      clearTimeout(cleanupTimer);
       if (timer) clearTimeout(timer);
-      for (const activeSignal of activeSignals) activeSignal.removeEventListener?.("abort", cancelHandler);
+      for (const activeSignal of activeSignals) {
+        try { activeSignal.removeEventListener?.("abort", cancelHandler); }
+        catch { cleanupFailureCode ??= "pi-agent-session-failed"; }
+      }
+      if (!pendingError && ["pi-agent-call-timeout", "pi-agent-call-cancelled"].includes(failureCode)) {
+        pendingError = failureWithUsage(failureCode, usageOf(assistant));
+      }
+      if (!pendingError && cleanupFailureCode) {
+        failureCode ??= cleanupFailureCode;
+        pendingError = failureWithUsage(failureCode, usageOf(assistant));
+      } else if (pendingError && cleanupFailureCode && typeof pendingError === "object") {
+        pendingError.cleanup_code ??= cleanupFailureCode;
+      }
     }
+    if (pendingError) throw pendingError;
     const observedUsage = usageOf(assistant);
     const identityVerified = !certificate || ((!auditProxy || auditVerified)
       && await verifyOpenRouterGeneration(certificate, assistant, ctx.signal ?? signal));

@@ -53,11 +53,10 @@ use recovered-effect evidence; fresh and resumed active nodes re-arbitrate inter
 The executable exact real-provider path is currently OpenRouter: attended
 preflight must find one active ZDR route with the required token/reasoning
 parameters for the configured model, bind Pi's configured account, and verify
-the endpoint tag, quantization, provider, and model through a session-local
-audit proxy plus generation lookup. Exact real Pi sessions are one read-only,
-tool-free provider turn with transport retries disabled; tool-bearing or
-mutating real definitions remain exact-disabled until every internal provider turn can be independently owned and journaled. Other provider families remain visibly
-exact-disabled until their official surfaces satisfy the same proof contract.
+the endpoint tag, quantization, provider, and model through a session-local audit proxy plus generation lookup. Exact real Pi sessions are one read-only, tool-free provider turn with
+transport retries disabled and interruption-safe bounded teardown of the session, audit proxy, timer, abort listeners, and any resource acquisition that settles late; tool-bearing or mutating real definitions remain
+exact-disabled until every internal provider turn can be independently owned and journaled. Other provider families remain visibly exact-disabled until their official surfaces
+satisfy the same proof contract.
 
 The guided builder covers common loops. Advanced users generate the closed WorkflowDefinition v5 with pure helpers and deploy its JSON through
 `/helix-workflows import`; v4 definitions remain directly supported. Helix never executes builder code. Graph fragments compose

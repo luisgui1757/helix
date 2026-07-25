@@ -1859,3 +1859,31 @@ workflow conformance plus 72/72 graph kernel, 35/35 provider contracts,
 106-file extracted package with installed Pi 0.80.10 RPC/default-factory proof,
 and 5/5 active Docker no-egress. Resources, documentation truth, repository
 policy, static no-live-egress, public-safety diff, and diff whitespace pass.
+
+## 2026-07-25 — Exact-provider interruption cleanup
+
+Status: **DONE — independent C0/H0/M1 audit finding fixed and verified for the
+reported scope at C0/H0/M0**.
+
+The Pi adapter no longer reuses an already-rejected provider cancellation or
+timeout boundary for resource cleanup. One separate bounded cleanup window now
+attempts session disposal, audit settlement, proxy close, call-timer clearing,
+and abort-listener removal without allowing an early cleanup failure to skip
+later teardown or replace the first causal provider failure. Pending proxy and
+session acquisitions also retain an owner: resources already resolved at
+interruption transfer into cleanup, while later resolutions close or
+abort/dispose themselves.
+
+Verification: reported cleanup regression red 0/1 then green 1/1, follow-up
+acquisition regressions red 0/2 then green 2/2, 24/24 complete adapter/proxy
+tests, 903/903 primary, 72/72 graph kernel, 12/12 worktree, 8/8 objective
+loop, 183/183 workflow conformance plus 72/72 graph kernel, 38/38
+provider contracts, 106-file extracted package with installed Pi 0.80.10
+RPC/default-factory proof, 22-command runtime discovery, deterministic
+dispatch/revision smokes, and 5/5 active Docker no-egress. Resources,
+documentation truth, repository policy, static no-live-egress, public-safety
+diff, and diff whitespace pass. Live-provider certification remains unrun
+because that separate gate requires explicit approval.
+
+Implementation is locally complete on the dedicated fix branch. Delivery uses
+the protected-main pull-request checks, and merge remains operator-owned.
