@@ -55,7 +55,7 @@ Use the plugin's native Claude Code mapping of Helix `full-cycle` and guided `pl
    receipt; check `STATUS.md` for the exact promoted routes. OpenRouter is
    deferred and must be rejected. Never
    translate or substitute a model silently.
-7. After confirmation, call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once. Stop if it fails. Pass its exact `{id, publicKey}` result to the workflow; do not reconstruct or edit it.
+7. After confirmation, call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once with `{ "authorization": { "commands": [{ "argv": <exact verification argv>, "purpose": "verification", "metric": null }], "tdd": null, "prePr": null } }`. This binds the trusted service before any effect can run. Stop if it fails. Pass its exact `{id, publicKey}` result to the workflow; do not reconstruct or edit it.
 8. Invoke with the public structured-object `args` contract:
 
 ```text

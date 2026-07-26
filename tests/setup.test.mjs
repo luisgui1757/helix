@@ -29,6 +29,35 @@ test('claudex launches native Claude with Helix CC loaded', async t => {
   assert.deepEqual(result.stdout.trim().split('\n'), ['--plugin-dir', root.replace(/\/$/, ''), '--model', 'fable'])
 })
 
+test('claudex supports zero forwarded arguments on the platform Bash', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'claudex-zero-args-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  await fakeCommand(directory, 'claude')
+  await fakeCommand(directory, 'node')
+  const env = { ...process.env, PATH: `${directory}:${process.env.PATH}`, CLAUDEX_PROVIDERS: '' }
+  const run = (argv, options = {}) => process.platform === 'darwin'
+    ? spawnSync('/bin/bash', [launcher, ...argv], { env, encoding: 'utf8', ...options })
+    : spawnSync(launcher, argv, { env, encoding: 'utf8', ...options })
+  for (const argv of [[], ['--native']]) {
+    const result = run(argv)
+    assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(result.stdout.trim().split('\n'), ['--plugin-dir', root.replace(/\/$/, '')])
+  }
+  const provider = run(['--providers', 'codex'], {
+    env: { ...env, CLAUDEX_MODEL: 'gpt-5.6-luna' },
+  })
+  assert.equal(provider.status, 0, provider.stderr)
+  assert.deepEqual(provider.stdout.trim().split('\n'), [
+    join(root, 'bin', 'helix-cc-cliproxy'),
+    'run',
+    '--providers',
+    'codex',
+    '--',
+    '--model',
+    'gpt-5.6-luna',
+  ])
+})
+
 test('claudex requires an explicit provider model and parses launcher options in any order', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'claudex-provider-'))
   t.after(() => rm(directory, { recursive: true, force: true }))

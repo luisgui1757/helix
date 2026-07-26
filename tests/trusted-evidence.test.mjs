@@ -10,6 +10,32 @@ import { runWorkflow } from './workflow-harness.mjs'
 const verificationArgv = ['node', '-e', 'process.exit(0)']
 const releaseCheckArgv = ['node', '-e', 'process.exit(0)']
 
+const authorizedCommand = (argv, purpose = 'verification', metric = null) => ({ argv, purpose, metric })
+const sessionAuthorization = ({ commands = [], tdd = null, prePr = null } = {}) => ({
+  authorization: { commands, tdd, prePr },
+})
+const shippingAuthorization = ({
+  taskPaths,
+  commitMessage = 'Ship trusted evidence',
+  pullRequestTitle = 'Ship evidence',
+  pullRequestBody = 'Exact body',
+  repository = 'acme/example',
+  headBranch = 'feature/evidence',
+  baseBranch = 'main',
+} = {}) => sessionAuthorization({
+  prePr: {
+    repository,
+    headBranch,
+    baseBranch,
+    taskPaths,
+    verificationArgv,
+    releaseCheckArgv,
+    commitMessage,
+    pullRequestTitle,
+    pullRequestBody,
+  },
+})
+
 const execute = (command, argv, cwd) => {
   const result = spawnSync(command, argv, { cwd, encoding: 'utf8' })
   if (result.status !== 0) throw new Error(`${command} ${argv.join(' ')} failed: ${result.stderr}`)
@@ -30,11 +56,13 @@ async function repository() {
   return root
 }
 
-function githubRun(invocations, { stagedOverride } = {}) {
+function githubRun(invocations, { stagedOverride, pushFailure = false } = {}) {
   return (command, argv, options) => {
     invocations.push([command, ...argv])
     if (command === 'git' && argv[0] === 'fetch') return { status: 0, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
-    if (command === 'git' && argv[0] === 'push') return { status: 0, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
+    if (command === 'git' && argv[0] === 'push') {
+      return { status: pushFailure ? 1 : 0, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
+    }
     if (command === 'git' && argv[0] === 'ls-remote') {
       const head = execute('git', ['rev-parse', 'HEAD'], options.cwd)
       return { status: 0, signal: null, stdout: Buffer.from(`${head}\trefs/heads/feature/evidence\n`), stderr: Buffer.alloc(0) }
@@ -87,20 +115,31 @@ test('trusted command receipts bind exact argv, process outcome, repository delt
   t.after(() => rm(root, { recursive: true, force: true }))
   const service = createEvidenceService({ cwd: root })
   assert.deepEqual(service.toolNames, ['start_session', 'capture_baseline', 'reproduce_red', 'run_command', 'verify_pre_pr', 'ship_pre_pr'])
-  const session = service.startSession()
+  const testPaths = ['tests/red.test.mjs']
+  const cleanArgv = ['node', '-e', 'process.exit(0)']
+  const missingArgv = ['helix-command-that-does-not-exist']
+  const redArgv = ['node', '-e', 'process.exit(1)']
+  const metricArgv = ['node', '-e', "process.stdout.write(JSON.stringify({metric:'latency',value:1000,unit:'ms'}))"]
+  const session = service.startSession(sessionAuthorization({
+    commands: [
+      authorizedCommand(cleanArgv),
+      authorizedCommand(missingArgv),
+      authorizedCommand(metricArgv, 'measurement', { metric: 'latency', unit: 'ms' }),
+    ],
+    tdd: { testPaths, reproductionArgv: redArgv },
+  }))
   assert.throws(() => service.captureBaseline({ sessionId: session.id, testPaths: ['.//tmp/red.test.mjs'] }), /task path is invalid/)
   assert.throws(() => service.captureBaseline({ sessionId: session.id, testPaths: ['tests/red.test.mjs', './tests/red.test.mjs'] }), /must not contain duplicates/)
-  const testPaths = ['tests/red.test.mjs']
   const baseline = service.captureBaseline({ sessionId: session.id, testPaths })
   assert.equal((await verify(session, baseline, { kind: 'baseline', testPaths })).result.verified, true)
 
   const clean = service.runCommand({
     sessionId: session.id,
-    argv: ['node', '-e', 'process.exit(0)'],
+    argv: cleanArgv,
     purpose: 'verification',
   })
   const cleanResult = await verify(session, clean, {
-    kind: 'command', argv: ['node', '-e', 'process.exit(0)'], purpose: 'verification', exit: 'zero', repository: 'unchanged',
+    kind: 'command', argv: cleanArgv, purpose: 'verification', exit: 'zero', repository: 'unchanged',
   })
   assert.equal(cleanResult.result.verified, true)
   assert.deepEqual(cleanResult.result.result.checkout.changedPaths, [])
@@ -115,16 +154,16 @@ test('trusted command receipts bind exact argv, process outcome, repository delt
     /does not match the requested operation/,
   )
 
-  const missing = service.runCommand({ sessionId: session.id, argv: ['helix-command-that-does-not-exist'], purpose: 'verification' })
+  const missing = service.runCommand({ sessionId: session.id, argv: missingArgv, purpose: 'verification' })
   await assert.rejects(
-    verify(session, missing, { kind: 'command', argv: ['helix-command-that-does-not-exist'], purpose: 'verification', exit: 'zero', repository: 'unchanged' }),
+    verify(session, missing, { kind: 'command', argv: missingArgv, purpose: 'verification', exit: 'zero', repository: 'unchanged' }),
     /did not execute normally/,
   )
 
   const red = service.reproduceRed({
     sessionId: session.id,
     baselineSequence: baseline.sequence,
-    argv: ['node', '-e', 'process.exit(1)'],
+    argv: redArgv,
     files: [{ path: 'tests/red.test.mjs', content: 'red\n' }],
   })
   const redResult = await verify(session, red, {
@@ -135,7 +174,7 @@ test('trusted command receipts bind exact argv, process outcome, repository delt
 
   const metric = service.runCommand({
     sessionId: session.id,
-    argv: ['node', '-e', "process.stdout.write(JSON.stringify({metric:'latency',value:1000,unit:'ms'}))"],
+    argv: metricArgv,
     purpose: 'measurement',
     metric: { metric: 'latency', unit: 'ms' },
   })
@@ -151,10 +190,11 @@ test('trusted snapshots reject an executable-mode mutation on an already-dirty t
   t.after(() => rm(root, { recursive: true, force: true }))
   await writeFile(join(root, 'README.md'), 'already dirty\n')
   const service = createEvidenceService({ cwd: root })
-  const session = service.startSession()
+  const argv = ['node', '-e', "require('node:fs').chmodSync('README.md', 0o755)"]
+  const session = service.startSession(sessionAuthorization({ commands: [authorizedCommand(argv)] }))
   const receipt = service.runCommand({
     sessionId: session.id,
-    argv: ['node', '-e', "require('node:fs').chmodSync('README.md', 0o755)"],
+    argv,
     purpose: 'verification',
   })
   assert.deepEqual(receipt.result.changedPaths, ['README.md'])
@@ -165,6 +205,87 @@ test('trusted snapshots reject an executable-mode mutation on an already-dirty t
     }),
     /verification command changed the repository/,
   )
+})
+
+test('trusted evidence refuses unbound command and TDD argv before execution', async t => {
+  const root = await repository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sentinel = join(root, '..', `helix-cc-unauthorized-${process.pid}-${Date.now()}`)
+  t.after(() => rm(sentinel, { force: true }))
+  const authorizedRed = ['node', '-e', 'process.exit(1)']
+  const unauthorized = [
+    'node',
+    '-e',
+    `require('node:fs').writeFileSync(${JSON.stringify(sentinel)},'executed\\n');process.exit(1)`,
+  ]
+  const service = createEvidenceService({ cwd: root })
+  assert.throws(() => service.startSession(), /evidence authorization/)
+  const session = service.startSession(sessionAuthorization({
+    tdd: { testPaths: ['tests/bug.test.mjs'], reproductionArgv: authorizedRed },
+  }))
+  assert.throws(() => service.runCommand({
+    sessionId: session.id,
+    argv: unauthorized,
+    purpose: 'verification',
+  }), /does not match the evidence-session authorization/)
+  await assert.rejects(stat(sentinel), /ENOENT/)
+  const baseline = service.captureBaseline({ sessionId: session.id, testPaths: ['tests/bug.test.mjs'] })
+  assert.throws(() => service.reproduceRed({
+    sessionId: session.id,
+    baselineSequence: baseline.sequence,
+    argv: unauthorized,
+    files: [{ path: 'tests/bug.test.mjs', content: 'red\n' }],
+  }), /does not match the evidence-session authorization/)
+  await assert.rejects(stat(sentinel), /ENOENT/)
+})
+
+test('trusted TDD reproduction refuses an oversized isolated working-tree copy with a typed path', async t => {
+  const root = await repository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const reproductionArgv = ['node', '-e', 'process.exit(1)']
+  const service = createEvidenceService({ cwd: root, maxIsolatedBytes: 4 })
+  const session = service.startSession(sessionAuthorization({
+    tdd: { testPaths: ['tests/bug.test.mjs'], reproductionArgv },
+  }))
+  const baseline = service.captureBaseline({ sessionId: session.id, testPaths: ['tests/bug.test.mjs'] })
+  assert.throws(() => service.reproduceRed({
+    sessionId: session.id,
+    baselineSequence: baseline.sequence,
+    argv: reproductionArgv,
+    files: [{ path: 'tests/bug.test.mjs', content: 'red\n' }],
+  }), /isolated working-tree copy exceeds the 4-byte limit at: README\.md/)
+  await assert.rejects(stat(join(root, 'tests', 'bug.test.mjs')), /ENOENT/)
+})
+
+test('trusted baseline and pre-PR authorization mismatches fail before repository effects', async t => {
+  const root = await repository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const invocations = []
+  const run = (command, argv, options) => {
+    invocations.push([command, ...argv])
+    return spawnSync(command, argv, options)
+  }
+  const service = createEvidenceService({ cwd: root, run })
+  const tddSession = service.startSession(sessionAuthorization({
+    tdd: { testPaths: ['tests/authorized.test.mjs'], reproductionArgv: ['node', '-e', 'process.exit(1)'] },
+  }))
+  assert.throws(() => service.captureBaseline({
+    sessionId: tddSession.id,
+    testPaths: ['tests/different.test.mjs'],
+  }), /baseline does not match the evidence-session authorization/)
+  assert.deepEqual(invocations, [])
+
+  const prePrSession = service.startSession(shippingAuthorization({ taskPaths: ['task.txt'] }))
+  assert.throws(() => service.verifyPrePr({
+    sessionId: prePrSession.id,
+    repository: 'acme/example',
+    headBranch: 'feature/evidence',
+    baseBranch: 'main',
+    taskPaths: ['task.txt'],
+    verificationArgv: ['node', '-e', 'process.exit(2)'],
+    releaseCheckArgv,
+  }), /pre-PR verification does not match the evidence-session authorization/)
+  assert.deepEqual(invocations, [])
 })
 
 test('trusted TDD red discards every out-of-scope mutation class without changing the checkout or index', async t => {
@@ -186,13 +307,16 @@ test('trusted TDD red discards every out-of-scope mutation class without changin
     const beforeIndex = spawnSync('git', ['diff', '--cached', '--raw', '-z'], { cwd: root }).stdout
     const beforeMode = (await stat(join(root, 'README.md'))).mode & 0o777
     const service = createEvidenceService({ cwd: root })
-    const session = service.startSession()
+    const reproductionArgv = ['node', '-e', `${mutation}; process.exit(1)`]
+    const session = service.startSession(sessionAuthorization({
+      tdd: { testPaths: ['tests/bug.test.mjs'], reproductionArgv },
+    }))
     const baseline = service.captureBaseline({ sessionId: session.id, testPaths: ['tests/bug.test.mjs'] })
     await assert.rejects(
       Promise.resolve().then(() => service.reproduceRed({
         sessionId: session.id,
         baselineSequence: baseline.sequence,
-        argv: ['node', '-e', `${mutation}; process.exit(1)`],
+        argv: reproductionArgv,
         files: [{ path: 'tests/bug.test.mjs', content: 'red\n' }],
       })),
       /isolated workspace discarded/,
@@ -213,12 +337,19 @@ test('trusted TDD red discards a green attempt before allowing a revised reprodu
   const root = await repository()
   t.after(() => rm(root, { recursive: true, force: true }))
   const service = createEvidenceService({ cwd: root })
-  const session = service.startSession()
+  const reproductionArgv = [
+    'node',
+    '-e',
+    "process.exit(require('node:fs').readFileSync('tests/bug.test.mjs','utf8')==='red\\n'?1:0)",
+  ]
+  const session = service.startSession(sessionAuthorization({
+    tdd: { testPaths: ['tests/bug.test.mjs'], reproductionArgv },
+  }))
   const baseline = service.captureBaseline({ sessionId: session.id, testPaths: ['tests/bug.test.mjs'] })
   const green = service.reproduceRed({
     sessionId: session.id,
     baselineSequence: baseline.sequence,
-    argv: ['node', '-e', 'process.exit(0)'],
+    argv: reproductionArgv,
     files: [{ path: 'tests/bug.test.mjs', content: 'not red\n' }],
   })
   assert.equal(green.result.restored, true)
@@ -227,7 +358,7 @@ test('trusted TDD red discards a green attempt before allowing a revised reprodu
   const red = service.reproduceRed({
     sessionId: session.id,
     baselineSequence: baseline.sequence,
-    argv: ['node', '-e', 'process.exit(1)'],
+    argv: reproductionArgv,
     files: [{ path: 'tests/bug.test.mjs', content: 'red\n' }],
   })
   assert.equal(red.result.restored, false)
@@ -242,13 +373,19 @@ test('trusted TDD baseline rejects ignored test paths and red without a proposed
   execute('git', ['add', '.gitignore', 'existing.test.mjs'], root)
   execute('git', ['commit', '-m', 'TDD visibility fixture'], root)
   const service = createEvidenceService({ cwd: root })
-  const session = service.startSession()
-  assert.throws(() => service.captureBaseline({ sessionId: session.id, testPaths: ['ignored/bug.test.mjs'] }), /must be Git-visible/)
+  const ignoredSession = service.startSession(sessionAuthorization({
+    tdd: { testPaths: ['ignored/bug.test.mjs'], reproductionArgv: ['node', '-e', 'process.exit(1)'] },
+  }))
+  assert.throws(() => service.captureBaseline({ sessionId: ignoredSession.id, testPaths: ['ignored/bug.test.mjs'] }), /must be Git-visible/)
+  const reproductionArgv = ['node', '-e', 'process.exit(1)']
+  const session = service.startSession(sessionAuthorization({
+    tdd: { testPaths: ['existing.test.mjs'], reproductionArgv },
+  }))
   const baseline = service.captureBaseline({ sessionId: session.id, testPaths: ['existing.test.mjs'] })
   const receipt = service.reproduceRed({
     sessionId: session.id,
     baselineSequence: baseline.sequence,
-    argv: ['node', '-e', 'process.exit(1)'],
+    argv: reproductionArgv,
     files: [{ path: 'existing.test.mjs', content: 'already present\n' }],
   })
   assert.equal(receipt.result.restored, true)
@@ -269,8 +406,6 @@ test('trusted TDD reproduction isolates ignored, Git-internal, home, and sibling
     const sibling = join(root, '..', siblingName)
     t.after(() => rm(sibling, { force: true }))
     const service = createEvidenceService({ cwd: root })
-    const session = service.startSession()
-    const baseline = service.captureBaseline({ sessionId: session.id, testPaths: ['tests/bug.test.mjs'] })
     const script = [
       "const fs=require('node:fs')",
       "fs.writeFileSync('ignored/existing.txt','changed\\n')",
@@ -280,10 +415,15 @@ test('trusted TDD reproduction isolates ignored, Git-internal, home, and sibling
       "fs.writeFileSync(require('node:path').join(process.env.HOME,'home-sentinel'),'home\\n')",
       `process.exit(${exitCode})`,
     ].join(';')
+    const reproductionArgv = ['node', '-e', script]
+    const session = service.startSession(sessionAuthorization({
+      tdd: { testPaths: ['tests/bug.test.mjs'], reproductionArgv },
+    }))
+    const baseline = service.captureBaseline({ sessionId: session.id, testPaths: ['tests/bug.test.mjs'] })
     const receipt = service.reproduceRed({
       sessionId: session.id,
       baselineSequence: baseline.sequence,
-      argv: ['node', '-e', script],
+      argv: reproductionArgv,
       files: [{ path: 'tests/bug.test.mjs', content: 'red\n' }],
     })
     assert.equal(receipt.result.restored, exitCode === 0)
@@ -320,8 +460,6 @@ test('trusted TDD reproduction clears inherited checkout redirects and points pr
     }
   })
   const service = createEvidenceService({ cwd: root })
-  const session = service.startSession()
-  const baseline = service.captureBaseline({ sessionId: session.id, testPaths: ['tests/bug.test.mjs'] })
   const script = [
     `const forbidden=${JSON.stringify(Object.keys(inherited))}`,
     'if(forbidden.some(name=>process.env[name]!==undefined))process.exit(2)',
@@ -330,10 +468,15 @@ test('trusted TDD reproduction clears inherited checkout redirects and points pr
     'if(process.env.HOME===process.argv[2])process.exit(5)',
     'process.exit(1)',
   ].join(';')
+  const reproductionArgv = ['node', '-e', script, root, originalHome]
+  const session = service.startSession(sessionAuthorization({
+    tdd: { testPaths: ['tests/bug.test.mjs'], reproductionArgv },
+  }))
+  const baseline = service.captureBaseline({ sessionId: session.id, testPaths: ['tests/bug.test.mjs'] })
   const receipt = service.reproduceRed({
     sessionId: session.id,
     baselineSequence: baseline.sequence,
-    argv: ['node', '-e', script, root, originalHome],
+    argv: reproductionArgv,
     files: [{ path: 'tests/bug.test.mjs', content: 'red\n' }],
   })
   assert.equal(receipt.result.command.exitCode, 1)
@@ -374,37 +517,52 @@ test('trusted pre-PR and shipment receipts bind one GitHub repository, exact fil
     return spawnSync(command, argv, options)
   }
   const service = createEvidenceService({ cwd: root, run })
-  const session = service.startSession()
+  const otherRepositorySession = service.startSession(shippingAuthorization({
+    taskPaths: ['task.txt'], repository: 'other/repository',
+  }))
   await assert.rejects(
     Promise.resolve().then(() => service.verifyPrePr({
-      sessionId: session.id, repository: 'other/repository', headBranch: 'feature/evidence', baseBranch: 'main', taskPaths: ['task.txt'], verificationArgv, releaseCheckArgv,
+      sessionId: otherRepositorySession.id, repository: 'other/repository', headBranch: 'feature/evidence', baseBranch: 'main', taskPaths: ['task.txt'], verificationArgv, releaseCheckArgv,
     })),
     /origin does not match/,
   )
+  const otherHeadSession = service.startSession(shippingAuthorization({
+    taskPaths: ['task.txt'], headBranch: 'feature/other',
+  }))
   await assert.rejects(
     Promise.resolve().then(() => service.verifyPrePr({
-      sessionId: session.id, repository: 'acme/example', headBranch: 'feature/other', baseBranch: 'main', taskPaths: ['task.txt'], verificationArgv, releaseCheckArgv,
+      sessionId: otherHeadSession.id, repository: 'acme/example', headBranch: 'feature/other', baseBranch: 'main', taskPaths: ['task.txt'], verificationArgv, releaseCheckArgv,
     })),
     /head branch does not match/,
   )
-  await assert.rejects(
-    Promise.resolve().then(() => service.verifyPrePr({
-      sessionId: session.id, repository: 'acme/example', headBranch: 'feature/evidence', baseBranch: 'main', taskPaths: ['.git/config'], verificationArgv, releaseCheckArgv,
-    })),
+  assert.throws(
+    () => service.startSession(shippingAuthorization({ taskPaths: ['.git/config'] })),
     /task path is invalid/,
   )
+  const otherPathSession = service.startSession(shippingAuthorization({ taskPaths: ['README.md'] }))
   await assert.rejects(
     Promise.resolve().then(() => service.verifyPrePr({
-      sessionId: session.id, repository: 'acme/example', headBranch: 'feature/evidence', baseBranch: 'main', taskPaths: ['README.md'], verificationArgv, releaseCheckArgv,
+      sessionId: otherPathSession.id, repository: 'acme/example', headBranch: 'feature/evidence', baseBranch: 'main', taskPaths: ['README.md'], verificationArgv, releaseCheckArgv,
     })),
     /exactly match taskPaths/,
   )
+  const session = service.startSession(shippingAuthorization({ taskPaths: ['task.txt'] }))
   const preflight = service.verifyPrePr({
     sessionId: session.id, repository: 'acme/example', headBranch: 'feature/evidence', baseBranch: 'main', taskPaths: ['task.txt'], verificationArgv, releaseCheckArgv,
   })
   assert.equal((await verify(session, preflight, {
     kind: 'pre-pr', repository: 'acme/example', headBranch: 'feature/evidence', baseBranch: 'main', taskPaths: ['task.txt'], verificationArgv, releaseCheckArgv,
   })).result.verified, true)
+
+  const headBeforeUnauthorizedShipment = execute('git', ['rev-parse', 'HEAD'], root)
+  assert.throws(() => service.shipPrePr({
+    sessionId: session.id,
+    preflightSequence: preflight.sequence,
+    commitMessage: 'Ship trusted evidence',
+    pullRequestTitle: 'Different title',
+    pullRequestBody: 'Exact body',
+  }), /shipment does not match the evidence-session authorization/)
+  assert.equal(execute('git', ['rev-parse', 'HEAD'], root), headBeforeUnauthorizedShipment)
 
   for (const metadata of [
     { commitMessage: 'Ship\nnow', pullRequestTitle: 'Ship evidence' },
@@ -445,14 +603,15 @@ test('trusted shipment accepts pure renames and rename-plus-edit task scopes', a
     if (edited) await writeFile(join(root, 'GUIDE.md'), 'fixture with a material edit\n')
     const invocations = []
     const service = createEvidenceService({ cwd: root, run: githubRun(invocations) })
-    const session = service.startSession()
     const taskPaths = ['GUIDE.md', 'README.md']
+    const commitMessage = edited ? 'Rename and edit guide' : 'Rename guide'
+    const session = service.startSession(shippingAuthorization({ taskPaths, commitMessage }))
     const preflight = service.verifyPrePr({
       sessionId: session.id, repository: 'acme/example', headBranch: 'feature/evidence', baseBranch: 'main',
       taskPaths, verificationArgv, releaseCheckArgv,
     })
     const shipment = service.shipPrePr({
-      sessionId: session.id, preflightSequence: preflight.sequence, commitMessage: edited ? 'Rename and edit guide' : 'Rename guide',
+      sessionId: session.id, preflightSequence: preflight.sequence, commitMessage,
       pullRequestTitle: 'Ship evidence', pullRequestBody: 'Exact body',
     })
     assert.equal(shipment.result.pullRequest.state, 'OPEN')
@@ -470,7 +629,7 @@ test('failed shipment restores the exact pre-call index', async t => {
     cwd: root,
     run: githubRun(invocations, { stagedOverride: Buffer.from('M\0unexpected.txt\0') }),
   })
-  const session = service.startSession()
+  const session = service.startSession(shippingAuthorization({ taskPaths: ['task.txt'] }))
   const preflight = service.verifyPrePr({
     sessionId: session.id, repository: 'acme/example', headBranch: 'feature/evidence', baseBranch: 'main',
     taskPaths: ['task.txt'], verificationArgv, releaseCheckArgv,
@@ -483,4 +642,32 @@ test('failed shipment restores the exact pre-call index', async t => {
   const afterIndex = spawnSync('git', ['diff', '--cached', '--raw', '-z'], { cwd: root }).stdout
   assert.deepEqual(afterIndex, beforeIndex)
   assert.equal(execute('git', ['status', '--porcelain'], root), '?? task.txt')
+})
+
+test('post-commit shipment failure leaves the local commit for operator inspection', async t => {
+  const root = await repository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(join(root, 'task.txt'), 'task\n')
+  const invocations = []
+  const service = createEvidenceService({ cwd: root, run: githubRun(invocations, { pushFailure: true }) })
+  const session = service.startSession(shippingAuthorization({ taskPaths: ['task.txt'] }))
+  const preflight = service.verifyPrePr({
+    sessionId: session.id,
+    repository: 'acme/example',
+    headBranch: 'feature/evidence',
+    baseBranch: 'main',
+    taskPaths: ['task.txt'],
+    verificationArgv,
+    releaseCheckArgv,
+  })
+  const beforeHead = execute('git', ['rev-parse', 'HEAD'], root)
+  assert.throws(() => service.shipPrePr({
+    sessionId: session.id,
+    preflightSequence: preflight.sequence,
+    commitMessage: 'Ship trusted evidence',
+    pullRequestTitle: 'Ship evidence',
+    pullRequestBody: 'Exact body',
+  }), /non-force branch push failed/)
+  assert.notEqual(execute('git', ['rev-parse', 'HEAD'], root), beforeHead)
+  assert.equal(execute('git', ['status', '--porcelain'], root), '')
 })

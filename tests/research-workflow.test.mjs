@@ -188,13 +188,22 @@ test('research remeasures and retests after its documentation writer changes the
   git(['remote', 'add', 'origin', 'https://github.com/example/research-fixture.git'])
 
   const service = createEvidenceService({ cwd: root })
-  const session = service.startSession()
   const actualMeasurementArgv = [
     'node',
     '-e',
     "const fs=require('fs');process.stdout.write(JSON.stringify({metric:'research bytes',unit:'bytes',value:fs.statSync('RESEARCH.md').size}))",
   ]
   const actualTestArgv = ['node', '-e', 'process.exit(0)']
+  const session = service.startSession({
+    authorization: {
+      commands: [
+        { argv: actualMeasurementArgv, purpose: 'measurement', metric: { metric: 'research bytes', unit: 'bytes' } },
+        { argv: actualTestArgv, purpose: 'tests', metric: null },
+      ],
+      tdd: null,
+      prePr: null,
+    },
+  })
   const responder = async options => {
     if (options.label.startsWith('hypothesis:')) return { hypothesis: 'keep the ledger small', rationale: 'size is the requested metric', experiment: 'measure the current ledger', expectedSignal: 'at most ten bytes', stopCondition: 'the final tree meets the target' }
     if (options.label.startsWith('experiment:')) return { summary: 'fixture is ready', filesChanged: [], testsChanged: [], commandsRun: [], openBlockers: [] }

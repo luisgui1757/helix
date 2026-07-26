@@ -1,6 +1,7 @@
 # Graph-mode migration
 
-Status: complete. Branch: `feature/graph-mode`. Baseline:
+Status: complete and merged to `main` through pull request #4 on 2026-07-23.
+Implementation branch: `feature/graph-mode`. Baseline:
 `1b6838a528403c6657876b5f8731900ff2e03a53`.
 
 This document is the controlling implementation plan, decision log, verification
@@ -212,7 +213,8 @@ header. `npm run graph:check` regenerates in memory and fails on any drift.
 
 - [x] Recheck the original main worktree is untouched.
 - [x] Recheck the feature worktree contains only scoped changes.
-- [x] Create exactly one commit on `feature/graph-mode` after all review fixes.
+- [x] Create exactly one commit on `feature/graph-mode` after all review fixes;
+  that commit was later squash-merged through pull request #4.
 - [x] Do not push or open a pull request unless separately requested.
 
 ## Verification ledger

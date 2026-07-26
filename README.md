@@ -12,8 +12,10 @@ observable outcomes; original remains the default.
 
 Write-capable loops do not trust a role's prose as command, metric, file-scope,
 or shipment proof. A bundled MCP service executes exact argument vectors
-without a shell, observes tracked content/type/mode and Git state itself, and
-signs bounded receipts. Every argv begins with a PATH-resolved executable name;
+without a shell, but only after the skill has bound the complete user-confirmed
+command, TDD, or pre-PR effect contract into the evidence session. The service
+observes tracked content/type/mode and Git state itself and signs bounded
+receipts. Every argv begins with a PATH-resolved executable name;
 run repository scripts through an interpreter such as `node scripts/check.mjs`
 rather than `./scripts/check.mjs`. An
 internal deterministic workflow verifies each signature and requested
@@ -43,14 +45,14 @@ journals, and structured outputs. Optional local provider adapters translate
 inference for exact OpenAI-subscription, GitHub Copilot, or Azure Foundry GPT
 models without replacing that harness.
 
-## Current routes
+## Route state
 
-| Route | Current state |
+| Route | State |
 |---|---|
 | Native Claude | Supported |
-| OpenAI subscription, `gpt-5.6-luna` | Live-proven |
-| GitHub Copilot, `copilot/gpt-5.4` | Live-proven after an exact pin |
-| OpenAI + Copilot | Live-proven in one mixed nine-role workflow |
+| OpenAI subscription, `gpt-5.6-luna` | Historical evidence from 2026-07-19; fresh proof required for current health |
+| GitHub Copilot, `copilot/gpt-5.4` | Historical evidence from 2026-07-19; fresh pin and proof required for current health |
+| OpenAI + Copilot | Historical evidence from one 2026-07-19 mixed nine-role workflow |
 | Azure Foundry GPT | Implemented and locally tested; live proof pending |
 | Azure-containing mixed routes | Implemented; each exact combination needs its own proof |
 | OpenRouter | Deferred and rejected by this release |
@@ -93,7 +95,8 @@ Each skill checks the local route, shows the exact task, role models, pass
 limit, writer scope, verification argv, and selected `original` or `graph` mode,
 then asks for confirmation. Original mode is selected when no mode is named;
 any other explicit value stops before launch. It starts a fresh trusted-evidence
-session and passes that exact public receipt key to the workflow. A
+session with the displayed effects pre-authorized and passes that exact public
+receipt key to the workflow. A
 successful workflow returns `approved: true`; an exhausted workflow terminates
 without approval and reports the remaining reasons.
 
@@ -118,8 +121,9 @@ definitions, same-ID operation catalogs, and audited templates.
 boundary traces between original and graph modes for every public workflow.
 
 Pull requests run the structure validator, dependency audit and registry
-signature verification, deterministic tests on the minimum and current Node.js
-lines, and dependency review for newly introduced vulnerable packages. Those
+signature verification, deterministic tests on Linux at the minimum and
+current Node.js lines plus macOS at the minimum line, and dependency review for
+newly introduced vulnerable packages. Those
 jobs feed one stable required check named `test`; CodeQL separately analyzes
 Actions and JavaScript/TypeScript. GitHub Actions are digest-pinned, bounded,
 cancel superseded runs, and use read-only repository permissions.

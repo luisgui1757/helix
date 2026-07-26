@@ -27,7 +27,7 @@ This loop performs an external repository handoff. It never merges, closes, appr
    check argv, commit message, pull-request title/body, models, and the complete
    external-action boundary. Ask: “Open or reuse exactly one pull request after
    all gates pass?” Continue only on explicit confirmation.
-7. Call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once. Stop if it fails, and pass its exact `{id, publicKey}` result without reconstruction.
+7. Call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once with `{ "authorization": { "commands": [], "tdd": null, "prePr": { "repository": <exact owner/repository>, "headBranch": <exact head>, "baseBranch": <exact base>, "taskPaths": <exact task paths>, "verificationArgv": <exact verification argv>, "releaseCheckArgv": <exact release-check argv>, "commitMessage": <exact commit message>, "pullRequestTitle": <exact title>, "pullRequestBody": <exact body> } } }`. This binds the trusted service before any effect can run, including preflight, Git, push, and PR effects. Stop if it fails, and pass its exact `{id, publicKey}` result without reconstruction.
 8. Invoke with `confirmOpenPullRequest: true` only after that confirmation:
 
 ```text
@@ -64,6 +64,11 @@ Omit empty model fields. Never infer confirmation from a prior request to implem
 Never execute both shipping modes for comparison. Compare shipping through
 deterministic fixtures only; two live runs would create duplicate external
 effects.
+
+If shipment fails after the commit is created, the local commit remains for
+operator inspection and is not rolled back. This is deliberate because the
+push may already have taken effect; pre-commit refusals still restore the exact
+prior index tree.
 
 ## Handoff
 

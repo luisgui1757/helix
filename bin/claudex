@@ -88,7 +88,7 @@ if [[ "$mode" == native || -z "$providers" ]]; then
     echo "claudex: Claude Code is not installed; run $plugin_root/setup.sh" >&2
     exit 1
   }
-  exec claude --plugin-dir "$plugin_root" "${forwarded[@]}"
+  exec claude --plugin-dir "$plugin_root" "${forwarded[@]+"${forwarded[@]}"}"
 fi
 
 command -v node >/dev/null 2>&1 || {
@@ -118,7 +118,7 @@ if [[ "$has_model" == false ]]; then
     echo "claudex: provider-backed mode requires --model <id> or CLAUDEX_MODEL" >&2
     exit 2
   }
-  forwarded=(--model "$model" "${forwarded[@]}")
+  forwarded=(--model "$model" "${forwarded[@]+"${forwarded[@]}"}")
 fi
 
 exec node "$plugin_root/bin/helix-cc-cliproxy" run --providers "$providers" -- "${forwarded[@]}"

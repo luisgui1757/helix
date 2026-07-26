@@ -7,7 +7,7 @@ import { createEvidenceService } from '../lib/trusted-evidence.mjs'
 
 const service = createEvidenceService()
 const server = new Server(
-  { name: 'helix-cc-evidence', version: '0.5.0' },
+  { name: 'helix-cc-evidence', version: '0.5.1' },
   { capabilities: { tools: {} } },
 )
 
@@ -30,12 +30,61 @@ const TDD_FILES = {
     },
   },
 }
+const METRIC = {
+  type: 'object', additionalProperties: false, required: ['metric', 'unit'],
+  properties: {
+    metric: { type: 'string', minLength: 1, maxLength: 256 },
+    unit: { type: 'string', minLength: 1, maxLength: 64 },
+  },
+}
+const COMMAND_AUTHORIZATION = {
+  type: 'object', additionalProperties: false, required: ['argv', 'purpose', 'metric'],
+  properties: {
+    argv: ARGV,
+    purpose: { type: 'string', enum: ['verification', 'measurement', 'tests'] },
+    metric: { anyOf: [METRIC, { type: 'null' }] },
+  },
+}
+const TDD_AUTHORIZATION = {
+  type: 'object', additionalProperties: false, required: ['testPaths', 'reproductionArgv'],
+  properties: { testPaths: PATHS, reproductionArgv: ARGV },
+}
+const PRE_PR_AUTHORIZATION = {
+  type: 'object', additionalProperties: false,
+  required: [
+    'repository', 'headBranch', 'baseBranch', 'taskPaths', 'verificationArgv', 'releaseCheckArgv',
+    'commitMessage', 'pullRequestTitle', 'pullRequestBody',
+  ],
+  properties: {
+    repository: { type: 'string', pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$', maxLength: 256 },
+    headBranch: { type: 'string', minLength: 1, maxLength: 256 },
+    baseBranch: { type: 'string', minLength: 1, maxLength: 256 },
+    taskPaths: PATHS,
+    verificationArgv: ARGV,
+    releaseCheckArgv: ARGV,
+    commitMessage: { type: 'string', minLength: 1, maxLength: 512 },
+    pullRequestTitle: { type: 'string', minLength: 1, maxLength: 512 },
+    pullRequestBody: { type: 'string', minLength: 1, maxLength: 16384 },
+  },
+}
 
 const tools = [
   {
     name: 'start_session',
-    description: 'Create one ephemeral evidence session and return its public receipt-verification key.',
-    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+    description: 'Create one ephemeral evidence session, bind every allowed effect, and return its public receipt-verification key.',
+    inputSchema: {
+      type: 'object', additionalProperties: false, required: ['authorization'],
+      properties: {
+        authorization: {
+          type: 'object', additionalProperties: false, required: ['commands', 'tdd', 'prePr'],
+          properties: {
+            commands: { type: 'array', maxItems: 8, uniqueItems: true, items: COMMAND_AUTHORIZATION },
+            tdd: { anyOf: [TDD_AUTHORIZATION, { type: 'null' }] },
+            prePr: { anyOf: [PRE_PR_AUTHORIZATION, { type: 'null' }] },
+          },
+        },
+      },
+    },
   },
   {
     name: 'capture_baseline',
@@ -67,13 +116,7 @@ const tools = [
         sessionId: SESSION_ID,
         argv: ARGV,
         purpose: { type: 'string', enum: ['verification', 'measurement', 'tests'] },
-        metric: {
-          type: 'object', additionalProperties: false, required: ['metric', 'unit'],
-          properties: {
-            metric: { type: 'string', minLength: 1, maxLength: 256 },
-            unit: { type: 'string', minLength: 1, maxLength: 64 },
-          },
-        },
+        metric: METRIC,
       },
     },
   },
@@ -118,7 +161,7 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
   const { name, arguments: input = {} } = request.params
   try {
     let result
-    if (name === 'start_session') result = service.startSession()
+    if (name === 'start_session') result = service.startSession(input)
     else if (name === 'capture_baseline') result = { receipt: service.captureBaseline(input) }
     else if (name === 'reproduce_red') result = { receipt: service.reproduceRed(input) }
     else if (name === 'run_command') result = { receipt: service.runCommand(input) }

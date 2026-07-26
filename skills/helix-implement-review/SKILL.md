@@ -25,7 +25,7 @@ Use this loop when the implementation direction is already settled and a separat
 5. In a CLIProxyAPI session, require every explicit model to appear exactly in `paths.cliProxyNativeWorkflow.models`. Require a successful exact-model proof before first use of a provider/model combination. Use provider-prefixed IDs for mixed casts, reject OpenRouter, and check `${CLAUDE_PLUGIN_ROOT}/STATUS.md` for the promoted routes.
 6. Show the exact task, selected mode and exact script path, scope, role models,
    pass bound, and verification argv. Obtain explicit confirmation before launch.
-7. Call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once. Stop if it fails, and pass its exact `{id, publicKey}` result without reconstruction.
+7. Call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once with `{ "authorization": { "commands": [{ "argv": <exact verification argv>, "purpose": "verification", "metric": null }], "tdd": null, "prePr": null } }`. This binds the trusted service before any effect can run. Stop if it fails, and pass its exact `{id, publicKey}` result without reconstruction.
 8. Invoke:
 
 ```text

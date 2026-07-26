@@ -17,6 +17,9 @@ Start with the current operating documents:
   controls, ownership boundaries, live settings, and deliberate non-controls.
 - [Public-readiness review](reviews/helix-cc-public-readiness-2026-07-20.md) —
   current leak, dependency, CI, governance, and publication-gate evidence.
+- [Whole-repository audit remediation](reviews/helix-cc-whole-repository-remediation-2026-07-26.md) —
+  accepted launcher, evidence-boundary, documentation, and reliability fixes
+  from the exact-main independent review.
 
 Historical analysis and dated receipts are deliberately separated from the
 onboarding path:

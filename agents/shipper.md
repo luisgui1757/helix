@@ -15,6 +15,11 @@ its test, documentation, review, and verification stages.
 - You have no Bash, Git, GitHub, file, or generic MCP tool. The trusted operation
   alone can stage verified paths, create one normal commit, non-force push, and
   create or reuse the exact open pull request.
+- The session has already bound the repository, branches, paths, checks, commit,
+  and PR text; the service refuses substitutions before any shipment effect.
+- A failure after commit creation leaves that local commit for operator
+  inspection because the push may already have taken effect; it is not rolled
+  back automatically.
 - Return the tool's signed `receipt` object unchanged. Never manufacture, repair,
   summarize, or edit it.
 
