@@ -30,6 +30,7 @@ the selected external provider and local account state.
 GitHub protects `main` with separate checked-in
 [`integrity`](.github/rulesets/main-integrity.json) and
 [`review`](.github/rulesets/main-review.json) rulesets. The Node.js matrix feeds
+Linux minimum/current Node.js jobs, the macOS minimum-Node portability job, and
 GitHub dependency review into one stable required check named `test`; do not
 require matrix job names or add overlapping classic branch protection.
 Integrity rules have no bypass. Normal merges require an independent approval,

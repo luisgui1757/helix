@@ -26,7 +26,7 @@ Use this loop only when the defect can be reproduced deterministically. Its firs
 6. Show the task, selected mode and exact script path, exact test paths,
    reproduction and verification argv, red/fix pass bounds, role models, and
    expected production scope. Obtain explicit confirmation.
-7. Call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once. Stop if it fails, and pass its exact `{id, publicKey}` result without reconstruction.
+7. Call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once with `{ "authorization": { "commands": [{ "argv": <exact verification argv>, "purpose": "verification", "metric": null }], "tdd": { "testPaths": <exact test paths>, "reproductionArgv": <exact reproduction argv> }, "prePr": null } }`. This binds the trusted service before any effect can run. Stop if it fails, and pass its exact `{id, publicKey}` result without reconstruction.
 8. Invoke:
 
 ```text
@@ -55,10 +55,12 @@ Workflow({
 Omit empty model fields. The reproducer has no direct write, edit, or shell tool:
 it supplies complete contents for signed test paths to the trusted
 `reproduce_red` operation. That operation retains only a valid scoped red and
-runs its command inside a disposable copy with redirected project, Git, HOME,
-and temporary process state. Ignored, Git-internal, HOME, sibling,
-no-test-delta, green, infrastructure, or out-of-scope effects are discarded
-with that copy. Only the
+runs its pre-authorized command inside a disposable copy with redirected
+project, Git, HOME, and temporary process state. This is not an operating-system
+sandbox: absolute-path effects outside the repository and redirected process
+directories are neither prevented nor discarded. Ignored, Git-internal,
+no-test-delta, green, infrastructure, or out-of-scope repository effects are
+discarded with that copy. Only the
 exact proposed signed test contents are applied to the user checkout after a
 normal exit `1..125` that changes no repository file while executing. If red
 cannot be proven without production edits, the workflow must stop.

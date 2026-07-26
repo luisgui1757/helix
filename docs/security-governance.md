@@ -10,7 +10,7 @@ control exists and which system owns it.
 | Principle | Implemented control | Reason |
 |---|---|---|
 | Minimize authority | Workflow token permissions are read-only; Actions are limited to GitHub-owned actions and pinned to full commit digests. | A compromised job or mutable tag must not silently gain repository write access. |
-| Make one stable merge decision | The Node.js matrix and dependency review feed the required aggregate `test`; CodeQL is a separate code-scanning rule. | Matrix names and language jobs may change, while the protected-branch contract remains stable and fail-closed. |
+| Make one stable merge decision | Linux at the minimum/current Node.js lines, macOS at the minimum line, and dependency review feed the required aggregate `test`; CodeQL is a separate code-scanning rule. | Platform/matrix names and language jobs may change, while the protected-branch contract remains stable and fail-closed. |
 | Keep policy layers non-overlapping | Integrity, review, and CodeQL are separate rulesets; classic branch protection is absent. | Each rule has one owner, one bypass model, and one auditable live representation. |
 | Require independent evidence | Pull requests require an up-to-date exact-head check, one approval, CODEOWNER review, last-push approval, and resolved conversations. | A green branch or owner assertion is not independent merge evidence. |
 | Bound automation | CI jobs have timeouts, superseded runs are cancelled, Renovate never automerges, and major updates require Dashboard approval. | Automation should fail visibly and consume finite resources. |

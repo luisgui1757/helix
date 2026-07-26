@@ -1,6 +1,6 @@
 # Status
 
-Snapshot: 2026-07-22. Version: 0.5.0 on `feature/graph-mode`.
+Snapshot: 2026-07-26. Version: 0.5.1 remediation candidate for `main`.
 
 ## Public repository readiness
 
@@ -27,14 +27,20 @@ open [Renovate dashboard](https://github.com/luisgui1757/helix-cc/issues/2).
 The gold-standard policy change adds dependency review to the stable aggregate
 `test`, bounded CI runtimes, cancellation of superseded runs, an active
 checked-in CodeQL definition, and a durable
-[security and governance baseline](docs/security-governance.md). It must still
-land through the protected pull-request workflow; this status does not authorize
-a merge.
+[security and governance baseline](docs/security-governance.md).
+The policy landed through protected pull request #3; the live controls and
+checked-in rulesets were re-read as matching during the 2026-07-23 audit.
 
 The authorized privacy rewrite, former pull-request dereference, Renovate first
 run, cutover evidence, and deliberate policy exclusions remain append-only in
 the dated
 [public-readiness review](docs/reviews/helix-cc-public-readiness-2026-07-20.md).
+
+Throughout the append-only 0.3.2/0.4.0 ledgers, abbreviated `Production
+revision` values attached to pre-publication Workflow receipts are historical
+labels. The authorized privacy rewrite replaced those Git objects, so they
+intentionally do not resolve in the public repository and are not current-route
+evidence. Fresh receipts must cite a resolvable current revision.
 
 The public setup path is fail-closed against mutable remote installer execution:
 Claude Code must already be installed at the supported minimum, while the
@@ -67,6 +73,15 @@ bounded-cycle, approval-path, compiler-generated registry, catalog, digest,
 drift, and absolute-step-ceiling checks. It does not accept uploaded graphs or
 arbitrary workflow JavaScript.
 
+Version 0.5.1 is the audit-remediation candidate. It binds all effect-bearing
+evidence calls to one closed authorization recorded at session creation and
+refuses command, TDD, preflight, commit, push, or PR substitutions before their
+effects. It also restores zero-argument launcher portability on stock macOS
+Bash, adds a macOS CI leg, bounds the disposable TDD copy to 1 GiB, documents
+post-commit shipment failure state, and corrects current/historical evidence
+and setup language. It is not a current-main claim until its protected pull
+request merges.
+
 All existing public workflow behavioral tests run against both modes. A
 separate parity campaign compares complete prompts, schemas, labels, model
 options and responses, parallel groups, child-workflow calls, ordinary logs,
@@ -74,7 +89,7 @@ terminal values, and exact errors against independent equivalent simulated
 boundaries. The current campaign covers 22 workflow scenarios across success,
 remediation, exhaustion, forgery, research terminals, and shipping refusal,
 plus 4 comparison-harness contract tests. Graph mode has
-deterministic evidence only on this branch; no live provider-backed graph-mode
+deterministic evidence only; no live provider-backed graph-mode
 receipt is claimed.
 
 The 0.5.0 lockfile also resolves `fast-uri` to `3.1.4` and overrides the MCP
@@ -130,7 +145,7 @@ differences are in [`docs/workflows.md`](docs/workflows.md).
 | Review roles conflated verification-command delta with the final working-tree delta | Fixed after a second installed reproduction: signed v2 command receipts carry both top-level command mutations and `checkout.changedPaths` relative to HEAD |
 | Evidence courier truncated a long single-token RSA signature | Fixed after installed reproduction: v2 schemas require six fixed signature chunks and the child verifier rejects any missing or malformed chunk |
 | Current installed terminal evidence for every public loop | Fixed at production revision `9279094`: delivery, implement-review, TDD, research, and scout reached their terminal installed states; ship-pre-pr reached its required no-confirmation refusal without starting an agent or changing Git state |
-| TDD reproduction could mutate ignored, Git-internal, HOME, or sibling paths | Fixed: `reproduce_red` executes inside a disposable repository copy with redirected project, Git, HOME, and temporary process state; ignored test paths and empty test deltas are refused; only verified signed test contents are applied back to an unchanged checkout/index |
+| TDD reproduction could mutate ignored, Git-internal, redirected HOME, or relative sibling paths in the user checkout | Fixed: `reproduce_red` executes inside a disposable repository copy with redirected project, Git, HOME, and temporary process state; ignored test paths and empty test deltas are refused; only verified signed test contents are applied back to an unchanged checkout/index. This is not an OS sandbox and does not contain absolute-path writes elsewhere. |
 | Research omitted base Helix dead-end and diminishing-return stops | Fixed: deterministic target/dead-end/plateau/max decisions, comparator-aware progress, equality-distance handling, successor continuation, and structured terminal results are component-tested |
 | Workflow input grammar was weaker than the trusted service | Fixed: all five evidence-backed workflows reject non-PATH executable argv before agents; TDD/ship accept at most one `./`, revalidate the normalized path, reject duplicates/reserved forms, and ship rejects LF/CR commit messages and titles before agents |
 | Evidence tool count drifted after `reproduce_red` | Fixed: one exported six-tool catalog binds the service and MCP declarations; documentation names all six and is contract-tested |
@@ -139,15 +154,25 @@ differences are in [`docs/workflows.md`](docs/workflows.md).
 | Research rejected a non-refuted miss that named a successor | Fixed after installed plateau reproduction: successor hypotheses may accompany any unmet result; only a refutation without a successor becomes a dead-end, matching base Helix |
 | Startup signals could orphan provider processes before foreground ownership | Fixed after round-six reproduction and round-seven proof correction: one process-level owner is installed before the first async spawn; every backend, attestation proxy, gateway, login, Claude, and proof child registers immediately; six subprocess cases import the production controller, substitute only generated loopback executables/state at external boundaries, and prove bounded SIGINT/SIGTERM cleanup, no post-interrupt spawn, dead PIDs, released ports, and exit 130/143 across readiness and active execution |
 | Proof result could be checked before its Workflow transcript finished persisting | Fixed after exact-route reproduction and round-seven incremental-write trace: proof attestation waits up to five seconds for the exact marker-bearing transcript count and exact sorted resolved-model set to converge, remains interruptible, and refuses excessive transcripts, missing models, or unexpected models |
+| Bare `claudex` failed on stock macOS Bash 3.2 when no arguments were forwarded | Fixed: Bash-3.2-safe empty-array expansion covers native and provider model injection; zero-argument subprocess coverage runs on a real `macos-latest` CI leg |
+| Evidence operations could execute model-supplied effects before the workflow verifier rejected an argv mismatch | Fixed: `start_session` stores a closed normalized authorization and every command, TDD, pre-PR, commit, push, and PR operation matches it before effects; hostile sentinel and no-invocation regressions cover refusals |
+| TDD reproduction copied an unbounded working tree | Fixed: cumulative regular-file copying is limited to 1 GiB with a typed refusal naming the first path over the bound |
+| Shipment failure after commit creation left an undocumented local commit | Fixed as a disclosure contract: the commit deliberately remains because a push may already have taken effect; the behavior is documented and regression-tested |
+| Current docs treated pre-privacy-rewrite evidence as current and cited non-resolving object names | Fixed: route tables use `Historical evidence`, this ledger disclaims the retained pre-rewrite names, and fresh proof is required for current health |
+| Setup troubleshooting claimed setup installs Claude Code | Fixed: the HOW-TO now directs users to Anthropic's separate official installation guide and preserves setup's fail-closed no-remote-installer boundary |
+| Graph/publication documents still described pre-merge or pre-publication state | Fixed: graph delivery records protected PR #4, the public policy records protected PR #3, and the vulnerability-reporting conditional was removed |
 
 ## Current route states
+
+The historical route rows below retain pre-rewrite evidence labels under the
+disclaimer above; fresh proof is required for current route health.
 
 | Route | State | Evidence |
 |---|---|---|
 | Native Claude | Supported | Local executable/configuration checks plus historical installed Workflow execution |
-| OpenAI subscription `gpt-5.6-luna` | Route verified | Production revision `9b6b35f`; marker matched; exact resolved-model set contained one `gpt-5.6-luna` Workflow transcript |
-| GitHub Copilot `copilot/gpt-5.4` | Route verified | Production revision `9b6b35f`; pin `gpt-5.4-2026-03-05`; marker matched; exact resolved-model set contained one `gpt-5.4` Workflow transcript |
-| OpenAI + Copilot | Workflow verified | Production revision `9b6b35f` passed the exact two-model matrix; the current approved nine-role delivery receipt remains recorded below |
+| OpenAI subscription `gpt-5.6-luna` | Historical evidence | Pre-rewrite production label `9b6b35f`; 2026-07-19 marker and resolved-model record retained; fresh proof required |
+| GitHub Copilot `copilot/gpt-5.4` | Historical evidence | Pre-rewrite production label `9b6b35f`; dated pin `gpt-5.4-2026-03-05` retained; fresh pin and proof required |
+| OpenAI + Copilot | Historical evidence | Pre-rewrite production label `9b6b35f`; 2026-07-19 exact two-model matrix and nine-role delivery record retained; fresh proof required |
 | Azure Foundry GPT | Implemented; live proof pending | Deterministic endpoint, configuration, response-model, and lifecycle tests only |
 | Azure-containing mixtures | Implemented; exact matrix proof required | No promoted combination |
 | OpenRouter | Deferred | Rejected by provider selection |
@@ -180,24 +205,27 @@ Update only from final-code evidence.
 |---|---|---|
 | Focused 0.3.2 regressions | Passed | Launcher, setup handoff, entrypoint, route/model, scrubbed preflight, lifecycle, and docs contracts included in the full suite |
 | `npm run check` | Passed | `validated helix-cc: 9 original/internal workflows, 6 graph workflows, 13 agents, 7 skills` |
-| `npm test` | Passed | 182 passed; 0 failed, skipped, or TODO; includes the existing provider, lifecycle, signed-evidence, workflow, packaging, and documentation contracts plus 16 graph IR/compiler/runtime tests and 26 parity tests (22 workflow scenarios and 4 comparison-harness contracts) |
-| `claude plugin validate --strict .` | Passed | Claude Code 2.1.214 strict validation |
+| `npm test` | Passed | 188 passed; 0 failed, skipped, or TODO; includes preventive evidence authorization, Bash-3.2 launcher, bounded-copy, post-commit residual, provider, lifecycle, workflow, packaging, and documentation contracts plus 16 graph IR/compiler/runtime tests and 26 parity tests (22 workflow scenarios and 4 comparison-harness contracts) |
+| `npm run test:graph` | Passed | 45 original workflow regressions passed in graph mode |
+| `claude plugin validate --strict .` | Passed | Claude Code 2.1.220 strict validation |
+| Dependency and registry integrity | Passed | Zero production vulnerabilities; 155 registry signatures and 14 attestations verified |
+| Current secret scan | Passed | Gitleaks found no leak in the candidate working tree or seven reachable commits |
 | Documentation link/command contract | Passed | Current links resolve locally; every provider launch example supplies an explicit model |
-| Interrupted provider startup acceptance | Passed | Production revision `c5016f6`: SIGTERM after the first Copilot child spawn and before gateway readiness produced exit 143; every observed PID died, all allocated ports were released, and idle status returned `unreachable` |
-| Installed signed-evidence seam | Passed | Production revision `9279094`: v2 receipt signed the exact command delta and final checkout paths; all six RSA chunks survived the agent courier and the child verifier accepted the signature |
-| Installed `helix-delivery` headless smoke | Passed | One pass; `approved: true`; evidence verified; both reviews passed; initial HEAD `a7a584e` remained unchanged with exactly three requested unstaged files |
-| Installed `helix-implement-review` headless smoke | Passed | One pass; `approved: true`; evidence verified; existing behavioral test changed and passed; initial HEAD `0189325` remained unchanged with four requested unstaged files |
-| Installed `helix-tdd-fix` headless smoke | Passed | One reproduction and one fix pass; signed test-only exit-1 red preceded the production change; signed green and final approval passed; initial HEAD `c30fe13` remained unchanged |
-| Installed negative input boundary | Passed | Production revision `d52d276`: installed TDD rejected a non-PATH reproduction executable and installed ship rejected `.git/config`; both Workflow results reported zero nested agents and zero nested tool uses |
-| Installed `helix-research` headless smoke | Passed | One experiment; typed `payload_bytes` target equaled exactly `4 bytes`; final measurement and exact test receipts verified; `approved: true`; initial HEAD `77a047f` remained unchanged |
-| Installed research dead-end acceptance | Passed | Production revision `9ac08b9`; one pass; `approved: true`; `stopReason: dead-end`; signed metric remained 5 bytes against target `<5`; signed and independent tests passed 3/3; fixture HEAD `d70d7ad` and exact fixed payload bytes remained unchanged; delta was exactly RESEARCH, STATUS, and one floor test |
-| Installed research plateau acceptance | Passed | Production revision `9ac08b9`; two passes; `approved: false`; `stopReason: diminishing-returns`; deterministic `problems: []`; signed metric remained 10 against target `>100`; signed and independent tests passed 6/6; fixture HEAD `bbab6bf` and all five fixed inputs remained unchanged; delta was exactly RESEARCH, STATUS, and one ledger test |
-| Installed `helix-scout` headless smoke | Passed | Both read-only agents completed through the current plugin and returned structured reconnaissance and brief; initial HEAD `ced1eb9` and the working tree remained unchanged |
-| Installed `helix-ship-pre-pr` refusal smoke | Passed | With the complete evidence session but `confirmOpenPullRequest: false`, the installed workflow refused on the exact confirmation gate; zero agents started and initial HEAD `ced1eb9` remained clean; no PR was opened |
-| OpenAI exact route proof | Passed | Production revision `9b6b35f`; `gpt-5.6-luna`; marker matched; exact resolved-model set contained one transcript; sidecar not reused |
-| Copilot exact route proof | Passed | Production revision `9b6b35f`; `copilot/gpt-5.4`; served pin `gpt-5.4-2026-03-05`; marker matched; exact resolved-model set contained one transcript; sidecar not reused |
-| OpenAI + Copilot matrix proof | Passed | Production revision `9b6b35f`; requested and exact resolved-model sets matched `gpt-5.4` plus `gpt-5.6-luna` across exactly two transcripts; sidecar not reused |
-| Full heterogeneous nine-role workflow | Passed | One pass; `approved: true`; seven `gpt-5.6-luna` and two `gpt-5.4` transcripts; fixture tests and diff check passed |
+| Interrupted provider startup acceptance | Historical pass | Pre-rewrite production label `c5016f6`: SIGTERM after the first Copilot child spawn and before gateway readiness produced exit 143; every observed PID died, all allocated ports were released, and idle status returned `unreachable` |
+| Installed signed-evidence seam | Historical pass | Pre-rewrite production label `9279094`: v2 receipt signed the exact command delta and final checkout paths; all six RSA chunks survived the agent courier and the child verifier accepted the signature |
+| Installed `helix-delivery` headless smoke | Historical pass | One pass; `approved: true`; evidence verified; both reviews passed; historical fixture HEAD `a7a584e` remained unchanged with exactly three requested unstaged files |
+| Installed `helix-implement-review` headless smoke | Historical pass | One pass; `approved: true`; evidence verified; existing behavioral test changed and passed; historical fixture HEAD `0189325` remained unchanged with four requested unstaged files |
+| Installed `helix-tdd-fix` headless smoke | Historical pass | One reproduction and one fix pass; signed test-only exit-1 red preceded the production change; signed green and final approval passed; historical fixture HEAD `c30fe13` remained unchanged |
+| Installed negative input boundary | Historical pass | Pre-rewrite production label `d52d276`: installed TDD rejected a non-PATH reproduction executable and installed ship rejected `.git/config`; both Workflow results reported zero nested agents and zero nested tool uses |
+| Installed `helix-research` headless smoke | Historical pass | One experiment; typed `payload_bytes` target equaled exactly `4 bytes`; final measurement and exact test receipts verified; `approved: true`; historical fixture HEAD `77a047f` remained unchanged |
+| Installed research dead-end acceptance | Historical pass | Pre-rewrite production label `9ac08b9`; one pass; `approved: true`; `stopReason: dead-end`; signed metric remained 5 bytes against target `<5`; signed and independent tests passed 3/3; historical fixture HEAD `d70d7ad` and exact fixed payload bytes remained unchanged; delta was exactly RESEARCH, STATUS, and one floor test |
+| Installed research plateau acceptance | Historical pass | Pre-rewrite production label `9ac08b9`; two passes; `approved: false`; `stopReason: diminishing-returns`; deterministic `problems: []`; signed metric remained 10 against target `>100`; signed and independent tests passed 6/6; historical fixture HEAD `bbab6bf` and all five fixed inputs remained unchanged; delta was exactly RESEARCH, STATUS, and one ledger test |
+| Installed `helix-scout` headless smoke | Historical pass | Both read-only agents completed through the installed plugin and returned structured reconnaissance and brief; historical fixture HEAD `ced1eb9` and the working tree remained unchanged |
+| Installed `helix-ship-pre-pr` refusal smoke | Historical pass | With the complete evidence session but `confirmOpenPullRequest: false`, the installed workflow refused on the exact confirmation gate; zero agents started and historical fixture HEAD `ced1eb9` remained clean; no PR was opened |
+| OpenAI exact route proof | Historical pass | Pre-rewrite production label `9b6b35f`; `gpt-5.6-luna`; marker matched; exact resolved-model set contained one transcript; sidecar not reused |
+| Copilot exact route proof | Historical pass | Pre-rewrite production label `9b6b35f`; `copilot/gpt-5.4`; served pin `gpt-5.4-2026-03-05`; marker matched; exact resolved-model set contained one transcript; sidecar not reused |
+| OpenAI + Copilot matrix proof | Historical pass | Pre-rewrite production label `9b6b35f`; requested and exact resolved-model sets matched `gpt-5.4` plus `gpt-5.6-luna` across exactly two transcripts; sidecar not reused |
+| Full heterogeneous nine-role workflow | Historical pass | One pass; `approved: true`; seven `gpt-5.6-luna` and two `gpt-5.4` transcripts; historical fixture tests and diff check passed |
 | Azure exact route proof | Unavailable | Azure CLI and deployment configuration are absent on this machine |
 
 ## Deliberate product boundaries

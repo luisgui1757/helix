@@ -7,8 +7,7 @@ release. Older revisions are not maintained separately.
 
 ## Reporting a vulnerability
 
-Use GitHub's private vulnerability reporting form after this repository becomes
-public:
+Use GitHub's private vulnerability reporting form:
 
 1. Open the repository's **Security** tab.
 2. Select **Advisories**.

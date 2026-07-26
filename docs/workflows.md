@@ -53,7 +53,10 @@ are strict subsets share their stronger standalone implementation.
   commit, push, open a pull request, tag, release, or rewrite history. Only the
   separately confirmed `ship-pre-pr` loop owns a Git/GitHub handoff.
 - Every write loop receives the exact result of one fresh
-  `mcp__plugin_helix-cc_helix-cc-evidence__start_session` call.
+  `mcp__plugin_helix-cc_helix-cc-evidence__start_session` call. That call binds
+  a closed allowlist of exact commands plus any TDD paths/reproduction argv or
+  pre-PR identity, paths, checks, commit, push, and PR text. Every effect tool
+  refuses a mismatch before inspecting or changing repository/external state.
 - Exact argv is executed without a shell by the bundled evidence service. The
   first argv element must be a PATH-resolved executable name with no slash or
   leading dash; repository-local scripts are arguments to an interpreter such
@@ -120,9 +123,13 @@ supplies complete test-file contents to the
 trusted `reproduce_red` operation. That operation copies the checkout except
 its Git metadata into a disposable repository, creates isolated Git metadata,
 and redirects project, Git, HOME, and temporary process state into that copy.
-It then applies the proposed signed test contents and runs the exact argv there.
-Ignored-file, Git-internal, HOME, sibling,
-infrastructure, green, and out-of-scope effects are discarded with the copy.
+The copy has a 1 GiB cumulative regular-file ceiling and refuses the first path
+that would exceed it. It then applies the proposed signed test contents and runs
+the pre-authorized exact argv there. Ignored-file, Git-internal,
+infrastructure, green, and out-of-scope repository effects are discarded with
+the copy. This is not an operating-system sandbox: absolute-path writes outside
+the repository and redirected process directories are neither prevented nor
+discarded.
 Only a non-empty exact proposed test delta is atomically applied back after a
 normal exit `1..125` that changes no repository file while executing. Apply-back is
 bound to the unchanged signed baseline and index, with signed-path rollback on
@@ -192,6 +199,9 @@ repository, branch/SHA, and base. The signed terminal receipt binds origin/repos
 head branch/SHA, base, exact commit/PR text, draft/open/unmerged state, and the
 remote SHA. It has no merge, close, approve, retarget, auto-merge, tag, release,
 force-push, reset, or checkout operation.
+If a failure occurs after the commit is created, the local commit remains for
+operator inspection and is not rolled back because the push may already have
+taken effect.
 
 ## Runtime boundary
 
@@ -203,6 +213,10 @@ server with six narrow tools: `start_session`, `capture_baseline`,
 RSA private key never enters an agent or workflow argument. Agents transport
 receipts, but cannot edit one without invalidating its signature; the internal
 child workflow verifies the signature and exact expectation before approval.
+`start_session` stores the complete normalized effect authorization in the MCP
+process and returns only `{id, publicKey}`. Repeated loop commands are allowed
+only when the exact argv, purpose, and metric tuple was authorized; TDD and
+pre-PR operations must match their entire stored contracts before effects.
 Claude Code qualifies plugin MCP tools as
 `mcp__plugin_helix-cc_helix-cc-evidence__<tool>`, so the evidence, reproducer,
 and shipper definitions allowlist those installed names exactly. Internal child

@@ -19,6 +19,8 @@ test('CI is least-privilege, bounded, digest-pinned, and emits one stable requir
   assert.doesNotMatch(workflow, /pull_request_target/)
   assert.match(workflow, /^  push:\n    branches:\n      - main$/m)
   assert.match(workflow, /npm ci --ignore-scripts --include=optional/)
+  assert.match(workflow, /runs-on: \$\{\{ matrix\.os \}\}/)
+  assert.match(workflow, /os: macos-latest\n\s+node-version: 22\.19\.0/)
   assert.deepEqual([...workflow.matchAll(/^\s+timeout-minutes: (\d+)$/gm)].map(match => Number(match[1])), [15, 5, 5])
   assert.match(workflow, /^  dependency_review:\n    name: dependency-review$/m)
   assert.match(workflow, /github\.event_name == 'pull_request'.*actions\/dependency-review-action@/s)

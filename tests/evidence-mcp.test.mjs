@@ -33,14 +33,30 @@ test('packaged trusted-evidence MCP server starts, exposes only narrow tools, an
   assert.deepEqual(listed.tools.map(tool => tool.name), [
     'start_session', 'capture_baseline', 'reproduce_red', 'run_command', 'verify_pre_pr', 'ship_pre_pr',
   ])
+  assert.deepEqual(listed.tools.find(tool => tool.name === 'start_session').inputSchema.required, ['authorization'])
   assert.deepEqual(listed.tools.find(tool => tool.name === 'capture_baseline').inputSchema.required, ['sessionId', 'testPaths'])
   assert.equal(listed.tools.find(tool => tool.name === 'verify_pre_pr').inputSchema.required.includes('releaseCheckArgv'), true)
-  const started = await client.callTool({ name: 'start_session', arguments: {} })
+  const cleanArgv = ['node', '-e', 'process.exit(0)']
+  const modeArgv = ['node', '-e', "require('node:fs').chmodSync('README.md', 0o755)"]
+  const redArgv = ['node', '-e', 'process.exit(1)']
+  const started = await client.callTool({
+    name: 'start_session',
+    arguments: {
+      authorization: {
+        commands: [
+          { argv: cleanArgv, purpose: 'verification', metric: null },
+          { argv: modeArgv, purpose: 'verification', metric: null },
+        ],
+        tdd: { testPaths: ['tests/red.test.mjs'], reproductionArgv: redArgv },
+        prePr: null,
+      },
+    },
+  })
   const session = JSON.parse(started.content[0].text)
   assert.match(session.id, /^hxe_[0-9a-f]{48}$/)
   const called = await client.callTool({
     name: 'run_command',
-    arguments: { sessionId: session.id, argv: ['node', '-e', 'process.exit(0)'], purpose: 'verification' },
+    arguments: { sessionId: session.id, argv: cleanArgv, purpose: 'verification' },
   })
   const receipt = JSON.parse(called.content[0].text).receipt
   assert.deepEqual(receipt.request.argv, ['node', '-e', 'process.exit(0)'])
@@ -53,7 +69,7 @@ test('packaged trusted-evidence MCP server starts, exposes only narrow tools, an
   await writeFile(join(root, 'README.md'), 'already dirty\n')
   const modeChange = await client.callTool({
     name: 'run_command',
-    arguments: { sessionId: session.id, argv: ['node', '-e', "require('node:fs').chmodSync('README.md', 0o755)"], purpose: 'verification' },
+    arguments: { sessionId: session.id, argv: modeArgv, purpose: 'verification' },
   })
   const modeReceipt = JSON.parse(modeChange.content[0].text).receipt
   assert.notEqual(modeReceipt.result.repositoryBefore, modeReceipt.result.repositoryAfter)
@@ -70,7 +86,7 @@ test('packaged trusted-evidence MCP server starts, exposes only narrow tools, an
     arguments: {
       sessionId: session.id,
       baselineSequence: baseline.sequence,
-      argv: ['node', '-e', 'process.exit(1)'],
+      argv: redArgv,
       files: [{ path: 'tests/red.test.mjs', content: 'red\n' }],
     },
   })

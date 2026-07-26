@@ -40,9 +40,10 @@ The evidence MCP server is provider-independent and runs in the repository
 Claude Code opened. Write workflows require it even on the native route. It
 holds an ephemeral signing key, exposes only six bounded operations
 (`start_session`, `capture_baseline`, `reproduce_red`, `run_command`,
-`verify_pre_pr`, and `ship_pre_pr`), binds
-tracked file content/type/mode plus Git state, and never returns raw command
-output. Provider gateways do not receive or interpret its repository operations.
+`verify_pre_pr`, and `ship_pre_pr`), and binds the exact user-confirmed effect
+contract before any command, TDD, Git, push, or PR operation can run. It also
+binds tracked file content/type/mode plus Git state and never returns raw
+command output. Provider gateways do not receive or interpret its repository operations.
 
 ## Route grammar
 

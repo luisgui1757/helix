@@ -28,7 +28,7 @@ Use this loop when a repository decision needs measured experiments rather than 
    target, exact measurement and test argv, pass bound, optional plateau bound,
    expected experiment scope, all four terminal reasons, and models. Obtain
    explicit confirmation.
-7. Call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once. Stop if it fails, and pass its exact `{id, publicKey}` result without reconstruction.
+7. Call `mcp__plugin_helix-cc_helix-cc-evidence__start_session` exactly once with `{ "authorization": { "commands": [{ "argv": <exact measurement argv>, "purpose": "measurement", "metric": { "metric": <exact metric name>, "unit": <exact unit> } }, { "argv": <exact test argv>, "purpose": "tests", "metric": null }], "tdd": null, "prePr": null } }`. This binds the trusted service before any effect can run. Stop if it fails, and pass its exact `{id, publicKey}` result without reconstruction.
 8. Invoke:
 
 ```text

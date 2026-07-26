@@ -178,6 +178,8 @@ test('the public skill catalog maps every distinct Helix loop to its audited wor
     assert.match(source, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/bin\/helix-cc-doctor" --json/)
     if (skill !== 'helix-scout') {
       assert.match(source, /mcp__plugin_helix-cc_helix-cc-evidence__start_session/)
+      assert.match(source, /"authorization"/)
+      assert.match(source, /binds .* before any effect can run/i)
       assert.match(source, /evidenceSession: <exact start_session result>/)
     }
     if (skill === 'helix-loop') {
@@ -230,6 +232,29 @@ test('current documentation links resolve and provider launch examples include a
   for (const path of skillPaths) {
     const source = await readFile(new URL(path, root), 'utf8')
     assert.match(source, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/bin\/helix-cc-doctor" --json/)
+  }
+})
+
+test('current documentation distinguishes historical evidence and implemented recovery boundaries', async () => {
+  const [readme, status, quickstart, security, migration, setup] = await Promise.all([
+    readFile(new URL('README.md', root), 'utf8'),
+    readFile(new URL('STATUS.md', root), 'utf8'),
+    readFile(new URL('docs/quickstart.md', root), 'utf8'),
+    readFile(new URL('SECURITY.md', root), 'utf8'),
+    readFile(new URL('graph-migration.md', root), 'utf8'),
+    readFile(new URL('setup.sh', root), 'utf8'),
+  ])
+  assert.doesNotMatch(readme, /Live-proven/)
+  assert.match(readme, /Historical evidence from 2026-07-19/)
+  assert.doesNotMatch(quickstart, /invokes the official stable installer/)
+  assert.doesNotMatch(setup, /claude\.ai\/install\.sh|curl|wget/)
+  assert.match(quickstart, /not an operating-system sandbox/)
+  assert.doesNotMatch(security, /after this repository becomes public/)
+  assert.match(migration, /merged to `main` through pull request #4/)
+  assert.match(status, /privacy rewrite replaced those Git objects[\s\S]*intentionally do not resolve/)
+  for (const [, revision] of status.matchAll(/Production revision `([0-9a-f]{7,40})`/g)) {
+    const resolves = spawnSync('git', ['cat-file', '-e', `${revision}^{commit}`], { cwd: rootPath }).status === 0
+    if (!resolves) assert.match(status, /pre-publication Workflow receipts are historical/)
   }
 })
 

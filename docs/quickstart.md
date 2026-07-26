@@ -59,8 +59,9 @@ Every provider-backed route follows the same sequence:
 5. Launch `claudex` with both `--providers` and an explicit `--model`.
 6. Choose one of the supported skills in section 8, select `original` (default)
    or `graph`, and confirm its displayed mode, exact script path, and complete
-   configuration. Write loops start one ephemeral signed-evidence session
-   automatically; stop if the `helix-cc-evidence` MCP server is unavailable.
+   configuration. Write loops start one ephemeral signed-evidence session with
+   that exact command, TDD, or pre-PR effect contract bound before execution;
+   stop if the `helix-cc-evidence` MCP server is unavailable.
 7. Require the loop-specific terminal result from section 8 (`approved: true`
    for write loops or `completed: true` for scout).
 8. Exit Claude normally; the launcher stops every helper process it owns.
@@ -273,10 +274,13 @@ leading `./` on a task or test path is normalized away; absolute,
 empty-segment, dot-segment, backslash, and `.git` paths are rejected afterward.
 Ship commit messages and pull-request titles are single-line. TDD reproduction
 is stricter: its agent cannot write directly, and the trusted service runs the
-red command in a disposable repository copy. Test paths must be Git-visible
-and produce a non-empty test delta. Only verified signed test contents are
-applied back; ignored-file, Git-internal, HOME, sibling, green,
-failed-to-start, and out-of-scope effects are discarded. The trusted service returns only exit/signal/error classes, output
+pre-authorized red command in a disposable repository copy bounded to 1 GiB.
+Test paths must be Git-visible and produce a non-empty test delta. Only verified
+signed test contents are applied back; ignored-file, Git-internal, green,
+failed-to-start, and out-of-scope repository effects are discarded. This is
+cwd/environment redirection, not an operating-system sandbox: an authorized
+command's absolute-path writes outside the repository and redirected process
+directories are neither prevented nor discarded. The trusted service returns only exit/signal/error classes, output
 digests, bounded Git deltas, and typed measurement or shipment facts; raw
 command output is not placed in the workflow receipt. Scout is the exception: both of its roles
 are read-only and its brief is returned as structured output instead of writing
@@ -314,7 +318,7 @@ are released, and the launcher exits with 130 for SIGINT or 143 for SIGTERM.
 | Requested model absent | Stop the session, run the exact proof, and use only a model returned by that proof. |
 | `helix-cc-evidence` MCP tool unavailable | Stop the write loop, run `/mcp`, and restart `claudex` only after the plugin server is connected. Do not substitute a prose command report. |
 | Gateway port already in use | Exit the owning `claudex` session; do not start a second owner on the same port. |
-| Old Claude Code version | Re-run `./setup.sh`; it invokes the official stable installer when Claude is absent or below the required version. |
+| Old Claude Code version | Install a supported Claude Code version separately using Anthropic's official installation guide, then re-run `./setup.sh`; setup refuses missing or outdated Claude Code and never runs a remote installer. |
 
 ## 10. Update and re-verify
 
@@ -329,14 +333,14 @@ After any Claude Code, gateway, provider-adapter, or model change, rerun the
 doctor and the exact route proof. Historical receipts do not carry forward
 across changed versions or model identities.
 
-## Current promoted routes
+## Route state
 
 | Route | State |
 |---|---|
 | Native Claude | Supported; exact effective model follows the active Claude configuration |
-| `gpt-5.6-luna` through OpenAI subscription | Live-proven on 2026-07-19 |
-| `copilot/gpt-5.4` | Live-proven on 2026-07-19 with a dated served-model pin |
-| OpenAI + Copilot | Live-proven on 2026-07-19 in a full nine-role workflow |
+| `gpt-5.6-luna` through OpenAI subscription | Historical evidence from 2026-07-19; fresh proof required for current health |
+| `copilot/gpt-5.4` | Historical evidence from 2026-07-19 with a dated served-model pin; fresh pin and proof required |
+| OpenAI + Copilot | Historical evidence from one 2026-07-19 full nine-role workflow |
 | Azure Foundry GPT | Implementation complete; live proof pending |
 | Azure-containing mixed routes | Implementation complete; exact matrix proof required |
 | OpenRouter | Deferred and unsupported |
