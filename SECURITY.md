@@ -1,44 +1,39 @@
 # Security policy
 
-## Supported versions
+Security fixes target the current default branch. The retired engine is
+historical source, not a separately maintained product.
 
-Security fixes target the current default branch and the latest published
-release. Older revisions are not maintained separately.
+## Reporting
 
-## Reporting a vulnerability
+Use the repository's **Security → Advisories → Report a vulnerability** private
+reporting flow. Include the revision, host/version, impact, and a minimal
+reproduction. Do not publish credentials, private source, raw prompts,
+transcripts, account identifiers, or session links. No response timeline is
+guaranteed.
 
-Use GitHub's private vulnerability reporting form:
+## Boundaries
 
-1. Open the repository's **Security** tab.
-2. Select **Advisories**.
-3. Choose **Report a vulnerability**.
+This collection ships instructions only. It does not handle credentials, download tools,
+run a proxy, authenticate receipts, isolate test execution, or enforce workflow
+transitions. The selected coding tool owns permissions, command execution,
+delegation, and its actual sandbox. A worktree or copied directory is not a
+security boundary. Repository CI and branch policies enforce merge gates.
 
-Do not open a public issue for a suspected vulnerability. Do not include
-credentials, private source, prompts, responses, account identifiers, session
-links, or provider payloads in an issue or discussion.
+Independent review uses a separate context but is still model judgment. A
+reported successful run is not cryptographic attestation. Keep authority
+appropriate to the task, preserve existing changes, and inspect real command
+outcomes and the final diff. The skills do not grant authority to publish.
 
-Include the affected revision and platform, impact, reproduction steps, and any
-suggested remediation. Reports involving provider credential handling,
-loopback boundaries, downloaded artifacts, repository mutation, GitHub Actions,
-or pull-request effects are especially useful.
+Setup may change native model settings within the requested scope. It must not
+change trust, permissions, hooks, or credentials to make a model choice work.
+Second-opinion instructs the agent and consultant not to edit files. Only host
+tools and permissions enforce that boundary, for example a role limited to
+Read, Glob and Grep. Unslop instructs the agent to treat draft content as data
+and preserve quoted and technical material unless the requested edit requires
+otherwise.
 
-The maintainer will triage the report privately and coordinate disclosure after
-a fix is available. No response or remediation timeline is guaranteed.
-
-## Security boundaries
-
-Helix CC treats provider credentials and account identity as private local
-state. Public receipts contain bounded status, model, command, Git, and digest
-facts rather than raw credentials, prompts, responses, or provider payloads.
-Downloaded CLIProxyAPI archives and the optional Copilot adapter are version and
-integrity pinned. GitHub Actions run without repository secrets, use read-only
-permissions, install npm dependencies with lifecycle scripts disabled, and pin
-every action to a full commit digest.
-
-`setup.sh` never downloads or executes the mutable Claude Code installer. It
-requires a supported preinstalled Claude CLI and directs users to Anthropic's
-official installation and signed-manifest integrity-verification guidance.
-
-These controls do not turn provider processes, repository commands, or Claude
-Code tools into an operating-system sandbox. They retain the invoking user's
-local authority, as documented in the provider and workflow references.
+GitHub Actions retain read-only tokens, bounded jobs, and full-digest pins.
+Legacy `.helix-cc-local/` state and `review-prompts/` drafts stay ignored on
+upgrade; retirement neither deletes nor makes those private files publishable.
+See the [governance baseline](docs/security-governance.md) and
+[evaluation record](docs/reviews/2026-10-03-portable-skill.md).

@@ -1,0 +1,957 @@
+{
+  "date": "2026-10-03",
+  "kind": "synthetic matched pilot",
+  "versions": {
+    "codex": "codex-cli 0.160.0",
+    "claude": "2.1.286 (Claude Code)",
+    "node": "v24.16.0",
+    "git": "git version 2.55.0"
+  },
+  "profiles": {
+    "codex": {
+      "writer": "gpt-6.1-sol",
+      "effort": "medium",
+      "reviewer": "gpt-6-luna",
+      "reviewEffort": "high"
+    },
+    "claude": {
+      "writer": "claude-sonnet-5-5",
+      "effort": "low",
+      "reviewer": "claude-opus-5-5",
+      "reviewEffort": "xhigh"
+    }
+  },
+  "executionSourceHashes": {
+    "evals/compare.mjs": "5dc084eb64c44caafc62a73b9da1a4896a292284e0943f03e8fda2856234144a",
+    "evals/fixtures.mjs": "3b65f00611f9a6de3ea526e4229c114baed4e7be1ec6bfb5486b61602e0af49e",
+    "evals/comparison.md": "9084bfd605f80109c9b5a0bbb975bd1f8194207f2336ad2022842bcc91ea7e70",
+    "skills/helix/SKILL.md": "fe376679f30c6e2e917b50fa3ba2781dc1397d6551c8951c7b73cc5cc064e42f"
+  },
+  "usageUnit": "tokens; thinking is included in output; noncached includes cache writes",
+  "subscriptionCostMeasured": false,
+  "summary": [
+    {
+      "host": "codex",
+      "mode": "plain",
+      "runs": 4,
+      "seconds": 357.28,
+      "meanSeconds": 89.32,
+      "input": 419547,
+      "cached": 325888,
+      "cacheWrites": 0,
+      "noncached": 93659,
+      "output": 8946,
+      "thinking": 332,
+      "cacheReadPercent": 77.68,
+      "freshReviewCalls": 0
+    },
+    {
+      "host": "codex",
+      "mode": "helix",
+      "runs": 4,
+      "seconds": 664.2,
+      "meanSeconds": 166.05,
+      "input": 1365035,
+      "cached": 1178368,
+      "cacheWrites": 0,
+      "noncached": 186667,
+      "output": 18722,
+      "thinking": 4190,
+      "cacheReadPercent": 86.33,
+      "freshReviewCalls": 4
+    },
+    {
+      "host": "claude",
+      "mode": "plain",
+      "runs": 4,
+      "seconds": 90.54,
+      "meanSeconds": 22.63,
+      "input": 295889,
+      "cached": 256018,
+      "cacheWrites": 39835,
+      "noncached": 39871,
+      "output": 9910,
+      "thinking": 631,
+      "cacheReadPercent": 86.53,
+      "freshReviewCalls": 0
+    },
+    {
+      "host": "claude",
+      "mode": "helix",
+      "runs": 4,
+      "seconds": 586.1,
+      "meanSeconds": 146.53,
+      "input": 887295,
+      "cached": 733728,
+      "cacheWrites": 153435,
+      "noncached": 153567,
+      "output": 63902,
+      "thinking": 33357,
+      "cacheReadPercent": 82.69,
+      "freshReviewCalls": 8
+    }
+  ],
+  "runs": [
+    {
+      "id": "codex-csv-1-plain",
+      "host": "codex",
+      "task": "csv",
+      "repetition": 1,
+      "mode": "plain",
+      "seconds": 70.94,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 10,
+        "total": 10
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 131704,
+        "cached": 108544,
+        "cacheWrites": 0,
+        "noncached": 23160,
+        "output": 1683,
+        "thinking": 65
+      },
+      "byModel": [
+        {
+          "role": "writer",
+          "model": "gpt-6.1-sol",
+          "input": 131704,
+          "cached": 108544,
+          "cacheWrites": 0,
+          "noncached": 23160,
+          "output": 1683,
+          "thinking": 65
+        }
+      ],
+      "skillObserved": false,
+      "freshReviewCalls": 0,
+      "roleSettingsVerified": true,
+      "completeClaim": false,
+      "preReviewAcceptance": [],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "codex-csv-1-helix",
+      "host": "codex",
+      "task": "csv",
+      "repetition": 1,
+      "mode": "helix",
+      "seconds": 142.57,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 10,
+        "total": 10
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 341234,
+        "cached": 288000,
+        "cacheWrites": 0,
+        "noncached": 53234,
+        "output": 3964,
+        "thinking": 1076
+      },
+      "byModel": [
+        {
+          "role": "writer",
+          "model": "gpt-6.1-sol",
+          "input": 203287,
+          "cached": 169472,
+          "cacheWrites": 0,
+          "noncached": 33815,
+          "output": 2341,
+          "thinking": 149
+        },
+        {
+          "role": "reviewer",
+          "model": "gpt-6-luna",
+          "input": 137947,
+          "cached": 118528,
+          "cacheWrites": 0,
+          "noncached": 19419,
+          "output": 1623,
+          "thinking": 927
+        }
+      ],
+      "skillObserved": true,
+      "freshReviewCalls": 1,
+      "roleSettingsVerified": true,
+      "completeClaim": true,
+      "preReviewAcceptance": [
+        {
+          "passed": 10,
+          "total": 10
+        }
+      ],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "claude-csv-1-helix",
+      "host": "claude",
+      "task": "csv",
+      "repetition": 1,
+      "mode": "helix",
+      "seconds": 54.16,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 10,
+        "total": 10
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 137547,
+        "cached": 107894,
+        "cacheWrites": 29631,
+        "noncached": 29653,
+        "output": 5429,
+        "thinking": 1473
+      },
+      "byModel": [
+        {
+          "model": "claude-sonnet-5-5",
+          "input": 111253,
+          "cached": 90526,
+          "cacheWrites": 20713,
+          "noncached": 20727,
+          "output": 2070,
+          "thinking": 56
+        },
+        {
+          "model": "claude-opus-5-5",
+          "input": 26294,
+          "cached": 17368,
+          "cacheWrites": 8918,
+          "noncached": 8926,
+          "output": 3359,
+          "thinking": 1417
+        }
+      ],
+      "skillObserved": true,
+      "freshReviewCalls": 1,
+      "roleSettingsVerified": true,
+      "completeClaim": true,
+      "preReviewAcceptance": [
+        {
+          "passed": 10,
+          "total": 10
+        }
+      ],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "claude-csv-1-plain",
+      "host": "claude",
+      "task": "csv",
+      "repetition": 1,
+      "mode": "plain",
+      "seconds": 14.12,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 10,
+        "total": 10
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 44632,
+        "cached": 36518,
+        "cacheWrites": 8108,
+        "noncached": 8114,
+        "output": 1184,
+        "thinking": 0
+      },
+      "byModel": [
+        {
+          "model": "claude-sonnet-5-5",
+          "input": 44632,
+          "cached": 36518,
+          "cacheWrites": 8108,
+          "noncached": 8114,
+          "output": 1184,
+          "thinking": 0
+        }
+      ],
+      "skillObserved": false,
+      "freshReviewCalls": 0,
+      "roleSettingsVerified": true,
+      "completeClaim": false,
+      "preReviewAcceptance": [],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "codex-preferences-1-helix",
+      "host": "codex",
+      "task": "preferences",
+      "repetition": 1,
+      "mode": "helix",
+      "seconds": 164.64,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 14,
+        "total": 14
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 354864,
+        "cached": 305408,
+        "cacheWrites": 0,
+        "noncached": 49456,
+        "output": 4687,
+        "thinking": 755
+      },
+      "byModel": [
+        {
+          "role": "writer",
+          "model": "gpt-6.1-sol",
+          "input": 243442,
+          "cached": 213248,
+          "cacheWrites": 0,
+          "noncached": 30194,
+          "output": 3735,
+          "thinking": 217
+        },
+        {
+          "role": "reviewer",
+          "model": "gpt-6-luna",
+          "input": 111422,
+          "cached": 92160,
+          "cacheWrites": 0,
+          "noncached": 19262,
+          "output": 952,
+          "thinking": 538
+        }
+      ],
+      "skillObserved": true,
+      "freshReviewCalls": 1,
+      "roleSettingsVerified": true,
+      "completeClaim": true,
+      "preReviewAcceptance": [
+        {
+          "passed": 14,
+          "total": 14
+        }
+      ],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "codex-preferences-1-plain",
+      "host": "codex",
+      "task": "preferences",
+      "repetition": 1,
+      "mode": "plain",
+      "seconds": 102.07,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 14,
+        "total": 14
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 88007,
+        "cached": 64512,
+        "cacheWrites": 0,
+        "noncached": 23495,
+        "output": 2744,
+        "thinking": 105
+      },
+      "byModel": [
+        {
+          "role": "writer",
+          "model": "gpt-6.1-sol",
+          "input": 88007,
+          "cached": 64512,
+          "cacheWrites": 0,
+          "noncached": 23495,
+          "output": 2744,
+          "thinking": 105
+        }
+      ],
+      "skillObserved": false,
+      "freshReviewCalls": 0,
+      "roleSettingsVerified": true,
+      "completeClaim": false,
+      "preReviewAcceptance": [],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "claude-preferences-1-plain",
+      "host": "claude",
+      "task": "preferences",
+      "repetition": 1,
+      "mode": "plain",
+      "seconds": 28.58,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 14,
+        "total": 14
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 101690,
+        "cached": 90794,
+        "cacheWrites": 10884,
+        "noncached": 10896,
+        "output": 3365,
+        "thinking": 335
+      },
+      "byModel": [
+        {
+          "model": "claude-sonnet-5-5",
+          "input": 101690,
+          "cached": 90794,
+          "cacheWrites": 10884,
+          "noncached": 10896,
+          "output": 3365,
+          "thinking": 335
+        }
+      ],
+      "skillObserved": false,
+      "freshReviewCalls": 0,
+      "roleSettingsVerified": true,
+      "completeClaim": false,
+      "preReviewAcceptance": [],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "claude-preferences-1-helix",
+      "host": "claude",
+      "task": "preferences",
+      "repetition": 1,
+      "mode": "helix",
+      "seconds": 239.73,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 14,
+        "total": 14
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 301033,
+        "cached": 248676,
+        "cacheWrites": 52313,
+        "noncached": 52357,
+        "output": 26845,
+        "thinking": 15836
+      },
+      "byModel": [
+        {
+          "model": "claude-sonnet-5-5",
+          "input": 229176,
+          "cached": 207259,
+          "cacheWrites": 21891,
+          "noncached": 21917,
+          "output": 5767,
+          "thinking": 667
+        },
+        {
+          "model": "claude-opus-5-5",
+          "input": 71857,
+          "cached": 41417,
+          "cacheWrites": 30422,
+          "noncached": 30440,
+          "output": 21078,
+          "thinking": 15169
+        }
+      ],
+      "skillObserved": true,
+      "freshReviewCalls": 3,
+      "roleSettingsVerified": true,
+      "completeClaim": true,
+      "preReviewAcceptance": [
+        {
+          "passed": 14,
+          "total": 14
+        },
+        {
+          "passed": 14,
+          "total": 14
+        },
+        {
+          "passed": 14,
+          "total": 14
+        }
+      ],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "codex-csv-2-helix",
+      "host": "codex",
+      "task": "csv",
+      "repetition": 2,
+      "mode": "helix",
+      "seconds": 130,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 10,
+        "total": 10
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 310502,
+        "cached": 276352,
+        "cacheWrites": 0,
+        "noncached": 34150,
+        "output": 3480,
+        "thinking": 933
+      },
+      "byModel": [
+        {
+          "role": "writer",
+          "model": "gpt-6.1-sol",
+          "input": 231535,
+          "cached": 213632,
+          "cacheWrites": 0,
+          "noncached": 17903,
+          "output": 2266,
+          "thinking": 85
+        },
+        {
+          "role": "reviewer",
+          "model": "gpt-6-luna",
+          "input": 78967,
+          "cached": 62720,
+          "cacheWrites": 0,
+          "noncached": 16247,
+          "output": 1214,
+          "thinking": 848
+        }
+      ],
+      "skillObserved": true,
+      "freshReviewCalls": 1,
+      "roleSettingsVerified": true,
+      "completeClaim": true,
+      "preReviewAcceptance": [
+        {
+          "passed": 10,
+          "total": 10
+        }
+      ],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "codex-csv-2-plain",
+      "host": "codex",
+      "task": "csv",
+      "repetition": 2,
+      "mode": "plain",
+      "seconds": 65.04,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 10,
+        "total": 10
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 89426,
+        "cached": 64512,
+        "cacheWrites": 0,
+        "noncached": 24914,
+        "output": 1482,
+        "thinking": 42
+      },
+      "byModel": [
+        {
+          "role": "writer",
+          "model": "gpt-6.1-sol",
+          "input": 89426,
+          "cached": 64512,
+          "cacheWrites": 0,
+          "noncached": 24914,
+          "output": 1482,
+          "thinking": 42
+        }
+      ],
+      "skillObserved": false,
+      "freshReviewCalls": 0,
+      "roleSettingsVerified": true,
+      "completeClaim": false,
+      "preReviewAcceptance": [],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "claude-csv-2-plain",
+      "host": "claude",
+      "task": "csv",
+      "repetition": 2,
+      "mode": "plain",
+      "seconds": 14.13,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 10,
+        "total": 10
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 46109,
+        "cached": 36867,
+        "cacheWrites": 9236,
+        "noncached": 9242,
+        "output": 1856,
+        "thinking": 32
+      },
+      "byModel": [
+        {
+          "model": "claude-sonnet-5-5",
+          "input": 46109,
+          "cached": 36867,
+          "cacheWrites": 9236,
+          "noncached": 9242,
+          "output": 1856,
+          "thinking": 32
+        }
+      ],
+      "skillObserved": false,
+      "freshReviewCalls": 0,
+      "roleSettingsVerified": true,
+      "completeClaim": false,
+      "preReviewAcceptance": [],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "claude-csv-2-helix",
+      "host": "claude",
+      "task": "csv",
+      "repetition": 2,
+      "mode": "helix",
+      "seconds": 51.29,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 10,
+        "total": 10
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 115777,
+        "cached": 98105,
+        "cacheWrites": 17652,
+        "noncached": 17672,
+        "output": 4804,
+        "thinking": 1444
+      },
+      "byModel": [
+        {
+          "model": "claude-sonnet-5-5",
+          "input": 89915,
+          "cached": 77447,
+          "cacheWrites": 12456,
+          "noncached": 12468,
+          "output": 1934,
+          "thinking": 80
+        },
+        {
+          "model": "claude-opus-5-5",
+          "input": 25862,
+          "cached": 20658,
+          "cacheWrites": 5196,
+          "noncached": 5204,
+          "output": 2870,
+          "thinking": 1364
+        }
+      ],
+      "skillObserved": true,
+      "freshReviewCalls": 1,
+      "roleSettingsVerified": true,
+      "completeClaim": true,
+      "preReviewAcceptance": [
+        {
+          "passed": 10,
+          "total": 10
+        }
+      ],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "codex-preferences-2-plain",
+      "host": "codex",
+      "task": "preferences",
+      "repetition": 2,
+      "mode": "plain",
+      "seconds": 119.23,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 14,
+        "total": 14
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 110410,
+        "cached": 88320,
+        "cacheWrites": 0,
+        "noncached": 22090,
+        "output": 3037,
+        "thinking": 120
+      },
+      "byModel": [
+        {
+          "role": "writer",
+          "model": "gpt-6.1-sol",
+          "input": 110410,
+          "cached": 88320,
+          "cacheWrites": 0,
+          "noncached": 22090,
+          "output": 3037,
+          "thinking": 120
+        }
+      ],
+      "skillObserved": false,
+      "freshReviewCalls": 0,
+      "roleSettingsVerified": true,
+      "completeClaim": false,
+      "preReviewAcceptance": [],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "codex-preferences-2-helix",
+      "host": "codex",
+      "task": "preferences",
+      "repetition": 2,
+      "mode": "helix",
+      "seconds": 226.99,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 14,
+        "total": 14
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 358435,
+        "cached": 308608,
+        "cacheWrites": 0,
+        "noncached": 49827,
+        "output": 6591,
+        "thinking": 1426
+      },
+      "byModel": [
+        {
+          "role": "writer",
+          "model": "gpt-6.1-sol",
+          "input": 276648,
+          "cached": 244864,
+          "cacheWrites": 0,
+          "noncached": 31784,
+          "output": 5095,
+          "thinking": 301
+        },
+        {
+          "role": "reviewer",
+          "model": "gpt-6-luna",
+          "input": 81787,
+          "cached": 63744,
+          "cacheWrites": 0,
+          "noncached": 18043,
+          "output": 1496,
+          "thinking": 1125
+        }
+      ],
+      "skillObserved": true,
+      "freshReviewCalls": 1,
+      "roleSettingsVerified": true,
+      "completeClaim": true,
+      "preReviewAcceptance": [
+        {
+          "passed": 14,
+          "total": 14
+        }
+      ],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "claude-preferences-2-helix",
+      "host": "claude",
+      "task": "preferences",
+      "repetition": 2,
+      "mode": "helix",
+      "seconds": 240.92,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 14,
+        "total": 14
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 332938,
+        "cached": 279053,
+        "cacheWrites": 53839,
+        "noncached": 53885,
+        "output": 26824,
+        "thinking": 14604
+      },
+      "byModel": [
+        {
+          "model": "claude-sonnet-5-5",
+          "input": 261377,
+          "cached": 237861,
+          "cacheWrites": 23488,
+          "noncached": 23516,
+          "output": 7303,
+          "thinking": 1010
+        },
+        {
+          "model": "claude-opus-5-5",
+          "input": 71561,
+          "cached": 41192,
+          "cacheWrites": 30351,
+          "noncached": 30369,
+          "output": 19521,
+          "thinking": 13594
+        }
+      ],
+      "skillObserved": true,
+      "freshReviewCalls": 3,
+      "roleSettingsVerified": true,
+      "completeClaim": true,
+      "preReviewAcceptance": [
+        {
+          "passed": 14,
+          "total": 14
+        },
+        {
+          "passed": 14,
+          "total": 14
+        },
+        {
+          "passed": 14,
+          "total": 14
+        }
+      ],
+      "confirmedFunctionalDefectsCaught": 0
+    },
+    {
+      "id": "claude-preferences-2-plain",
+      "host": "claude",
+      "task": "preferences",
+      "repetition": 2,
+      "mode": "plain",
+      "seconds": 33.71,
+      "exitCode": 0,
+      "timeout": false,
+      "acceptance": {
+        "passed": 14,
+        "total": 14
+      },
+      "gatePassed": true,
+      "preservation": true,
+      "testsUpdated": true,
+      "docsUpdated": true,
+      "totals": {
+        "input": 103458,
+        "cached": 91839,
+        "cacheWrites": 11607,
+        "noncached": 11619,
+        "output": 3505,
+        "thinking": 264
+      },
+      "byModel": [
+        {
+          "model": "claude-sonnet-5-5",
+          "input": 103458,
+          "cached": 91839,
+          "cacheWrites": 11607,
+          "noncached": 11619,
+          "output": 3505,
+          "thinking": 264
+        }
+      ],
+      "skillObserved": false,
+      "freshReviewCalls": 0,
+      "roleSettingsVerified": true,
+      "completeClaim": false,
+      "preReviewAcceptance": [],
+      "confirmedFunctionalDefectsCaught": 0
+    }
+  ],
+  "postRunSkillEvidenceExtractor": {
+    "file": "evals/compare.mjs",
+    "artifact": "post-run-source/evals/compare.mjs",
+    "sha256": "7c7048521eb6f21c8891b08490a18464021482aa222b9cff6a2aaf30f0d27756",
+    "scope": "Skill-body detection replayed over eight native Codex writer sessions; usage counters unchanged."
+  },
+  "privateAudit": {
+    "artifact": "audit-replay.py",
+    "sha256": "64c049a15bc623c2dff44bd471cea4ca4e608e20538c7cf70a71ab628c5df31f",
+    "previousArtifact": "audit-replay-v1.py",
+    "previousSha256": "ab6dbb654c5024a455bee86a8940eacb4e83c4228538ebfb4949ee7539170468",
+    "scope": "Claude skill body, review counts, chronological reviewer reports and sampled candidate acceptance; model settings and defect classification checked by the evaluator."
+  },
+  "postHocAmbiguousInput": {
+    "input": "{\"version\":2,\"theme\":\"dark\"}",
+    "scored": false,
+    "observedPolicies": {
+      "codex-preferences-1-plain": "delete",
+      "codex-preferences-1-helix": "delete",
+      "codex-preferences-2-plain": "delete",
+      "codex-preferences-2-helix": "delete",
+      "claude-preferences-1-plain": "keep",
+      "claude-preferences-2-plain": "keep",
+      "claude-preferences-1-helix": "keep",
+      "claude-preferences-2-helix": "TypeError"
+    }
+  },
+  "postReviewRunner": {
+    "file": "evals/compare.mjs",
+    "artifact": "post-review-source/evals/compare.mjs",
+    "sha256": "64ce8f003d20cf6ce172d613e55ae5c8a94975e0d7fdacdd3e7a28fe2d1952cd",
+    "scope": "Telemetry cleanup on launch failure, scoring before event parsing, and positive status from the final message. No benchmark prompts, fixtures, or measured results changed."
+  }
+}
