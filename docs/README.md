@@ -1,30 +1,14 @@
 # Documentation
 
-Start with the current operating documents:
+- [Install](../README.md#install) and [use the four skills](how-to.md)
+- [Evidence and limitations](../STATUS.md)
+- [Native roles and execution evidence](native-roles.md)
+- [Behavioral scenarios](../evals/scenarios.md) and [collection scenarios](../evals/collection.md)
+- [Comparison protocol](../evals/comparison.md)
+- [Security and governance](security-governance.md)
+- [Retired-engine archive](history/README.md)
 
-- [Claudex HOW-TO](quickstart.md) — installation, every route, first completed
-  workflow, recovery, shutdown, and update.
-- [Provider reference](providers.md) — route grammar, status vocabulary,
-  configuration contracts, diagnostics, and lifecycle.
-- [Workflow catalog](workflows.md) — every Helix loop mapping, exact inputs,
-  signed-evidence boundary, stage invariants, and terminal result.
-- [Graph mode](graph-mode.md) — secondary-mode selection, closed graph IR,
-  validation, compilation, construction, and parity rules.
-- [Workflow graphs](workflow-graphs.md) — generated Mermaid diagrams, graph
-  digests, and absolute step ceilings.
-- [Status ledger](../STATUS.md) — current implementation state and evidence.
-- [Security and governance baseline](security-governance.md) — first-principles
-  controls, ownership boundaries, live settings, and deliberate non-controls.
-- [Public-readiness review](reviews/helix-cc-public-readiness-2026-07-20.md) —
-  current leak, dependency, CI, governance, and publication-gate evidence.
-- [Whole-repository audit remediation](reviews/helix-cc-whole-repository-remediation-2026-07-26.md) —
-  accepted launcher, evidence-boundary, documentation, and reliability fixes
-  from the exact-main independent review.
-
-Historical analysis and dated receipts are deliberately separated from the
-onboarding path:
-
-- [History and evidence index](history/README.md).
-
-Review artifacts live under `docs/reviews/`. Reusable dispatch prompts live in
-`review-prompts/`.
+Use STATUS as the entry point to current results. Dated skill records in
+`reviews/` preserve failures, rejected findings and source digests. Corrections
+are appended. Retired-engine records live at the pinned commit in the archive
+index; they do not certify the current skills.

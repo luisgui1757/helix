@@ -1,0 +1,82 @@
+# Plain CLI versus Helix comparison
+
+This is an opt-in live benchmark, not part of the installed skill or unattended
+CI. It answers whether Helix's review earns its time and token overhead on two
+small synthetic tasks. It does not rank providers or estimate subscription bills.
+
+## Protocol fixed before the runs
+
+- Two tasks: CSV export repair and saved-preferences migration. Requirements,
+  starting source, visible tests and held-out checks are in [fixtures.mjs](fixtures.mjs).
+- Two repetitions on each host, with plain and Helix runs paired by task and
+  repetition: 16 invocations total. No result-dependent stopping or replacement
+  of failed trials. A host or harness failure is retained and labeled.
+- Fixed models: Codex writer GPT-6.1 Sol / medium, reviewer GPT-6 Luna / high;
+  Claude Code writer Sonnet 5.5 / low, reviewer Opus 5.5 / xhigh. These are the
+  previously verified assignments, not an attempt to match capability across hosts.
+- Each invocation starts a fresh disposable Git repository with the same task
+  files, native tools, skill installation and reviewer configuration. Plain asks
+  the writer to work directly without skills or delegation. Helix invokes the
+  installed skill and requests its configured reviewer. Both must test and
+  document the change. Neither can commit or change protected instructions.
+- Execute serially. Alternate plain-first and Helix-first within each host and
+  task across the two repetitions. Provider caches are neither cleared nor
+  deliberately warmed. Absolute workspace paths differ. This is an observation
+  under normal cache reuse, not a controlled cold-cache experiment.
+- Keep held-out assertions outside the workspace and run them only after the
+  agent exits. Never return their results to the agent or repair its output.
+  Record visible-gate results, protected-file/index preservation and final state.
+- Keep raw logs private. Publish numeric usage and sanitized evidence only.
+  No API keys, proxy endpoints, Azure or OpenRouter are used.
+
+## Measurements and interpretation
+
+Wall time runs from CLI launch through process exit, including native reviewer
+work and waiting but excluding fixture setup, external scoring and report review.
+Report each run and within-host paired differences; four pairs per host cannot
+establish statistical significance or predict performance in large repositories.
+
+For Codex, add the final cumulative usage of the writer and each linked child
+once. Cached input is a subset of input. For Claude, use the final session-wide
+`modelUsage` once; do not sum repeated result events. Cross-check its input totals
+against deduplicated forwarded assistant messages. Total Claude input is ordinary
+input plus cache reads plus cache writes. Thinking is a subset of output, never
+an additional charge in the token sum. Keep per-model usage: token totals across
+different models are workload counts, not monetary equivalents.
+
+Report input, cache read, cache write where exposed, noncached input, output,
+thinking where exposed, elapsed seconds, acceptance checks passed, and observed
+reviewer count/settings. A CLI exit of zero is insufficient. A Helix run also
+needs actual independent review with no inherited writer history and a final
+completion report. Inspect tool records, not model self-identification.
+
+Count a reviewer-caught defect only when its report identifies a requirement
+violation in the writer's candidate and a later correction removes it. Preserve
+candidate file snapshots and check the native timeline. Separate concrete defects,
+test/documentation gaps and optional suggestions. No reviewer findings is zero
+observed catches, not proof that review has no value. Snapshots are sampled;
+ambiguous candidate timing must be reported as unverified.
+
+Input reuse follows provider prefix-matching rules. The official
+[OpenAI caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)
+and [Claude caching guide](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+explain the counters. A higher cache percentage alone does not mean a cheaper
+workflow. Subscription quotas, provider latency and cache eviction are outside
+this benchmark's control.
+
+## Run
+
+Requires Node.js 22.19.0+, Git, macOS/Linux, and both already authenticated native
+CLIs with the exact models above. This spends subscription allowance. No packages
+are installed. The runner rejects an existing output directory and records its
+source hashes and protocol before launching a model.
+
+```sh
+node evals/compare.mjs /absolute/path/outside-the-repository/helix-comparison
+```
+
+Raw artifacts and fixture repositories stay under that private output directory
+for inspection. Review them before publishing any derived data. Archive evidence
+and remove only the generated fixture repositories after review. Do not delete
+the host's session history. The runner and fixtures are evaluation tools only;
+The Helix skill remains one instruction file.
