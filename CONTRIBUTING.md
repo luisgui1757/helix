@@ -12,6 +12,8 @@ source digests, hosts and roles, results including failed trials, open and
 rejected findings, and a final review receipt or link. Keep round-by-round
 discussion in the pull request. Append corrections; never rewrite earlier
 entries or equate frontmatter validation with a successful workflow.
+Record the reviewer role's body and distinguish evaluation roles from shipped
+templates when attributing results to a configuration.
 
 Retired-engine records may leave the active tree with the owner's authorization
 when a pinned commit preserves identical content and an index links every file.

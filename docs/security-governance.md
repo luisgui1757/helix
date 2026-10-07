@@ -15,7 +15,7 @@ separately.
 
 Tracked policy lives in `.github/workflows/ci.yml`, `.github/rulesets/`,
 `.github/CODEOWNERS`, and `renovate.json`. The settings documented in the
-[public-readiness ledger](https://github.com/luisgui1757/helix-cc/blob/d28d81aa481b9363862ab6aefb8732c2f190bd17/docs/reviews/helix-cc-public-readiness-2026-07-20.md) are
+[public-readiness ledger](https://github.com/luisgui1757/helix/blob/d28d81aa481b9363862ab6aefb8732c2f190bd17/docs/reviews/helix-cc-public-readiness-2026-07-20.md) are
 historical live evidence, not a fresh settings certification.
 
 ## Change protocol

@@ -1,5 +1,43 @@
 # Codex settings
 
+## Discover choices
+
+Use an account-context model catalog exposed by the running host, not model
+names mentioned in instructions or a delegation tool's parameter schema. Otherwise, with
+Node.js 22.19 or newer already installed, run the bundled helper from the
+project being configured (resolve its path from this skill's location):
+
+```sh
+node <skill-directory>/scripts/discover-models.mjs codex
+```
+
+The helper uses that directory's saved native configuration and environment.
+Parent-session command-line overrides and profiles do not carry over. If those
+change provider or model availability, use the active host's metadata or the
+manual-choice path; do not present a different configuration's catalog as current.
+
+It initializes the installed `codex app-server`, reads every `model/list`
+page with hidden models excluded, then closes the process. It does not start
+a thread, run inference, read credentials, or save configuration. Use the
+returned `id`, `name` and per-model `efforts` for the menu. An explicit spawn
+parameter's model list does not establish restrictions on saved subagent defaults.
+Show all catalog entries; label a restriction only with evidence that it applies
+to the setting being saved, and name its source. These are host-listed
+choices, not proof of account access or successful child execution.
+
+The helper has a timeout and fails visibly on missing or invalid metadata.
+Codex's sandbox can prevent its nested CLI from starting. If the host offers
+command approval, request it for this exact metadata command; explain that
+the CLI needs its normal startup access. Do not change sandbox settings or
+grant persistent permission rules. If approval is unavailable or denied, use
+the skill's manual-choice path without another attempt. Do not use a stored catalog or
+a list from another host. A `null` effort list means capabilities were not
+reported; keep effort inherited or check native documentation before saving
+an explicit level. The protocol was exercised on CLI 0.160.0; other versions
+must return valid metadata before discovery can be claimed.
+
+## Save settings
+
 Use native project configuration in `.codex/config.toml`, or user configuration
 in `$CODEX_HOME/config.toml` (`~/.codex/config.toml` by default) when that scope
 was requested. Project configuration requires the host to trust the project.

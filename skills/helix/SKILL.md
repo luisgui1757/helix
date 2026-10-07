@@ -1,6 +1,6 @@
 ---
 name: helix
-description: Deliver a scoped repository change through implementation, real verification, independent review, and bounded correction. Use for feature work or bug fixes that should finish reviewed; not for questions, planning-only work, or review-only requests.
+description: Deliver a scoped repository change through implementation, real verification, independent review, and correction. Use for feature work or bug fixes that should finish reviewed; not for questions, planning-only work, or review-only requests.
 ---
 
 # Helix
@@ -32,10 +32,9 @@ verification commands. State a short plan and observable acceptance criteria.
 Ask only for information needed to proceed correctly; do not ask again for
 authority already granted. Preserve unrelated work.
 
-When continuing a task, read its prior review and correction state before any
-edit or reviewer dispatch. A new invocation does not reset its round count.
-If two correction rounds are already used and a finding remains, report
-**BLOCKED** immediately. Do not treat that finding as new implementation work.
+When continuing a task, read its prior findings and verification evidence.
+Revalidate open findings against the current state and continue authorized work.
+Preserve earlier results and decisions; do not restart the task's history.
 
 ## Implement and verify
 
@@ -59,12 +58,16 @@ Use the host's permissions and sandbox for execution.
 
 ## Stop when blocked
 
-At any stage, report **BLOCKED** if a required check is unavailable or cannot
-pass within the task's scope, two attempts to fix the same problem fail, or
-progress needs an outside decision. If the writer or an available reviewer
-cannot use the requested settings, report **BLOCKED**.
-Give the remaining failure and the next step. Do not start a review after
-stopping or silently omit a required check.
+Report **BLOCKED** when progress requires an unavailable prerequisite, authority
+outside the task's scope, or an outside decision. This includes a required check
+that cannot run or pass within scope, or requested settings that the writer or
+an available reviewer cannot use. Give the evidence and the next step needed
+to unblock it. Do not start a review after stopping or silently omit a required
+check.
+
+If a fix fails repeatedly, re-examine the diagnosis and use the new evidence to
+choose the next step. Do not repeat the same unsuccessful approach without a
+reason to expect a different result. An attempt count alone is not a blocker.
 
 ## Get an independent review
 
@@ -104,7 +107,10 @@ Use this review brief:
 > none were found.
 
 If the reviewer cannot inspect the full delta or required verification evidence,
-provide what is missing and obtain its review before finishing.
+provide what is missing and obtain its review before finishing. A reviewer
+limited to file-reading tools is still available: supply a readable full diff
+and captured check output, then continue the review. Missing evidence is work
+for the writer to supply, not a reason to hand the task back.
 
 If the change is verified but a separate reviewer cannot run or return a
 result, hand off that brief with the task, evidence, and any requested reviewer
@@ -123,9 +129,8 @@ start a fresh one with the brief, earlier findings, and revised diff. Use one
 reviewer at a time. Evidence and review of an earlier state do not approve later
 edits.
 
-Allow at most two correction rounds after the initial review. If findings
-remain after the second round, report **BLOCKED** with them and the next step.
-Do not start a third round or reset the round count.
+Continue correction, verification, and independent review until findings are
+resolved or a concrete blocker prevents progress. There is no fixed round limit.
 
 Report **COMPLETE** only when acceptance criteria are met, required checks passed
 on the final state, bug fixes have failing-before and passing-after evidence,
