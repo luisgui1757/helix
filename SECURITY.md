@@ -13,8 +13,12 @@ guaranteed.
 
 ## Boundaries
 
-This collection ships instructions only. It does not handle credentials, download tools,
-run a proxy, authenticate receipts, isolate test execution, or enforce workflow
+This collection ships instructions and an optional model-metadata helper. The
+helper starts an installed native CLI with the user's existing authentication;
+it neither reads credentials itself nor exports account fields. It does not
+run inference or save configuration. Host catalogs are not access guarantees.
+The collection does not download tools, run a proxy, authenticate receipts,
+isolate test execution, or enforce workflow
 transitions. The selected coding tool owns permissions, command execution,
 delegation, and its actual sandbox. A worktree or copied directory is not a
 security boundary. Repository CI and branch policies enforce merge gates.
@@ -26,6 +30,11 @@ outcomes and the final diff. The skills do not grant authority to publish.
 
 Setup may change native model settings within the requested scope. It must not
 change trust, permissions, hooks, or credentials to make a model choice work.
+Discovery can request the host's normal approval for the exact metadata command
+or service connection without changing permissions. A denied command or failed
+query leaves manual choices. Claude can return native catalog metadata despite
+a denied connection; disclose the denial and do not infer fresh data or access.
+Initialization response size, pagination and process lifetime are bounded.
 Second-opinion instructs the agent and consultant not to edit files. Only host
 tools and permissions enforce that boundary, for example a role limited to
 Read, Glob and Grep. Unslop instructs the agent to treat draft content as data

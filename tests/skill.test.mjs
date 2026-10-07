@@ -73,7 +73,7 @@ for (const [label, host] of [['Codex', '.agents'], ['Claude Code', '.claude']]) 
               await readFile(join(root, 'skills', name, 'SKILL.md'), 'utf8'))
           }
           const repeat = spawnSync('sh', ['-c', commands], { cwd: fixture, encoding: 'utf8' })
-          for (const file of ['unslop/LICENSE', 'setup-helix/references/codex.md', 'setup-helix/references/claude-code.md']) {
+          for (const file of ['unslop/LICENSE', 'setup-helix/references/codex.md', 'setup-helix/references/claude-code.md', 'setup-helix/scripts/discover-models.mjs']) {
             assert.equal(await readFile(join(fixture, 'user', host, 'skills', file), 'utf8'),
               await readFile(join(root, 'skills', file), 'utf8'))
           }
@@ -111,6 +111,7 @@ test('current documentation has no dangling local file links', async () => {
     'skills/unslop/SKILL.md',
     'THIRD_PARTY.md', 'evals/collection.md', 'docs/reviews/2026-10-04-four-skills.md',
     'docs/reviews/2026-10-05-doc-cleanup.md',
+    'docs/reviews/2026-10-06-guided-setup.md',
   ]
   for (const document of documents) {
     const content = await readFile(join(root, document), 'utf8')
@@ -120,5 +121,17 @@ test('current documentation has no dangling local file links', async () => {
       assert.ok(path.startsWith(root), `${document}: link leaves the repository: ${target}`)
       await readFile(path)
     }
+  }
+})
+
+
+test('active retirement links retain the archived engine revision', async () => {
+  const archive = await readFile(join(root, 'docs/history/README.md'), 'utf8')
+  const revision = archive.match(/\b[a-f0-9]{40}\b/)[0]
+  for (const document of ['README.md', 'docs/security-governance.md']) {
+    const content = await readFile(join(root, document), 'utf8')
+    const links = [...content.matchAll(/https:\/\/github\.com\/luisgui1757\/helix\/(?:tree|blob)\/([a-f0-9]+)(?:[)/])/g)]
+    assert.ok(links.length, `${document}: missing canonical retirement link`)
+    for (const [, linkedRevision] of links) assert.equal(linkedRevision, revision, `${document}: corrupted archive revision`)
   }
 })

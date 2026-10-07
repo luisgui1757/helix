@@ -28,6 +28,38 @@ $unslop Edit README.md for plain prose. Preserve its claims and caveats.
 
 ## Choose models and effort
 
+For guided setup, enter just:
+
+```text
+$setup-helix
+```
+
+In Claude Code, use `/setup-helix`. This configures model preferences; install
+the skills using the README first. Setup shows current settings and asks for
+project or user scope, reviewer model, then its reasoning level. It uses native
+question controls or text choices, and previews the edit before you choose
+Save or Cancel. The writer stays as your current session.
+
+Model choices come from the current host's catalog. The optional helper needs
+an existing Node.js 22.19+ installation and calls your installed CLI without
+running a model turn. It installs no dependencies.
+
+Discovery may need normal host approval. A denied command or failed query
+leaves manual choices: keep settings or supply an exact ID from the native
+model picker. A denied Claude service connection can still return native model
+metadata; setup discloses the denial. Listed models prove neither fresh network
+data nor account access. On Claude, the helper's 20-second timeout includes
+connection approval waits after launch. Command approval happens before launch.
+Setup does not change sandbox settings or retry a denial on its own.
+
+Question format and order can vary. Check that the preview shows your chosen
+model and effort before you answer Save. See the [observed limits](../STATUS.md).
+
+After saving, you can opt into a small execution check that uses model allowance.
+Clients without a way to answer questions receive all missing choices without
+configuration changes. Complete requests like those below skip the interview,
+while still checking whether the requested settings are supported.
+
 The writer is your current session. Helix keeps its model and effort. To choose
 a different writer, start the host with it. These are tested example assignments,
 not defaults chosen by the skills:
@@ -87,14 +119,16 @@ These labels report what the agent concluded; they are not guarantees:
 
 - **COMPLETE:** the final change passed its checks and review left no unresolved
   findings. Helix alone does not authorize a commit, push or release.
-- **BLOCKED:** a check, setting, outside decision or unresolved finding stopped
-  progress. Helix allows at most two correction rounds after the initial review.
+- **BLOCKED:** progress needs an unavailable prerequisite, authority outside the
+  task, or an outside decision. The report gives the evidence and next step.
 - **READY FOR INDEPENDENT REVIEW:** verification passed, but no independent
   result returned. The report includes a reviewer brief.
 - **NOT RUN:** Second-opinion could not complete the requested consultation,
   including when the requested model or effort could not be applied.
 
 Check the actual test output and reviewer evidence before accepting COMPLETE.
+Helix continues corrections and review while it can make progress; there is no
+fixed round limit. Repeated failed fixes call for a fresh diagnosis.
 Inspect staged, unstaged and new files. For a bug fix, require a failing test
 before the fix and a passing result afterward. A reviewer may read the full
 diff itself or receive it from the writer; the Claude template cannot run Git,

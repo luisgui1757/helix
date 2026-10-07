@@ -1,4 +1,4 @@
-# Agent skills
+# Helix skills
 
 Four portable skills for scoped delivery, native model setup, prose editing,
 and independent advice. Use them in Codex or Claude Code with the account and
@@ -16,9 +16,11 @@ asks a fresh reviewer to check it. Use a direct request for trivial work that
 does not need this review process. See the [how-to](docs/how-to.md) for examples,
 model choices and what the completion labels mean.
 
-The product is the four folders under `skills/`. It has no runtime,
-dependencies, provider proxy, MCP server, or workflow compiler. Each skill can
-be installed on its own. The repository URL and `$helix` entry point are unchanged.
+The product is the four folders under `skills/`. It has no orchestration runtime,
+package dependencies, provider proxy, MCP server, or workflow compiler. Each skill
+can be installed on its own. Setup's optional model-discovery helper uses an
+existing Node.js 22.19+ installation and the native CLI. The repository is now
+[helix](https://github.com/luisgui1757/helix); `$helix` remains the entry point.
 
 ## Install
 
@@ -84,9 +86,10 @@ Claude Code: /helix Fix the CSV export so quoted fields round-trip correctly.
 
 Use the [how-to](docs/how-to.md) to configure a reviewer, edit prose or request
 a second opinion. Claude Code uses `/` where the Codex examples use `$`.
+Enter `$setup-helix` (Claude: `/setup-helix`) for guided model and effort choices.
 
 You can also copy any skill folder into the tool's skill directory. Include its
-references and license when present. Updating this checkout updates a linked
+references, scripts and license when present. Updating this checkout updates a linked
 skill; a copy must be updated explicitly. Windows users can copy the folders
 to the same home-relative directories.
 
@@ -103,11 +106,12 @@ the repository supplies tests and merge gates. Helix alone does not authorize
 commits, pushes or releases. Second-opinion does not replace a formal audit.
 See [Security](SECURITY.md) for the trust boundaries.
 
-Observed limitation: with a Sonnet 5.5/low writer and Opus 5.5/xhigh reviewer,
-reviewers received summaries instead of the full delta, noted missing baseline
-evidence and still reported no material defects. One received the explicit instruction
-to treat missing evidence as an unresolved finding. Both writers then reported
-COMPLETE. This remains open; check the [evidence and limitations](STATUS.md).
+Observed limitation: Sonnet 5.5/low writers supplied summaries instead of full
+diffs to the evaluation runner's Opus 5.5/xhigh reviewer role. Reviewers noted
+missing baseline evidence but still reported no material defects. Writers then
+reported COMPLETE. A later run with the shipped role supplied the full diff
+but still omitted captured gate output. Review-evidence compliance remains
+open; check the [evidence and limitations](STATUS.md).
 
 ## Evaluate and contribute
 
@@ -124,7 +128,7 @@ COMPLETE. This remains open; check the [evidence and limitations](STATUS.md).
 
 The earlier `helix-cc` engine is retired. Its standalone workflows, graph mode,
 provider adapters, signed receipts, launcher, and shipping automation remain
-recoverable at [the final engine revision](https://github.com/luisgui1757/helix-cc/tree/d28d81aa481b9363862ab6aefb8732c2f190bd17).
+recoverable at [the final engine revision](https://github.com/luisgui1757/helix/tree/d28d81aa481b9363862ab6aefb8732c2f190bd17).
 Existing `claudex` installations are not migrated automatically; launch your
 chosen coding tool directly. The [migration record](docs/reviews/2026-10-03-portable-skill.md)
 and [archive index](docs/history/README.md) preserve the earlier evidence.
