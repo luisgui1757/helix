@@ -32,6 +32,11 @@ verification commands. State a short plan and observable acceptance criteria.
 Ask only for information needed to proceed correctly; do not ask again for
 authority already granted. Preserve unrelated work.
 
+Inspect existing behavior or run a small experiment within scope when that
+answers better than more questions. Resolve what the next useful step needs;
+do not require an exhaustive design first. Clarify consequential unknowns about
+scope, contracts or authority before committing to them.
+
 When continuing a task, read its prior findings and verification evidence.
 Revalidate open findings against the current state and continue authorized work.
 Preserve earlier results and decisions; do not restart the task's history.
@@ -42,6 +47,15 @@ Be the single writer. Implement, test, and document the change yourself; these
 responsibilities do not require separate agents. For a bug fix, reproduce the
 failure and add a behavioral regression test that fails before the fix and
 passes after it. Follow repository requirements for other tests and documentation.
+
+Record consequential choices made in this task between real alternatives. Keep
+each brief: the problem, up to three alternatives, the choice and why. Mention
+a cost or reason to revisit when useful. Skip obvious, easily reversible choices.
+Report blockers and required or unchanged behavior where requested, not as
+decision entries. Mark provisional choices and inferred rationale as such;
+link evidence rather than copying it. Use the repository's decision convention
+or relevant existing documentation. Create one small decision file only when
+neither fits; do not leave a consequential choice only in chat.
 
 Run the relevant checks and any repository-required gate. If the repository
 defines no gate, run the checks you identified and report that it has none.
@@ -138,9 +152,9 @@ and independent review of the full delta has no unresolved findings. Separate
 local verification, remote CI, and unverified behavior. Summarize changes,
 commands and results, reviewer outcome, rejected findings with reasons, and
 limitations. Include requested and observed role settings when the task specifies
-them. Use the repository's handoff format if it has one.
+them. Use the repository's reporting format if it has one.
 
 **COMPLETE** leaves a reviewed change in the working tree. Commit, push, PR creation, merge,
 release, and deployment are separate actions and are not authorized by invoking
-this skill. Carry out a separately authorized handoff under the repository's
-rules; do not infer it from **COMPLETE**.
+this skill. Carry out separately authorized Git and publishing actions under
+the repository's rules; do not infer authority from **COMPLETE**.

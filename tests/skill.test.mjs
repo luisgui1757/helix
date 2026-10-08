@@ -112,6 +112,7 @@ test('current documentation has no dangling local file links', async () => {
     'THIRD_PARTY.md', 'evals/collection.md', 'docs/reviews/2026-10-04-four-skills.md',
     'docs/reviews/2026-10-05-doc-cleanup.md',
     'docs/reviews/2026-10-06-guided-setup.md',
+    'docs/reviews/2026-10-08-concise-decisions.md',
   ]
   for (const document of documents) {
     const content = await readFile(join(root, document), 'utf8')

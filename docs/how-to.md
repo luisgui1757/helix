@@ -13,6 +13,18 @@ For trivial work that does not need that process, ask the CLI directly.
 $helix Fix the CSV export so quoted fields round-trip correctly.
 ```
 
+An overall outcome is enough to start; Helix inspects existing behavior or uses
+a small experiment to resolve the next uncertainty. Questions about consequential
+scope, contract or authority choices still need answers. Experiments do not waive
+the checks and independent review required for the delivered change.
+
+Helix records consequential choices made during the task. It follows the repo's
+decision convention or uses relevant existing documentation, creating a small
+file only when neither fits. A short paragraph with the problem, real alternatives
+and reason for the choice is enough. Blockers and required or unchanged behavior
+stay in reports or requested documentation. It skips obvious, reversible choices
+and labels provisional decisions or inferred historical rationale.
+
 Use Second-opinion before acting on a plan or disputed decision. It asks a
 fresh agent to challenge the proposal and leaves implementation to another task.
 
@@ -135,5 +147,11 @@ diff itself or receive it from the writer; the Claude template cannot run Git,
 so the writer must supply it.
 
 Recorded Claude runs reported COMPLETE despite missing review evidence. The
-[current limitations](../STATUS.md) explain that failure and the tested versions.
+[current limitations](../STATUS.md) explain that failure and link to the dated
+host-version evidence.
 The host's tools and permissions enforce access; skill instructions do not.
+
+When moving unfinished work between tools, ask for a short handoff with the
+current branch, unresolved work, verification gaps and next action. Reference
+existing docs and evidence instead of copying them. A separate handoff file is
+optional; completed work already covered by repository docs needs no extra one.
