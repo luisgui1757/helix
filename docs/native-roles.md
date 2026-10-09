@@ -44,5 +44,5 @@ requests, not what the provider ran internally. Unobservable settings remain
 unverified; timing, response length and thinking text do not prove effort.
 
 [Status](../STATUS.md) summarizes observed combinations and limits. The dated
-[role evaluation](reviews/2026-10-03-native-role-verification.md) and
-[collection evaluation](reviews/2026-10-04-four-skills.md) retain the evidence.
+[role evaluation](https://github.com/luisgui1757/helix/blob/5f08f557ef7945667dd633c07d83291015f6e8e0/docs/reviews/2026-10-03-native-role-verification.md) and
+[collection evaluation](https://github.com/luisgui1757/helix/blob/5f08f557ef7945667dd633c07d83291015f6e8e0/docs/reviews/2026-10-04-four-skills.md) retain the evidence.

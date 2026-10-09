@@ -53,8 +53,8 @@ for (const [label, host] of [['Codex', '.agents'], ['Claude Code', '.claude']]) 
             await cp(join(root, 'skills', name), join(fixture, 'skills', name), { recursive: true })
           }
         }
-        const readme = await readFile(join(root, 'README.md'), 'utf8')
-        const commands = readme.match(/```sh\n([\s\S]*?)\n```/)[1]
+        const installation = await readFile(join(root, 'docs/install.md'), 'utf8')
+        const commands = installation.match(/```sh\n([\s\S]*?)\n```/)[1]
           .split(`# ${label}\n`)[1].split('\n# ')[0]
           .replaceAll('$HOME', '$HELIX_INSTALL_TEST_ROOT')
         const result = spawnSync('sh', ['-c', commands], {
@@ -88,8 +88,8 @@ for (const [label, host] of [['Codex', '.agents'], ['Claude Code', '.claude']]) 
           await writeFile(join(destination, 'keep.txt'), 'existing skill')
         }
         if (existing === 'file') await writeFile(destination, 'existing file')
-        const readme = await readFile(join(root, 'README.md'), 'utf8')
-        const commands = readme.match(/```sh\n([\s\S]*?)\n```/)[1]
+        const installation = await readFile(join(root, 'docs/install.md'), 'utf8')
+        const commands = installation.match(/```sh\n([\s\S]*?)\n```/)[1]
           .split(`# ${label}\n`)[1].split('\n# ')[0]
           .replaceAll('$HOME', join(fixture, 'user'))
         const result = spawnSync('sh', ['-c', commands], { cwd: fixture, encoding: 'utf8' })
