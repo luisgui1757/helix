@@ -26,6 +26,10 @@ review after changing its procedure. Include a read-only reviewer that cannot
 run `git diff`; inspect the actual supplied delta and before/after test output.
 Retain failed runs and do not count a product-correct result as full procedural
 compliance. A single small dispatch probe does not certify delivery or an audit.
+After changing the shared Claude reviewer template, also exercise second-opinion
+consultations on a plan and on a disputed finding about existing code. Assess
+the supplied evidence without demanding delivery diffs or test output. Record
+which template body actually ran and exercise the installed consultation skill.
 
 Report scenario outcomes and skill digests in `docs/reviews/`. Keep raw native
 transcripts outside Git. Do not publish account identifiers, local paths, or

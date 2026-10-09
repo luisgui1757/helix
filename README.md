@@ -14,7 +14,13 @@ permissions already configured in that tool.
 Helix uses the current session to implement, test and document a change, then
 asks a fresh reviewer to check it. Use a direct request for trivial work that
 does not need this review process. See the [how-to](docs/how-to.md) for examples,
-model choices and what the completion labels mean.
+model choices and what the completion labels mean. Unavailable checks limit
+the affected verification claim; they do not stop independent source review
+or other authorized work. Required completion and release gates still apply.
+
+Start with the outcome and resolve details through inspection or a small
+experiment. Helix preserves consequential decisions in short notes alongside
+the work, without requiring an exhaustive interview.
 
 The product is the four folders under `skills/`. It has no orchestration runtime,
 package dependencies, provider proxy, MCP server, or workflow compiler. Each skill
@@ -30,8 +36,8 @@ permissions, and sandbox. It does not configure or certify provider endpoints.
 
 Clone this repository, then run the applicable commands from its root. These
 macOS/Linux/WSL examples link all four skills into either or both tools. They
-skip links to this checkout and stop before installation if another destination
-already exists. Inspect a conflict before changing it.
+skip links to this checkout and stop before installation if a source skill is
+missing or another destination already exists. Inspect a conflict before changing it.
 
 ```sh
 # Codex
@@ -40,6 +46,10 @@ already exists. Inspect a conflict before changing it.
   for skill in helix setup-helix unslop second-opinion; do
     target="$destination/$skill"
     source="$PWD/skills/$skill"
+    if [ ! -f "$source/SKILL.md" ]; then
+      printf '%s\n' "$skill is missing SKILL.md; run from a complete repository root." >&2
+      exit 1
+    fi
     if [ -L "$target" ] && [ "$target" -ef "$source" ]; then
       continue
     fi
@@ -61,6 +71,10 @@ already exists. Inspect a conflict before changing it.
   for skill in helix setup-helix unslop second-opinion; do
     target="$destination/$skill"
     source="$PWD/skills/$skill"
+    if [ ! -f "$source/SKILL.md" ]; then
+      printf '%s\n' "$skill is missing SKILL.md; run from a complete repository root." >&2
+      exit 1
+    fi
     if [ -L "$target" ] && [ "$target" -ef "$source" ]; then
       continue
     fi
@@ -106,12 +120,12 @@ the repository supplies tests and merge gates. Helix alone does not authorize
 commits, pushes or releases. Second-opinion does not replace a formal audit.
 See [Security](SECURITY.md) for the trust boundaries.
 
-Observed limitation: Sonnet 5.5/low writers supplied summaries instead of full
-diffs to the evaluation runner's Opus 5.5/xhigh reviewer role. Reviewers noted
-missing baseline evidence but still reported no material defects. Writers then
-reported COMPLETE. A later run with the shipped role supplied the full diff
-but still omitted captured gate output. Review-evidence compliance remains
-open; check the [evidence and limitations](STATUS.md).
+Recorded Sonnet 5.5/low runs with Opus 5.5/xhigh reviewers have claimed COMPLETE
+despite incomplete review evidence or unreviewed final edits. This occurred
+with the comparison runner's role and persisted with the shipped role: some
+later runs supplied a full diff, others only prose, and captured gate output
+was still missing. Check the [evidence and limitations](STATUS.md) for dated
+coverage and other observed failures.
 
 ## Evaluate and contribute
 
