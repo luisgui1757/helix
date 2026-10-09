@@ -4,11 +4,6 @@ This is an opt-in live benchmark, not part of the installed skill or unattended
 CI. It answers whether Helix's review earns its time and token overhead on two
 small synthetic tasks. It does not rank providers or estimate subscription bills.
 
-The [execution protocol](results/2026-10-03-protocol.txt) is preserved byte-for-byte
-with the SHA-256 recorded in the [results](results/2026-10-03-comparison.json).
-Before this provenance note was added, the guide differed only in its final
-product-description sentence; no task, model, measurement or acceptance rule changed.
-
 ## Protocol fixed before the runs
 
 - Two tasks: CSV export repair and saved-preferences migration. Requirements,
@@ -84,4 +79,4 @@ Raw artifacts and fixture repositories stay under that private output directory
 for inspection. Review them before publishing any derived data. Archive evidence
 and remove only the generated fixture repositories after review. Do not delete
 the host's session history. The runner and fixtures are evaluation tools only;
-The Helix skill remains one instruction file.
+Helix's installable product remains one instruction file.

@@ -953,5 +953,12 @@
     "artifact": "post-review-source/evals/compare.mjs",
     "sha256": "64ce8f003d20cf6ce172d613e55ae5c8a94975e0d7fdacdd3e7a28fe2d1952cd",
     "scope": "Telemetry cleanup on launch failure, scoring before event parsing, and positive status from the final message. No benchmark prompts, fixtures, or measured results changed."
+  },
+  "protocolProvenance": {
+    "executionArtifact": "evals/results/2026-10-03-protocol.txt",
+    "recoveredOn": "2026-10-09",
+    "recovery": "Recovered from the archived original benchmark source snapshot; bytes match executionSourceHashes.",
+    "guideSha256AtAudit": "c9c663582c0d0af37361f2e2a4437f6cb0444aea468033582465c1d90e594340",
+    "postRunChange": "Only the final product-description sentence changed from \"Helix's installable product remains one instruction file.\" to \"The Helix skill remains one instruction file.\" No protocol rule changed."
   }
 }

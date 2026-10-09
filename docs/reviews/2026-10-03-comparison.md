@@ -286,3 +286,15 @@ passed. Raw evidence is archived privately before the disposable fixture Git
 repositories are removed. The comparison is delivered through PR #16; current
 remote checks and owner approval remain the PR's source of truth. No merge or
 release is claimed.
+
+## October 9 protocol provenance correction
+
+The full-repository audit identified that the current protocol guide's hash no
+longer matched the execution hash. The original archive was recovered and its
+protocol bytes match the recorded SHA-256 exactly. The only post-run difference
+was the final product-description sentence; no experimental rule changed.
+The [execution artifact](../../evals/results/2026-10-03-protocol.txt) now preserves
+those exact bytes, and the [result receipt](../../evals/results/2026-10-03-comparison.json)
+records the later wording change separately. All execution hashes and numeric
+results are preserved. A maintenance test checks the artifact against the
+execution hash. See the [audit corrections](2026-10-09-audit-corrections.md).
