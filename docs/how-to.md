@@ -1,6 +1,6 @@
 # How to use the four skills
 
-[Install the skills](../README.md#install), then start a new session in your
+[Install the skills](install.md), then start a new session in your
 project. These examples use Codex's `$` syntax. In Claude Code, replace `$`
 with `/`. Use only the skill the task needs.
 

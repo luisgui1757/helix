@@ -45,4 +45,4 @@ GitHub Actions retain read-only tokens, bounded jobs, and full-digest pins.
 Legacy `.helix-cc-local/` state and `review-prompts/` drafts stay ignored on
 upgrade; retirement neither deletes nor makes those private files publishable.
 See the [governance baseline](docs/security-governance.md) and
-[evaluation record](docs/reviews/2026-10-03-portable-skill.md).
+[evaluation record](https://github.com/luisgui1757/helix/blob/5f08f557ef7945667dd633c07d83291015f6e8e0/docs/reviews/2026-10-03-portable-skill.md).

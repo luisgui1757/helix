@@ -15,10 +15,18 @@ entries or equate frontmatter validation with a successful workflow.
 Record the reviewer role's body and distinguish evaluation roles from shipped
 templates when attributing results to a configuration.
 
-Retired-engine records may leave the active tree with the owner's authorization
-when a pinned commit preserves identical content and an index links every file.
-Verify those links and Git blobs before removal. Current skill evidence stays
-in `docs/reviews/`; summarize it in `STATUS.md` without duplicating the narrative.
+Keep current results, open limitations and their evidence links in `STATUS.md`.
+Completed review rounds may leave the checkout when a merged main commit
+preserves every byte and `docs/history/README.md` indexes each record. Keep failed
+trials, rejected findings and exact review briefs in that immutable record;
+never replace them with a success summary or editable PR comment. Verify the
+archived blobs, inbound links and heading anchors before removal. Archive
+interlinked records together or retain their dependencies. Append later
+corrections in a new dated record, referencing the original, and link the correction
+from that record's archive-index row. Keep work in progress
+under `docs/reviews/`. Full Git history preserves offline access; source ZIPs and
+shallow clones need the documented archive retrieval step. This policy also
+applies to retired-engine evidence and does not change any review or merge gate.
 
 The maintenance tests use Node.js 22.19.0 or newer, Git, and a POSIX shell.
 The secret scan also needs Gitleaks:
