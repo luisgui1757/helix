@@ -52,7 +52,7 @@ contract is ambiguous. Both remain coverage limits, not newly scored failures.
 Installer regressions and historical protocol provenance were corrected in
 [merged PR #19](https://github.com/luisgui1757/helix/pull/19), which superseded #18.
 Its source-review and exact-commit check receipts remain there; source approval
-does not resolve the procedure failures above. The maintenance suite has 47 tests.
+does not resolve the procedure failures above. The maintenance suite has 53 tests.
 
 [Documentation compression](docs/reviews/2026-10-09-content-compression.md) records
 the 2026-10-09 documentation cleanup. The [archive index](docs/history/README.md)

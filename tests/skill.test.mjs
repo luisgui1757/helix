@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, rm, mkdir, symlink, writeFile, lstat, readlink, cp } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, mkdir, symlink, writeFile, lstat, readlink, realpath, cp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -57,13 +57,20 @@ test('every skill uses portable metadata without a product runtime', async () =>
 })
 
 for (const [label, host] of [['Codex', '.agents'], ['Claude Code', '.claude']]) {
-  for (const missingSource of ['wrong working directory', 'one missing skill']) {
+  for (const missingSource of ['wrong working directory', 'a skill folder without SKILL.md', 'another skills repository']) {
     test(`${label} documented installation rejects ${missingSource} without writing links`, async () => {
       const fixture = await mkdtemp(join(tmpdir(), 'helix-install-source-'))
       try {
-        if (missingSource === 'one missing skill') {
-          for (const name of skills.filter(name => name !== 'unslop')) {
+        if (missingSource === 'a skill folder without SKILL.md') {
+          for (const name of skills) {
             await cp(join(root, 'skills', name), join(fixture, 'skills', name), { recursive: true })
+          }
+          await rm(join(fixture, 'skills/unslop/SKILL.md'))
+        }
+        if (missingSource === 'another skills repository') {
+          for (const name of ['pdf', 'docx']) {
+            await mkdir(join(fixture, 'skills', name), { recursive: true })
+            await writeFile(join(fixture, 'skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: Other skill.\n---\n`)
           }
         }
         const installation = await readFile(join(root, 'docs/install.md'), 'utf8')
@@ -83,6 +90,45 @@ for (const [label, host] of [['Codex', '.agents'], ['Claude Code', '.claude']]) 
       }
     })
   }
+  test(`${label} documented installation links a newly added skill folder`, async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'helix-install-new-'))
+    try {
+      for (const name of skills) {
+        await cp(join(root, 'skills', name), join(fixture, 'skills', name), { recursive: true })
+      }
+      await mkdir(join(fixture, 'skills/added-skill'))
+      await writeFile(join(fixture, 'skills/added-skill/SKILL.md'), '---\nname: added-skill\ndescription: Test skill.\n---\n')
+      const installation = await readFile(join(root, 'docs/install.md'), 'utf8')
+      const commands = installation.match(/```sh\n([\s\S]*?)\n```/)[1]
+        .split(`# ${label}\n`)[1].split('\n# ')[0]
+        .replaceAll('$HOME', join(fixture, 'user'))
+      const result = spawnSync('sh', ['-c', commands], { cwd: fixture, encoding: 'utf8' })
+      assert.equal(result.status, 0, result.stderr)
+      assert.deepEqual((await readdir(join(fixture, 'user', host, 'skills'))).sort(), [...skills, 'added-skill'].sort())
+      assert.equal(await readlink(join(fixture, 'user', host, 'skills/added-skill')), join(await realpath(fixture), 'skills/added-skill'))
+    } finally {
+      await rm(fixture, { recursive: true, force: true })
+    }
+  })
+  test(`${label} documented installation links only a listed subset`, async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'helix-install-subset-'))
+    try {
+      for (const name of skills) {
+        await cp(join(root, 'skills', name), join(fixture, 'skills', name), { recursive: true })
+      }
+      const installation = await readFile(join(root, 'docs/install.md'), 'utf8')
+      const block = installation.match(/```sh\n([\s\S]*?)\n```/)[1]
+        .split(`# ${label}\n`)[1].split('\n# ')[0]
+      assert.equal(block.split('set -- "$PWD"/skills/*/').length, 2, 'the folder list must be defined once')
+      const commands = block.replace('set -- "$PWD"/skills/*/', 'set -- "$PWD"/skills/helix/ "$PWD"/skills/unslop/')
+        .replaceAll('$HOME', join(fixture, 'user'))
+      const result = spawnSync('sh', ['-c', commands], { cwd: fixture, encoding: 'utf8' })
+      assert.equal(result.status, 0, result.stderr)
+      assert.deepEqual((await readdir(join(fixture, 'user', host, 'skills'))).sort(), ['helix', 'unslop'])
+    } finally {
+      await rm(fixture, { recursive: true, force: true })
+    }
+  })
   for (const existing of ['absent', 'link', 'other link', 'directory', 'file', 'dangling link']) {
     test(`${label} documented installation preserves ${existing === 'absent' ? 'the installed skill' : `an existing ${existing}`}`, async () => {
       const fixture = await mkdtemp(join(tmpdir(), 'helix-install-'))

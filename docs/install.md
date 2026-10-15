@@ -5,24 +5,35 @@ separate subagent. Helix uses that tool's existing account, model,
 permissions, and sandbox. It does not configure or certify provider endpoints.
 
 Clone this repository, then run the applicable commands from its root. These
-macOS/Linux/WSL examples link every skill into either or both tools. They
-skip links to this checkout and stop before installation if a source skill is
-missing or another destination already exists. Inspect a conflict before changing it.
-If frontend-design is already installed, including as Anthropic's Claude Code
-plugin or in another skills directory, omit `frontend-design` from both loops
-in the chosen host's command block. The preflight only detects a conflict at its
-own link path, and a second copy appears as another skill. To install one skill,
-list only that skill in both loops.
+macOS/Linux/WSL examples link every folder under `skills/` into either or both
+tools, so a newly added skill needs no change here. They skip links to this
+checkout and stop before installation outside the Helix repository root, if a
+skill folder lacks `SKILL.md`, or if another destination already exists.
+Inspect a conflict before changing it.
+
+To install only some skills, replace `"$PWD"/skills/*/` on the `set --` line of
+the chosen host's block with their folders, for example
+`set -- "$PWD"/skills/helix/ "$PWD"/skills/unslop/`. Do this to keep an
+existing copy of a skill, such as Anthropic's frontend-design plugin or a copy
+in another skills directory: the preflight only detects a conflict at its own
+link path, and a second copy appears as another skill. Running the unedited
+block later also links the skills you left out.
 
 ```sh
 # Codex
 (
   destination="$HOME/.agents/skills"
-  for skill in helix setup-helix unslop second-opinion frontend-design; do
+  if [ ! -f "$PWD/skills/helix/SKILL.md" ]; then
+    printf '%s\n' "skills/helix is missing SKILL.md; run from the Helix repository root." >&2
+    exit 1
+  fi
+  set -- "$PWD"/skills/*/
+  for source do
+    source=${source%/}
+    skill=${source##*/}
     target="$destination/$skill"
-    source="$PWD/skills/$skill"
     if [ ! -f "$source/SKILL.md" ]; then
-      printf '%s\n' "$skill is missing SKILL.md; run from a complete repository root." >&2
+      printf '%s\n' "skills/$skill is missing SKILL.md; run from a complete repository root." >&2
       exit 1
     fi
     if [ -L "$target" ] && [ "$target" -ef "$source" ]; then
@@ -34,20 +45,28 @@ list only that skill in both loops.
     fi
   done
   mkdir -p "$destination" || exit 1
-  for skill in helix setup-helix unslop second-opinion frontend-design; do
+  for source do
+    source=${source%/}
+    skill=${source##*/}
     [ -L "$destination/$skill" ] ||
-      ln -s "$PWD/skills/$skill" "$destination/$skill" || exit 1
+      ln -s "$source" "$destination/$skill" || exit 1
   done
 )
 
 # Claude Code
 (
   destination="$HOME/.claude/skills"
-  for skill in helix setup-helix unslop second-opinion frontend-design; do
+  if [ ! -f "$PWD/skills/helix/SKILL.md" ]; then
+    printf '%s\n' "skills/helix is missing SKILL.md; run from the Helix repository root." >&2
+    exit 1
+  fi
+  set -- "$PWD"/skills/*/
+  for source do
+    source=${source%/}
+    skill=${source##*/}
     target="$destination/$skill"
-    source="$PWD/skills/$skill"
     if [ ! -f "$source/SKILL.md" ]; then
-      printf '%s\n' "$skill is missing SKILL.md; run from a complete repository root." >&2
+      printf '%s\n' "skills/$skill is missing SKILL.md; run from a complete repository root." >&2
       exit 1
     fi
     if [ -L "$target" ] && [ "$target" -ef "$source" ]; then
@@ -59,9 +78,11 @@ list only that skill in both loops.
     fi
   done
   mkdir -p "$destination" || exit 1
-  for skill in helix setup-helix unslop second-opinion frontend-design; do
+  for source do
+    source=${source%/}
+    skill=${source##*/}
     [ -L "$destination/$skill" ] ||
-      ln -s "$PWD/skills/$skill" "$destination/$skill" || exit 1
+      ln -s "$source" "$destination/$skill" || exit 1
   done
 )
 ```
