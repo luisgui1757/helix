@@ -146,6 +146,9 @@ user's working tree to obtain it.
 Ask the reviewer to inspect the files and supplied evidence rather than accept
 your summary as proof. Request read-only work, apply available host restrictions,
 and disclose any missing enforcement; a role label or worktree is not a sandbox.
+In the final report, name the reviewer's observed write access, such as a
+shell or a sandbox inherited from your session, or mark it unverified when the
+host does not expose it.
 Make no
 edits while it reviews. Do not pass your private reasoning or ask it to agree.
 
