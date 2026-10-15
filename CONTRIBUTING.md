@@ -1,6 +1,6 @@
 # Contributing
 
-The shipped product is the four folders under `skills/`. Keep each independently
+The shipped product is the folders under `skills/`. Keep each independently
 installable and portable. Prefer a narrow instruction correction over adding a role, runtime,
 configuration option, provider adapter, or dependency. Add executable code
 only for an observed requirement that the host and instructions cannot meet.
@@ -43,9 +43,11 @@ uses [the scenarios](evals/scenarios.md) and the user's already configured host;
 live subscription runs are separate from unattended CI.
 
 Use the [collection scenarios](evals/collection.md) for setup, prose editing,
-and second opinions. Setup references may contain host-specific native settings;
-do not add a shared routing format. Preserve unslop's stable rule IDs, upstream
+second opinions and frontend design. Setup references may contain host-specific
+native settings; do not add a shared routing format. Preserve unslop's stable rule IDs, upstream
 attribution, and packaged license when editing its prose rules.
+Keep frontend-design byte-identical to its pinned upstream revision; to update
+it, change the revision, attribution and test digests together.
 
 The [comparison runner](evals/comparison.md) is opt-in evaluation tooling, not a
 product runtime. Its offline tests check accounting and acceptance assertions;

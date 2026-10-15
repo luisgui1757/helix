@@ -35,3 +35,15 @@ Report scenario outcomes and skill digests in `docs/reviews/`. Keep raw native
 transcripts outside Git. Do not publish account identifiers, local paths, or
 private context. Native model/effort observations prove host dispatch settings,
 not the provider's internal computation.
+
+## Frontend design
+
+Use the installed frontend-design skill to build a small self-contained public
+library page. Supply exact existing brand colors/type, two event names and times,
+a no-external-resources constraint, and a narrow allowed output directory.
+Verify those requirements, working in-page targets, semantic landmarks, keyboard
+focus and responsive rendering at desktop and mobile sizes. Keep invented content
+clearly identified. Inspect actual artifacts and tool records where available;
+frontmatter validation, an attractive screenshot or the agent's own report alone
+does not prove the full workflow. Distinguish structural checks, rendering, actual
+keyboard/screen-reader use and any unobservable skill-loading or model settings.

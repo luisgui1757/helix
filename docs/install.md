@@ -5,15 +5,20 @@ separate subagent. Helix uses that tool's existing account, model,
 permissions, and sandbox. It does not configure or certify provider endpoints.
 
 Clone this repository, then run the applicable commands from its root. These
-macOS/Linux/WSL examples link all four skills into either or both tools. They
+macOS/Linux/WSL examples link every skill into either or both tools. They
 skip links to this checkout and stop before installation if a source skill is
 missing or another destination already exists. Inspect a conflict before changing it.
+If frontend-design is already installed, including as Anthropic's Claude Code
+plugin or in another skills directory, omit `frontend-design` from both loops
+in the chosen host's command block. The preflight only detects a conflict at its
+own link path, and a second copy appears as another skill. To install one skill,
+list only that skill in both loops.
 
 ```sh
 # Codex
 (
   destination="$HOME/.agents/skills"
-  for skill in helix setup-helix unslop second-opinion; do
+  for skill in helix setup-helix unslop second-opinion frontend-design; do
     target="$destination/$skill"
     source="$PWD/skills/$skill"
     if [ ! -f "$source/SKILL.md" ]; then
@@ -29,7 +34,7 @@ missing or another destination already exists. Inspect a conflict before changin
     fi
   done
   mkdir -p "$destination" || exit 1
-  for skill in helix setup-helix unslop second-opinion; do
+  for skill in helix setup-helix unslop second-opinion frontend-design; do
     [ -L "$destination/$skill" ] ||
       ln -s "$PWD/skills/$skill" "$destination/$skill" || exit 1
   done
@@ -38,7 +43,7 @@ missing or another destination already exists. Inspect a conflict before changin
 # Claude Code
 (
   destination="$HOME/.claude/skills"
-  for skill in helix setup-helix unslop second-opinion; do
+  for skill in helix setup-helix unslop second-opinion frontend-design; do
     target="$destination/$skill"
     source="$PWD/skills/$skill"
     if [ ! -f "$source/SKILL.md" ]; then
@@ -54,7 +59,7 @@ missing or another destination already exists. Inspect a conflict before changin
     fi
   done
   mkdir -p "$destination" || exit 1
-  for skill in helix setup-helix unslop second-opinion; do
+  for skill in helix setup-helix unslop second-opinion frontend-design; do
     [ -L "$destination/$skill" ] ||
       ln -s "$PWD/skills/$skill" "$destination/$skill" || exit 1
   done

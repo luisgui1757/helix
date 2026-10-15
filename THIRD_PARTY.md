@@ -15,3 +15,14 @@ preserved.
 The setup and consultation skills are original text, informed by reviewing
 pstack's setup and the advisor plugin. They do not copy those plugins' hooks,
 persistent modes, routing configuration, or agent definitions.
+
+## Frontend design
+
+`skills/frontend-design/` includes Anthropic's unmodified
+[Frontend Design skill](https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/frontend-design),
+pinned to revision `dbd4588f9e1033efb41dad4bef2f7947c8993d44` on 2026-10-13.
+The skill is byte-identical to the frontend-design plugin in
+[Claude Code](https://github.com/anthropics/claude-code/blob/bf2323b3021c9d3db7a31e1e7d61068c3f704497/plugins/frontend-design/skills/frontend-design/SKILL.md).
+The skills repository supplies its [Apache 2.0 license](skills/frontend-design/LICENSE.txt),
+which stays inside the independently installable folder. This third-party skill
+is covered by that license, rather than Helix's MIT license.
