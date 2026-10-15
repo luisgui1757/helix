@@ -1,12 +1,13 @@
 # Helix skills
 
-Four portable skills for Codex and Claude Code, using the account, model,
+Portable skills for Codex and Claude Code, using the account, model,
 permissions and sandbox already configured in your coding tool.
 
 | Skill | Use it for |
 |---|---|
 | [helix](skills/helix/SKILL.md) | Implement a scoped change, verify it and resolve independent review findings. |
 | [setup-helix](skills/setup-helix/SKILL.md) | Choose native writer and reviewer models and reasoning levels. |
+| [frontend-design](skills/frontend-design/SKILL.md) | Design and build distinctive user interfaces with Anthropic's frontend guidance. |
 | [unslop](skills/unslop/SKILL.md) | Edit prose while preserving facts, uncertainty and citations. |
 | [second-opinion](skills/second-opinion/SKILL.md) | Get fresh, read-only advice on a plan or decision before acting. |
 
@@ -17,7 +18,7 @@ do not need independent review, ask your coding tool directly.
 ## Install
 
 [Clone and install the skills](docs/install.md), then start a new session in
-your project. Install any skill on its own or all four. The guide covers
+your project. Install any skill on its own or all of them. The guide covers
 macOS/Linux/WSL links, Windows copies, safe repeat installation and updates.
 
 ```text
@@ -28,7 +29,7 @@ Claude Code: /helix Fix the CSV export so quoted fields round-trip correctly.
 Enter `$setup-helix` or `/setup-helix` for guided model choices. The
 [how-to](docs/how-to.md) covers usage, reviewer settings and completion labels.
 
-The product is the four folders under `skills/`. There is no orchestration
+The product is the folders under `skills/`. There is no orchestration
 runtime, package dependency, provider proxy, MCP server or workflow compiler.
 The optional model-discovery helper uses an existing Node.js 22.19+ installation
 and native CLI. Other Agent Skills-compatible hosts need their own install path

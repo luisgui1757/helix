@@ -1,6 +1,6 @@
 # Documentation
 
-- [Install](install.md) and [use the four skills](how-to.md)
+- [Install](install.md) and [use the skills](how-to.md)
 - [Evidence and limitations](../STATUS.md)
 - [Native roles and execution evidence](native-roles.md)
 - [Behavioral scenarios](../evals/scenarios.md) and [collection scenarios](../evals/collection.md)

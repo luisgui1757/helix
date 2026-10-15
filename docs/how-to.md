@@ -1,4 +1,4 @@
-# How to use the four skills
+# How to use the skills
 
 [Install the skills](install.md), then start a new session in your
 project. These examples use Codex's `$` syntax. In Claude Code, replace `$`
@@ -37,6 +37,25 @@ Use Unslop to edit prose while preserving its facts and qualifications.
 ```text
 $unslop Edit README.md for plain prose. Preserve its claims and caveats.
 ```
+
+## Design a user interface
+
+Use Frontend-design for a new interface or a requested visual redesign. It is
+Anthropic's pinned, unmodified skill, packaged with its license.
+
+```text
+$frontend-design Build a clear, accessible dashboard for a community library.
+```
+
+Existing brand requirements and the user's brief take precedence. Frontend-design
+does not replace Helix's tests, independent review or correction loop. A backend
+fix or a small UI behavior correction does not require a visual redesign.
+
+To implement an approved design through Helix, invoke Helix and ask it to follow
+the frontend-design skill by name. In Claude Code only a leading `/` command
+invokes a skill; Codex can also load a `$` skill mentioned later in the prompt.
+Either way, confirm the design guidance actually loaded. This combination has
+not been evaluated; see [status](../STATUS.md).
 
 ## Choose models and effort
 

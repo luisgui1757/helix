@@ -8,7 +8,19 @@ import { createHash } from 'node:crypto'
 import test from 'node:test'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const skills = ['helix', 'second-opinion', 'setup-helix', 'unslop']
+const skills = ['frontend-design', 'helix', 'second-opinion', 'setup-helix', 'unslop']
+
+test('frontend-design includes the pinned unmodified upstream skill and license', async () => {
+  const expected = {
+    'SKILL.md': 'd91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3',
+    'LICENSE.txt': '0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594',
+  }
+  assert.deepEqual((await readdir(join(root, 'skills/frontend-design'))).sort(), Object.keys(expected).sort())
+  for (const [file, digest] of Object.entries(expected)) {
+    const content = await readFile(join(root, 'skills/frontend-design', file))
+    assert.equal(createHash('sha256').update(content).digest('hex'), digest)
+  }
+})
 
 test('retiring the runtime preserves ignore protection for existing private state', () => {
   const paths = [
@@ -21,14 +33,14 @@ test('retiring the runtime preserves ignore protection for existing private stat
   assert.deepEqual(ignored, paths)
 })
 
-test('the four skills use portable metadata without a product runtime', async () => {
+test('every skill uses portable metadata without a product runtime', async () => {
   assert.deepEqual((await readdir(join(root, 'skills'))).sort(), skills)
   for (const name of skills) {
     const content = await readFile(join(root, 'skills', name, 'SKILL.md'), 'utf8')
     const frontmatter = content.match(/^---\n([\s\S]*?)\n---\n/)
     assert.ok(frontmatter, `${name}: standard YAML frontmatter is required`)
     const entries = frontmatter[1].split('\n').map(line => line.split(/: (.*)/s).slice(0, 2))
-    assert.deepEqual(entries.map(([key]) => key), ['name', 'description'])
+    assert.deepEqual(entries.map(([key]) => key), name === 'frontend-design' ? ['name', 'description', 'license'] : ['name', 'description'])
     assert.equal(entries[0][1], name)
     assert.ok(entries[1][1].length > 0 && entries[1][1].length <= 1024)
     assert.doesNotMatch(content, /\$\{CLAUDE_|\$ARGUMENTS|\bWorkflow\(|\bmcp__|^context: fork$/m)
@@ -100,7 +112,7 @@ for (const [label, host] of [['Codex', '.agents'], ['Claude Code', '.claude']]) 
               await readFile(join(root, 'skills', name, 'SKILL.md'), 'utf8'))
           }
           const repeat = spawnSync('sh', ['-c', commands], { cwd: fixture, encoding: 'utf8' })
-          for (const file of ['unslop/LICENSE', 'setup-helix/references/codex.md', 'setup-helix/references/claude-code.md', 'setup-helix/scripts/discover-models.mjs']) {
+          for (const file of ['frontend-design/LICENSE.txt', 'unslop/LICENSE', 'setup-helix/references/codex.md', 'setup-helix/references/claude-code.md', 'setup-helix/scripts/discover-models.mjs']) {
             assert.equal(await readFile(join(fixture, 'user', host, 'skills', file), 'utf8'),
               await readFile(join(root, 'skills', file), 'utf8'))
           }

@@ -1,8 +1,9 @@
 # Evidence and limitations
 
-Snapshot: 2026-10-09. Results apply only to the versions, models and source digests
+Snapshot: 2026-10-15. Results apply only to the versions, models and source digests
 in the linked records. These are bounded samples, not guarantees or a reliability
-rate. This documentation cleanup changes no installed skill or evaluation bytes.
+rate. The frontend-design import adds one pinned third-party skill and its
+collection scenario; the other skills' bytes are unchanged.
 
 | Area | Observed result and remaining limits | Evidence |
 |---|---|---|
@@ -15,8 +16,9 @@ rate. This documentation cleanup changes no installed skill or evaluation bytes.
 | Guided setup and discovery | October 6: stable native catalogs (7 Codex, 11 Claude IDs), saves/cancels and unavailable-input/discovery paths. Question controls and effort-question order were not consistently followed. A denied Claude connection can still return host metadata; listings do not prove fresh data or account access. | [Guided setup][evidence-2026-10-06-guided-setup] |
 | Unslop | Facts, literals, uncertainty and hostile-draft checks passed on both hosts. | [Collection][evidence-2026-10-04-four-skills] |
 | Second opinion | Both hosts found the seeded contradiction without file edits; disabled delegation returned NOT RUN. This does not certify a repository audit. | [Collection][evidence-2026-10-04-four-skills] |
-| Installation | All four skill folders were linked into both hosts and native discovery exercised. | [Collection][evidence-2026-10-04-four-skills] |
-| Historical comparison | In a 16-run pilot, Helix took 1.86x the time of plain Codex and 6.47x plain Claude Code. No confirmed functional defect was caught. Earlier skill digest `fe376679`, four pairs per host; no new cache or performance claim for this cleanup. | [Comparison][evidence-2026-10-03-comparison] |
+| Frontend design | Anthropic's unmodified, Apache-licensed skill with a pinned source and bundled license; upstream was unchanged when rechecked on 2026-10-15. One Claude Opus 5.5 trial, given the checkout file directly, produced a self-contained library page that passed 12 structural/content checks and initial-viewport Firefox desktop/mobile rendering; it disclosed invented details in its response, not in the page. Native invocation later discovered the installed skill in both CLIs; Codex recorded a complete skill-file read, while Claude's export does not expose the injected text. A first Claude native trial ran in safe mode, which disables custom skills, and failed discovery. On 2026-10-15 the installed skill ran the collection scenario on both hosts: both pages passed 22 external checks, including in-page demo labeling, and rendered at desktop and 390px widths; Claude's page showed one typographic defect, and complete skill loading was observed only for Codex. Observed keyboard focus, screen-reader use, the combined Helix/design workflow and aesthetic reliability remain unverified. | [Import record](docs/reviews/2026-10-13-frontend-design.md) |
+| Installation | On October 4, all four then-current skill folders were linked into both hosts and native discovery exercised. | [Collection][evidence-2026-10-04-four-skills] |
+| Historical comparison | In a 16-run pilot, Helix took 1.86x the time of plain Codex and 6.47x plain Claude Code. No confirmed functional defect was caught. Earlier skill digest `fe376679`, four pairs per host; no new cache or performance claim for the 2026-10-09 cleanup. | [Comparison][evidence-2026-10-03-comparison] |
 | Reviewer finds a defect | Ran on both hosts at `71c00d73`: an independent candidate review found the clamp bug, then the installed skill fixed and reviewed it. Claude used the shipped role and also corrected a README error found by its first child reviewer. All 6 external checks passed on each host; Claude's missing gate output remains a procedure gap above. | [Correction cycle][evidence-2026-10-06-guided-setup-reviewer-finding-cycle], [scenario](evals/scenarios.md) |
 | Continued correction | DONE: removed the fixed round cap. Old-source runs stopped solely at the seeded count; revised runs on both hosts fixed the remaining bug and dispatched reviewers. Seeded prior rounds and failed attempts are synthetic, not proof those earlier rounds ran. Review compliance remains separate above. | [October 6 runs][evidence-2026-10-06-guided-setup-continued-correction-and-full-review] |
 | Other coverage | Coverage is limited to the models, efforts and assignments in the dated records. Setup dialogue was exercised through native protocols; visual terminal widgets and interactive delivery remain untested. Other combinations and host versions, interrupted-session recovery, Windows/WSL and OpenRouter are untested. Azure remains excluded. | [Guided setup][evidence-2026-10-06-guided-setup], [roles][evidence-2026-10-03-native-role-verification], [collection][evidence-2026-10-04-four-skills] |
@@ -45,11 +47,12 @@ contract is ambiguous. Both remain coverage limits, not newly scored failures.
 Installer regressions and historical protocol provenance were corrected in
 [merged PR #19](https://github.com/luisgui1757/helix/pull/19), which superseded #18.
 Its source-review and exact-commit check receipts remain there; source approval
-does not resolve the procedure failures above. The maintenance suite has 46 tests.
+does not resolve the procedure failures above. The maintenance suite has 47 tests.
 
 [Documentation compression](docs/reviews/2026-10-09-content-compression.md) records
-this cleanup. The [archive index](docs/history/README.md) preserves all previous
-review rounds, including failures, corrections and rejected findings. It also
+the 2026-10-09 documentation cleanup. The [archive index](docs/history/README.md)
+preserves all previous review rounds, including failures, corrections and
+rejected findings. It also
 links the earlier overview and explains offline retrieval. Repository review
 and merge gates remain unchanged.
 

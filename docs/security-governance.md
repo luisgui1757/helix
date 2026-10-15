@@ -1,6 +1,6 @@
 # Security and governance baseline
 
-The product is four portable skills. Repository governance is maintained
+The product is the portable skills under `skills/`. Repository governance is maintained
 separately.
 
 | Control | Owner and purpose |
