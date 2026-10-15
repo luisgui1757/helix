@@ -1,17 +1,24 @@
 ---
 name: setup-helix
-description: Configure native writer and reviewer model settings for Helix or second-opinion in Codex or Claude Code. Use when setting up or changing role preferences, not for delivering a code change.
+description: Choose writer and reviewer models for Helix or second-opinion using Codex/Claude native settings or supported T3 task targets. Use when setting up or changing role preferences, not for delivering a code change.
 ---
 
 # Set up Helix
 
-Use the current host's settings. Do not install a router, change providers,
+Use the current host's settings. Inside T3 with orchestration tools available,
+use [T3 discovery and choices](references/t3.md) before the direct-host references.
+Those tools may be deferred, attached lazily or carry a host prefix; search for
+`orchestrator_capabilities` and, if needed, make one bounded call before
+deciding they are absent.
+T3 may select already configured providers for different roles; do not add or
+authenticate providers. Outside T3, do not change providers. Do not install a router,
 store credentials, or edit the shared skills to hold personal preferences.
 
 Read the repository instructions and the relevant host reference:
 
 - [Codex](references/codex.md)
 - [Claude Code](references/claude-code.md)
+- [T3 Code](references/t3.md)
 
 Identify the host, configuration scope, desired writer and reviewer models,
 and reasoning levels from the request and existing configuration. Ask only
@@ -38,8 +45,10 @@ the native model picker. Do not install dependencies to obtain a list.
 Keep the current writer unless the user asks to change it. Skip questions
 already answered in the request. In guided setup, collect every choice first.
 Then show the exact final edit to every affected file, including required
-documentation, with no placeholders. Explain its scope and broader effect,
-then ask Save or Cancel. Choosing a model or effort is not save approval.
+documentation, with no placeholders. In T3, preview supported T3 settings
+or clearly labeled task-scoped choices as described in its reference. Explain
+the scope and broader effect, then ask Save/Cancel for settings edits or Use/Cancel
+for task-scoped choices that save nothing. Choosing a model or effort is not save approval.
 A preselected answer or silence is not consent. If answers are unavailable,
 list all missing choices (scope, model and effort as applicable), offer to keep
 settings or supply exact values manually, and stop without edits. A complete,
@@ -56,8 +65,9 @@ exact pending edit through its approval flow. A denied edit remains pending;
 do not switch tools or weaken permissions to get around it. Update documentation
 only to describe what was actually saved.
 
-The writer is the current session. Give the exact launch command for a requested
-writer change; saving configuration does not switch the running session.
+The writer is the current session. Give the exact launch command, or supported
+T3 new-thread/delegation choices, for a requested writer change; saving
+configuration does not switch the running session.
 Distinguish the running writer from saved defaults; if the session settings
 are not exposed, report them as unverified rather than infer them from a file.
 Keep model IDs literal when a version matters. Before saving, check the requested
@@ -68,7 +78,9 @@ substituting another model or effort.
 
 Distinguish **configured**, **verified**, and **unverified**. When execution
 verification is authorized, launch a fresh session and a small read-only child
-task without restating the saved reviewer settings in the prompt or spawn call.
+task without restating saved reviewer settings in the prompt or spawn call.
+For T3 task-scoped choices, pass the explicit target and label this a dispatch
+probe, not proof that defaults were saved.
 Check native execution records for the resolved model and effort. Configuration
 files, self-reports, and response timing are not proof. A runtime rejection
 leaves verification blocked; do not silently change the saved choice to pass.

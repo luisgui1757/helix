@@ -57,6 +57,41 @@ invokes a skill; Codex can also load a `$` skill mentioned later in the prompt.
 Either way, confirm the design guidance actually loaded. This combination has
 not been evaluated; see [status](../STATUS.md).
 
+## Inside T3 Code
+
+Install the skills for the provider CLI T3 runs, following the existing
+[installation guide](install.md). Skill loading remains provider-owned; confirm
+it in the running session. With V2 orchestration tools available, Helix uses
+T3's live provider/model/options catalog and delegated tasks. Outside T3, the
+existing direct Codex and Claude workflows still apply.
+
+You can request a writer and independent reviewer on different providers with
+literal model IDs and reasoning effort. Helix resolves those choices against
+T3's current catalog; it does not maintain model lists or authenticate providers.
+A missing requested provider or unsupported effort stays unresolved. Setup uses
+supported T3 settings where available, otherwise reports explicit task-scoped
+choices; it does not claim to save a Helix role configuration in T3.
+
+Helix supplies the complete final delta, repository rules and captured
+verification evidence to a fresh T3 review task. Each correction round creates another task.
+Messaging an old child thread does not reopen its completed task; a follow-up
+may get a new task ID while retaining the old reviewer conversation.
+`role: review` is an instruction, not enforced read-only access: the workflow
+uses available host restrictions and reports any enforcement gap. Reviewers keep
+shared isolation so they can read the uncommitted delta. They inherit the
+parent's runtime mode; when that resolves to a supervised mode, Helix warns
+that the reviewer may wait for approvals in its own thread. Task completion
+alone proves neither passing tests nor review approval. Effective effort needs
+correlated execution evidence; requested options alone are insufficient.
+
+The [packaged T3 reference](../skills/helix/references/t3.md) records the inspected
+source and lifecycle details. It was last source-checked on 2026-10-15 against
+`v0.0.46-nightly.20261014.3132`. V2 orchestration ships in the 0.0.46 line;
+stable v0.0.45 has no orchestrator tools, so Helix uses direct host delegation
+there. Recheck the actual tools and catalog on the installed release. Live
+cross-provider behavior remains a separate credential-dependent evaluation; see
+[status](../STATUS.md).
+
 ## Choose models and effort
 
 For guided setup, enter just:

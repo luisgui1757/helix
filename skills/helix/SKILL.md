@@ -14,8 +14,13 @@ tests failed against the original code and passed against the final code; the
 reviewer inspected the full delta; and no required verification is missing.
 An admission that a required check was skipped does not satisfy that check.
 
-Use the current coding tool and its native delegation. Do not install a runtime,
-change providers, or create a workflow framework. Apply models and reasoning
+Use the current coding tool and its delegation. Inside T3, when its live
+orchestration tools are available, first read [T3 orchestration](references/t3.md)
+and use that path for discovery and delegated work. Those tools may be deferred,
+attached lazily or carry a host prefix; search for `orchestrator_capabilities`
+and, if needed, make one bounded call before deciding they are absent. Outside T3, keep native Codex
+or Claude Code delegation and do not change providers. Do not install a runtime, configure provider adapters,
+or create a workflow framework. Apply models and reasoning
 levels requested for the writer or reviewer through the host's supported
 settings. Otherwise keep the host's defaults; do not choose a model or effort
 yourself. Do not substitute settings without authorization. Where the host
@@ -45,8 +50,10 @@ Preserve earlier results and decisions; do not restart the task's history.
 
 ## Implement and verify
 
-Be the single writer. Implement, test, and document the change yourself; these
-responsibilities do not require separate agents. For a bug fix, reproduce the
+Keep one writer active. Normally implement, test, and document the change yourself;
+these responsibilities do not require separate agents. If the user requests a
+different writer available through T3, delegate that work using the T3 reference
+and coordinate without making concurrent edits. For a bug fix, reproduce the
 failure and add a behavioral regression test that fails before the fix and
 passes after it. Follow repository requirements for other tests and documentation.
 
@@ -65,6 +72,12 @@ Exercise the requested behavior as a user would, as closely as practical. Unit
 tests alone do not show that an installed command or user journey works.
 Record exact commands, observed outcomes, and meaningful verification gaps.
 Do not weaken checks to obtain a pass or invent a successful result.
+
+Before capturing evidence or reconstructing a baseline, choose a location inside
+the task's allowed write scope. Temporary files, logs and comparison copies obey
+the same boundary as code edits; a system temporary directory is not implicitly
+authorized. If no file writes are allowed, pass available output inline. Give
+delegates the same boundary and the evidence paths they may read.
 
 Inspect every changed file, including staged changes and new files. Checks
 must cover the final content after the last edit, including generated changes.
@@ -100,10 +113,12 @@ visible in the brief, but do not by themselves prevent a reviewer from examining
 the code and existing evidence. Code-review approval and runtime verification
 are separate claims; either can remain incomplete without stopping the other.
 
-Start one fresh reviewer through the host's delegation facility, with no
+Start one fresh reviewer through T3 when available, otherwise the host's native
+delegation facility, with no
 conversation history inherited from the writer. Preserving host defaults for
-model and effort does not mean inheriting context. Use a native reviewer role
-the user configured for this purpose when available. Per-task settings take
+model and effort does not mean inheriting context. Outside T3, use a native
+reviewer role the user configured for this purpose when available. Inside T3,
+follow the reference's saved-role and enforcement rules. Per-task settings take
 precedence over saved preferences. If the host cannot apply them without
 retaining conflicting role settings, report that reviewer as unavailable and
 continue work that does not require it. Do not silently edit the saved role to
@@ -117,12 +132,15 @@ one. Include exact verification commands and results, including the failing
 test before a bug fix and its passing result afterward. Supply captured command
 output as text or readable files; pass/fail counts or a claim that tests passed
 are not that evidence. Reconstruct missing pre-fix proof against the original code in a separate
-temporary copy when the needed tools and inputs are available. If reconstruction
+temporary copy within the allowed write scope when the needed tools and inputs
+are available. If reconstruction
 is unavailable, source review may proceed with that limitation; the evidence
 still must exist before claiming the bug fully verified. Do not revert the
 user's working tree to obtain it.
 Ask the reviewer to inspect the files and supplied evidence rather than accept
-your summary as proof. Keep it read-only and make no
+your summary as proof. Request read-only work, apply available host restrictions,
+and disclose any missing enforcement; a role label or worktree is not a sandbox.
+Make no
 edits while it reviews. Do not pass your private reasoning or ask it to agree.
 
 Use this review brief:
@@ -164,7 +182,9 @@ Assess findings against evidence. Fix accepted findings. A rejected finding
 counts as resolved only when the final report gives the evidence for rejecting
 it. Record findings and decisions in the repository's review ledger when required.
 After a fix, rerun affected checks and required gates, then ask the independent
-reviewer to inspect the revised state. If the host cannot resume that reviewer,
+reviewer to inspect the revised state. In T3, start a new delegated task for every
+review round as described in the reference; never use a completed child's thread
+messages as a task-resume API. Outside T3, if the host cannot resume that reviewer,
 start a fresh one with the brief, earlier findings, and revised diff. Use one
 reviewer at a time. Evidence and review of an earlier state do not approve later
 edits.

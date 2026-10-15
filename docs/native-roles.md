@@ -4,6 +4,14 @@ Use the [how-to](how-to.md) for writer launch commands, saved reviewer settings
 and per-task examples. The writer is the current native session. Helix and
 second-opinion use that host's delegation; the skills contain no model router.
 
+Inside T3 with orchestration tools available, use the
+[T3 reference](../skills/helix/references/t3.md). T3 owns provider discovery and
+task lifecycle. Record requested and observed provider/model/options plus task,
+thread and run IDs. Its result currently exposes provider/model, while effective
+effort needs correlated provider records. Do not infer effort from the request.
+A new review round needs a fresh delegated task with the full revised delta and
+verification evidence. T3's review role does not enforce read-only access.
+
 ## Configuration sources
 
 - [Codex setup reference](../skills/setup-helix/references/codex.md): native

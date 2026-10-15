@@ -45,8 +45,9 @@ test('every skill uses portable metadata without a product runtime', async () =>
     assert.ok(entries[1][1].length > 0 && entries[1][1].length <= 1024)
     assert.doesNotMatch(content, /\$\{CLAUDE_|\$ARGUMENTS|\bWorkflow\(|\bmcp__|^context: fork$/m)
   }
-  for (const file of ['codex.md', 'claude-code.md']) {
-    const content = await readFile(join(root, 'skills/setup-helix/references', file), 'utf8')
+  for (const file of ['setup-helix/references/codex.md', 'setup-helix/references/claude-code.md',
+    'setup-helix/references/t3.md', 'helix/references/t3.md', 'second-opinion/references/t3.md']) {
+    const content = await readFile(join(root, 'skills', file), 'utf8')
     assert.doesNotMatch(content, /\$\{CLAUDE_|\$ARGUMENTS|\bWorkflow\(|\bmcp__|^context: fork$/m)
   }
   const files = await readdir(root)
@@ -112,7 +113,7 @@ for (const [label, host] of [['Codex', '.agents'], ['Claude Code', '.claude']]) 
               await readFile(join(root, 'skills', name, 'SKILL.md'), 'utf8'))
           }
           const repeat = spawnSync('sh', ['-c', commands], { cwd: fixture, encoding: 'utf8' })
-          for (const file of ['frontend-design/LICENSE.txt', 'unslop/LICENSE', 'setup-helix/references/codex.md', 'setup-helix/references/claude-code.md', 'setup-helix/scripts/discover-models.mjs']) {
+          for (const file of ['frontend-design/LICENSE.txt', 'unslop/LICENSE', 'helix/references/t3.md', 'second-opinion/references/t3.md', 'setup-helix/references/t3.md', 'setup-helix/references/codex.md', 'setup-helix/references/claude-code.md', 'setup-helix/scripts/discover-models.mjs']) {
             assert.equal(await readFile(join(fixture, 'user', host, 'skills', file), 'utf8'),
               await readFile(join(root, 'skills', file), 'utf8'))
           }

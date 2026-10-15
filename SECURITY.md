@@ -46,3 +46,13 @@ Legacy `.helix-cc-local/` state and `review-prompts/` drafts stay ignored on
 upgrade; retirement neither deletes nor makes those private files publishable.
 See the [governance baseline](docs/security-governance.md) and
 [evaluation record](https://github.com/luisgui1757/helix/blob/5f08f557ef7945667dd633c07d83291015f6e8e0/docs/reviews/2026-10-03-portable-skill.md).
+
+
+Inside T3, existing provider integration and task orchestration belong to T3.
+Helix reads its live catalog and passes supported task targets; it does not read
+credentials or add an adapter. `role: review` does not enforce read-only execution,
+and a narrower runtime mode is not a read-only switch. Use available host
+restrictions, disclose gaps, and keep a request requiring unavailable enforced
+isolation blocked. A worktree is not a sandbox. New review
+rounds use fresh delegated tasks; completed task status is not approval or proof
+that the required verification passed.
