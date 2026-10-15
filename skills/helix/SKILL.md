@@ -73,11 +73,15 @@ tests alone do not show that an installed command or user journey works.
 Record exact commands, observed outcomes, and meaningful verification gaps.
 Do not weaken checks to obtain a pass or invent a successful result.
 
-Before capturing evidence or reconstructing a baseline, choose a location inside
-the task's allowed write scope. Temporary files, logs and comparison copies obey
-the same boundary as code edits; a system temporary directory is not implicitly
-authorized. If no file writes are allowed, pass available output inline. Give
-delegates the same boundary and the evidence paths they may read.
+Before writing evidence, a review brief or a baseline copy, choose a location
+inside the task's allowed write scope. Without a stated scope, that is the
+task's working tree; sandbox permissions do not extend it. Temporary files,
+logs and comparison copies obey the same boundary as code edits; a system
+temporary directory such as `/tmp` or `$TMPDIR` is not implicitly authorized,
+even for a file you delete later. Name any scratch file in the report and the
+review brief, and remove it before finishing. If no file writes are allowed,
+pass available output inline. Give delegates the same boundary and the
+evidence paths they may read.
 
 Inspect every changed file, including staged changes and new files. Checks
 must cover the final content after the last edit, including generated changes.
@@ -131,7 +135,9 @@ Provide the diff as text or a readable artifact when its tools cannot obtain
 one. Include exact verification commands and results, including the failing
 test before a bug fix and its passing result afterward. Supply captured command
 output as text or readable files; pass/fail counts or a claim that tests passed
-are not that evidence. Reconstruct missing pre-fix proof against the original code in a separate
+are not that evidence. Pass anything you supply inline when practical; any
+file for the reviewer follows the write-scope rule above. Reconstruct missing
+pre-fix proof against the original code in a separate
 temporary copy within the allowed write scope when the needed tools and inputs
 are available. If reconstruction
 is unavailable, source review may proceed with that limitation; the evidence
