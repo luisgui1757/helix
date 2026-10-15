@@ -1,36 +1,45 @@
-# Helix skills
+# Helix
 
-Portable skills for Codex and Claude Code, directly or inside T3 Code,
-using the providers, permissions and sandbox configured in your coding tool.
+A directory of portable agent skills for Codex and Claude Code, directly or
+inside T3 Code. Each skill is one folder under `skills/` that installs on its
+own and uses the providers, permissions and sandbox already configured in your
+coding tool. There is no orchestration runtime, package dependency, provider
+proxy, MCP server or workflow compiler.
 
-| Skill | Use it for |
-|---|---|
-| [helix](skills/helix/SKILL.md) | Implement a scoped change, verify it and resolve independent review findings. |
-| [setup-helix](skills/setup-helix/SKILL.md) | Choose native writer and reviewer models and reasoning levels. |
-| [frontend-design](skills/frontend-design/SKILL.md) | Design and build distinctive user interfaces with Anthropic's frontend guidance. |
-| [unslop](skills/unslop/SKILL.md) | Edit prose while preserving facts, uncertainty and citations. |
-| [second-opinion](skills/second-opinion/SKILL.md) | Get fresh, read-only advice on a plan or decision before acting. |
+| Skill | Use it for | Origin |
+|---|---|---|
+| [helix](skills/helix/SKILL.md) | Implement a scoped change, verify it and resolve independent review findings. | Helix (MIT) |
+| [setup-helix](skills/setup-helix/SKILL.md) | Choose writer and reviewer models and reasoning levels for helix and second-opinion. | Helix (MIT) |
+| [second-opinion](skills/second-opinion/SKILL.md) | Get fresh, read-only advice on a plan or decision before acting. | Helix (MIT) |
+| [unslop](skills/unslop/SKILL.md) | Edit prose while preserving facts, uncertainty and citations. | Adapted from pstack (MIT) |
+| [frontend-design](skills/frontend-design/SKILL.md) | Design and build distinctive user interfaces. | Anthropic, unmodified (Apache 2.0) |
 
-Helix resolves details through inspection or small experiments and records
-consequential decisions briefly alongside the work. For trivial changes that
-do not need independent review, ask your coding tool directly.
+Third-party skills keep their own licenses; see [attribution](THIRD_PARTY.md).
+To add a skill, follow [contributing](CONTRIBUTING.md#adding-a-skill).
 
 ## Install
 
 [Clone and install the skills](docs/install.md), then start a new session in
-your project. Install any skill on its own or all of them. The guide covers
-macOS/Linux/WSL links, Windows copies, safe repeat installation and updates.
+your project. The guide links every folder under `skills/`, or the ones you
+choose, and covers macOS/Linux/WSL links, Windows copies, safe repeat
+installation and updates.
 
 ```text
 Codex:       $helix Fix the CSV export so quoted fields round-trip correctly.
 Claude Code: /helix Fix the CSV export so quoted fields round-trip correctly.
 ```
 
-Enter `$setup-helix` or `/setup-helix` for guided model choices. The
-[how-to](docs/how-to.md) covers usage, reviewer settings and completion labels.
+The [how-to](docs/how-to.md) covers each skill, reviewer settings and
+completion labels. Enter `$setup-helix` or `/setup-helix` for guided model
+choices.
 
-The product is the folders under `skills/`. There is no orchestration
-runtime, package dependency, provider proxy, MCP server or workflow compiler.
+## The Helix workflow
+
+Helix resolves details through inspection or small experiments, verifies the
+change and gets an independent review, and records consequential decisions
+briefly alongside the work. For trivial changes that do not need independent
+review, ask your coding tool directly.
+
 The optional model-discovery helper uses an existing Node.js 22.19+ installation
 and native CLI outside T3. Inside T3, use its live orchestration catalog and
 delegation tools; Helix adds no provider adapters. See [T3 usage](docs/how-to.md#inside-t3-code).
