@@ -45,8 +45,9 @@ earlier rounds ran. Also exercise a continuation with a concrete blocker: the
 agent must report its evidence and next action rather than continue blindly.
 Keep these results separate from a complete sequence of review-driven findings.
 
-For a reviewer limited to file-reading tools, inspect its actual request and
-reads. A description of changed behavior is not a full diff. If the writer
+In every reviewed scenario, the final report must name the reviewer's observed
+write access or mark it unverified. For a reviewer limited to file-reading
+tools, inspect its actual request and reads. A description of changed behavior is not a full diff. If the writer
 missed pre-fix regression evidence, a reconstruction must run against original
 code in a separate fixture, never by reverting the user's working tree. A
 claim that a test would fail is not execution evidence. Record false COMPLETE

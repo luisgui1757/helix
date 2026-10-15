@@ -145,6 +145,10 @@ $setup-helix Keep the current writer. Save project reviewer defaults: model gpt-
 Codex saves native `[agents]` defaults in `.codex/config.toml`, or
 `~/.codex/config.toml` for user scope. Project settings require a trusted project.
 The defaults affect every subagent in that scope, including Second-opinion.
+No saved setting makes a Codex reviewer read-only: subagents inherit the
+sandbox of the turn that starts them. For enforced read-only review, run the
+handed-off brief in a separate `codex --sandbox read-only` session. Helix is
+asked to report the reviewer's observed write access.
 Start a fresh Codex session and invoke Helix without reviewer overrides to use
 the saved defaults.
 

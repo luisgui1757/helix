@@ -67,6 +67,15 @@ A custom agent file can override both.
 Inspect relevant competing settings before claiming a saved default will win.
 Do not remove unrelated roles to make it win.
 
+Codex subagents inherit the parent turn's sandbox and approval settings.
+Custom agent files cannot override `sandbox_mode` or `approval_policy`; their
+instructions and feature toggles remove tools at most and do not create a
+read-only sandbox. Setup therefore cannot save a read-only Codex reviewer: say
+that a reviewer started by the writer shares the writer's sandbox, and do not
+present a model, effort or role setting as enforcement. Enforced read-only
+review needs a separate session started with `codex --sandbox read-only` that
+runs the handed-off brief.
+
 Codex also documents named custom agents in `.codex/agents/*.toml`. Do not assume
 the installed client's delegation tool can select one. Our 0.160.0 evaluation
 could pass explicit model and effort values but did not validate a named-role
