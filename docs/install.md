@@ -87,3 +87,13 @@ and symlinked skill folders: [Codex instructions](https://learn.chatgpt.com/docs
 [Claude Code instructions](https://code.claude.com/docs/en/skills).
 Other compatible tools can load the same instructions, but need their own
 installation path and a separate behavioral evaluation.
+
+
+## T3 Code
+
+Install each skill for the provider CLI used by T3 using the paths above, then
+confirm native skill discovery in a new T3 session. T3 does not need a separate
+Helix engine or server. V2 orchestration tools, from the 0.0.46 line, enable the optional
+[T3 workflow](how-to.md#inside-t3-code); their absence leaves direct host delegation
+available, but cannot satisfy a request specifically requiring T3 cross-provider
+execution. Installing skill files does not prove orchestration or account access.

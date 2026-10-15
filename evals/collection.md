@@ -36,6 +36,19 @@ transcripts outside Git. Do not publish account identifiers, local paths, or
 private context. Native model/effort observations prove host dispatch settings,
 not the provider's internal computation.
 
+
+For T3, also exercise guided live catalog choices and cancellation, explicit
+per-task targets when no persistent role API exists, and a fresh second opinion
+on a different available provider. Verify that a dispatch probe is not described
+as saved defaults, that each later consultation has a new task ID, and that
+requested-but-unobserved effort stays unverified. Use the evidence rules and
+credential boundary in [T3 scenarios](scenarios.md#t3-orchestration).
+
+When evaluating read-only enforcement, include a configured sandbox whose host
+reports it disabled or does not expose its active state. The skill must not claim
+active sandboxing from the configuration alone. Record observed controls and
+unverified enforcement separately, even if the consultant made no file changes.
+
 ## Frontend design
 
 Use the installed frontend-design skill to build a small self-contained public

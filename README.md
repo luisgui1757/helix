@@ -1,7 +1,7 @@
 # Helix skills
 
-Portable skills for Codex and Claude Code, using the account, model,
-permissions and sandbox already configured in your coding tool.
+Portable skills for Codex and Claude Code, directly or inside T3 Code,
+using the providers, permissions and sandbox configured in your coding tool.
 
 | Skill | Use it for |
 |---|---|
@@ -32,7 +32,9 @@ Enter `$setup-helix` or `/setup-helix` for guided model choices. The
 The product is the folders under `skills/`. There is no orchestration
 runtime, package dependency, provider proxy, MCP server or workflow compiler.
 The optional model-discovery helper uses an existing Node.js 22.19+ installation
-and native CLI. Other Agent Skills-compatible hosts need their own install path
+and native CLI outside T3. Inside T3, use its live orchestration catalog and
+delegation tools; Helix adds no provider adapters. See [T3 usage](docs/how-to.md#inside-t3-code).
+Other Agent Skills-compatible hosts need their own install path
 and behavioral evaluation.
 
 ## Limits and evidence
