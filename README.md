@@ -1,8 +1,8 @@
 # Helix
 
 A directory of portable agent skills for Codex and Claude Code, directly or
-inside T3 Code. Each skill is one folder under `skills/` that installs on its
-own and uses the providers, permissions and sandbox already configured in your
+inside T3 Code. Skills live in folders under `skills/` and use the
+providers, permissions and sandbox already configured in your
 coding tool. There is no orchestration runtime, package dependency, provider
 proxy, MCP server or workflow compiler.
 
@@ -11,8 +11,13 @@ proxy, MCP server or workflow compiler.
 | [helix](skills/helix/SKILL.md) | Implement a scoped change, verify it and resolve independent review findings. | Helix (MIT) |
 | [setup-helix](skills/setup-helix/SKILL.md) | Choose writer and reviewer models and reasoning levels for helix and second-opinion. | Helix (MIT) |
 | [second-opinion](skills/second-opinion/SKILL.md) | Get fresh, read-only advice on a plan or decision before acting. | Helix (MIT) |
+| [doc-view](skills/doc-view/SKILL.md) | Generate a styled HTML reading view from Markdown, with a short summary. | Helix (MIT) |
+| [tldr](skills/tldr/SKILL.md) | Summarize in everyday words, usually under 80 words. | Helix (MIT) |
 | [unslop](skills/unslop/SKILL.md) | Edit prose while preserving facts, uncertainty and citations. | Adapted from pstack (MIT) |
 | [frontend-design](skills/frontend-design/SKILL.md) | Design and build distinctive user interfaces. | Anthropic, unmodified (Apache 2.0) |
+
+Doc-view needs Impeccable, Unslop, TLDR and Frontend-design;
+see [dependencies](docs/install.md#document-view-dependencies).
 
 Third-party skills keep their own licenses; see [attribution](THIRD_PARTY.md).
 To add a skill, follow [contributing](CONTRIBUTING.md#adding-a-skill).

@@ -118,3 +118,17 @@ Helix engine or server. V2 orchestration tools, from the 0.0.46 line, enable the
 [T3 workflow](how-to.md#inside-t3-code); their absence leaves direct host delegation
 available, but cannot satisfy a request specifically requiring T3 cross-provider
 execution. Installing skill files does not prove orchestration or account access.
+
+## Document view dependencies
+
+TLDR is standalone. Doc-view composes installed `impeccable`, `unslop`, `tldr`
+and Anthropic's `frontend-design`, which is the confirmed Claude Code design
+step. Helix includes Unslop, TLDR and its pinned Frontend-design; Impeccable
+is an external prerequisite. No `/design` alias is installed.
+The skill reports missing dependencies and waits before HTML generation; it
+does not silently install or replace them. Use the host's skill catalog, not
+assumed user-specific filesystem paths, to find them.
+
+Copying only `doc-view` does not copy its dependencies. The general install
+commands above install Helix's folders, not external plugins. Keep any existing
+installation of the same skill instead of creating competing copies.

@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto'
 import test from 'node:test'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const skills = ['frontend-design', 'helix', 'second-opinion', 'setup-helix', 'unslop']
+const skills = ['doc-view', 'frontend-design', 'helix', 'second-opinion', 'setup-helix', 'tldr', 'unslop']
 
 test('frontend-design includes the pinned unmodified upstream skill and license', async () => {
   const expected = {

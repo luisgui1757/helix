@@ -1,7 +1,8 @@
 # Contributing
 
-The shipped product is the folders under `skills/`. Keep each independently
-installable and portable. Prefer a narrow instruction correction over adding a role, runtime,
+The shipped product is the folders under `skills/`. Keep each portable and
+independently installable except for explicitly documented compositions. Prefer
+a narrow instruction correction over adding a role, runtime,
 configuration option, provider adapter, or dependency. Add executable code
 only for an observed requirement that the host and instructions cannot meet.
 
@@ -68,7 +69,10 @@ records; do not silently reinterpret their results as current guarantees.
 
 Add one self-contained folder under `skills/` with a `SKILL.md` and any
 references, scripts or license it needs; it must not link into another skill's
-folder. Its frontmatter `name` must equal the folder name. The install guide
+folder. Doc-view is an explicit composition exception: it resolves its required
+design and writing skills through the host, and documents missing dependencies.
+Do not duplicate or silently replace those skills. Its frontmatter `name` must
+equal the folder name. The install guide
 links every folder automatically. Add the folder to the skill list in
 `tests/skill.test.mjs`, a README row with its origin and license, usage in the
 how-to, a collection scenario, and a STATUS row once it has evidence.

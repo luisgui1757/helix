@@ -26,3 +26,10 @@ The skill is byte-identical to the frontend-design plugin in
 The skills repository supplies its [Apache 2.0 license](skills/frontend-design/LICENSE.txt),
 which stays inside the independently installable folder. This third-party skill
 is covered by that license, rather than Helix's MIT license.
+
+## Document view and TLDR
+
+`doc-view` and `tldr` are original Helix instructions under the repository's MIT
+license. Pstack's bro and ketchup skills informed the discussion, but their text
+is not copied. Doc-view composes separately installed design and writing skills;
+it does not vendor Impeccable or change any third-party license.

@@ -2,6 +2,7 @@
 
 - [Install](install.md) and [use the skills](how-to.md)
 - [Evidence and limitations](../STATUS.md)
+- [Document view and TLDR evaluation](reviews/2026-10-16-doc-view-tldr.md)
 - [Native roles and execution evidence](native-roles.md)
 - [Behavioral scenarios](../evals/scenarios.md) and [collection scenarios](../evals/collection.md)
 - [Comparison protocol](../evals/comparison.md)
