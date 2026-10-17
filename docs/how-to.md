@@ -38,6 +38,34 @@ Use Unslop to edit prose while preserving its facts and qualifications.
 $unslop Edit README.md for plain prose. Preserve its claims and caveats.
 ```
 
+## Read a plan quickly
+
+Use TLDR for short, plain-language summaries. It normally stays under 80 words
+and preserves blockers, important conditions and decisions you need to make.
+It does not edit the source unless you ask.
+
+```text
+$tldr Give me the short version of PLAN.md.
+```
+
+Use Doc-view to generate or refresh an HTML view of Markdown. It asks which
+style to follow, recommends an existing project template when available, and
+uses the recorded choice on refresh. The view leads with a short summary and
+keeps the full content available below it. Markdown remains authoritative.
+
+```text
+$doc-view Turn ROADMAP.md into a readable HTML page. Ask which style to follow.
+```
+
+Doc-view requires installed Impeccable, Unslop, TLDR and Anthropic's
+Frontend-design. The requested Claude Code design step is `frontend-design`,
+not a command named `/design`. It resolves installed names before generating.
+See [dependencies](install.md#document-view-dependencies).
+It follows the project's document build when one exists; otherwise it produces
+a local self-contained HTML file. Regeneration happens when the skill or build
+is run, not automatically in the background. Edit Markdown, then refresh the
+view. Generating a local file does not publish or install anything.
+
 ## Design a user interface
 
 Use Frontend-design for a new interface or a requested visual redesign. It is
@@ -56,6 +84,50 @@ the frontend-design skill by name. In Claude Code only a leading `/` command
 invokes a skill; Codex can also load a `$` skill mentioned later in the prompt.
 Either way, confirm the design guidance actually loaded. This combination has
 not been evaluated; see [status](../STATUS.md).
+
+## Theo-inspired delivery workflows
+
+These nine skills are a separately reviewed adaptation of Theo's stream, with
+new supporting procedures. [Provenance](theo-provenance.md) distinguishes the
+sources and gaps; full-stop's unseen body was newly written. Install the bundle
+together as described in the [install guide](install.md).
+
+```text
+$sol-loop Review this change before I publish it.
+$full-stop Fix the export bug and leave a reviewed PR for me to merge.
+$full-send Fix the export bug, verify it and merge after all required gates pass.
+$takeover Continue this PR and preserve the contributor's work and credit.
+```
+
+Full-send requires an explicit request and includes gated merge authority.
+Full-stop leaves the PR open: no merge, auto-merge or queue entry. A normal
+instruction to stop working is cancellation, not a full-stop workflow request.
+Both obey active user restrictions and repository policy. They are alternatives
+to the `helix` delivery entry point; installing them does not change Helix's
+authority or its review policy.
+
+Sol-loop requires an available Sol model/delegation route, and has its own
+three-round default budget. It does not use setup-helix's saved reviewer role
+as a substitute for Sol. Full-stop uses Sol by default for meaningful changes,
+unless a reviewer is explicitly requested. If required review cannot run,
+local work can finish but publication stays blocked. Human approval pending
+after agent-side work is a handoff, not a merge-ready claim.
+Direct Claude Code needs a configured route that actually targets Sol; ordinary
+Claude-only delegation cannot supply it. Use T3 with an available Sol provider,
+or explicitly request an available reviewer for full-stop.
+
+| Helper | When it is used |
+|---|---|
+| modernize | Bring inherited work onto its intended target and recheck that it remains necessary. |
+| file-pr | Create/update the exact authorized PR; preserve evidence and contributor credit. |
+| babysit-pr | Follow CI and review findings; return to the caller without merging. |
+| file-upload | Attach authorized evidence when the installed CLI supports it; report missing support. |
+| leaving-pr-comments | Reply in the right thread with actual model disclosure and verified claims. |
+
+Loading a helper does not grant new permissions. Host delegation and watcher
+support, account access and installed CLI capabilities still need checking at
+use time. Packaging checks and document review do not certify a live PR workflow;
+see the [integration evidence](reviews/2026-10-16-theo-bundle.md).
 
 ## Inside T3 Code
 

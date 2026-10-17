@@ -8,7 +8,31 @@ import { createHash } from 'node:crypto'
 import test from 'node:test'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const skills = ['frontend-design', 'helix', 'second-opinion', 'setup-helix', 'unslop']
+const theoBundle = ['babysit-pr', 'file-pr', 'file-upload', 'full-send', 'full-stop',
+  'leaving-pr-comments', 'modernize', 'sol-loop', 'takeover']
+const skills = [...theoBundle, 'doc-view', 'frontend-design', 'helix', 'second-opinion', 'setup-helix', 'tldr', 'unslop'].sort()
+
+test('a copied Theo bundle resolves every sibling skill without the checkout', async () => {
+  const fixture = await mkdtemp(join(tmpdir(), 'helix-theo-bundle-'))
+  try {
+    for (const name of theoBundle) {
+      await cp(join(root, 'skills', name), join(fixture, name), { recursive: true })
+    }
+    for (const name of theoBundle) {
+      const content = await readFile(join(fixture, name, 'SKILL.md'), 'utf8')
+      for (const [, target] of content.matchAll(/\[[^\]\n]+\]\(([^\s)]+)\)/g)) {
+        if (/^https?:/.test(target)) continue
+        assert.match(target, /^\.\.\/[a-z-]+\/SKILL\.md$/, `${name}: unexpected dependency`)
+        const dependency = target.split('/')[1]
+        assert.ok(theoBundle.includes(dependency), `${name}: dependency outside the bundle`)
+        assert.equal(await readFile(resolve(fixture, name, target), 'utf8'),
+          await readFile(join(root, 'skills', dependency, 'SKILL.md'), 'utf8'))
+      }
+    }
+  } finally {
+    await rm(fixture, { recursive: true, force: true })
+  }
+})
 
 test('frontend-design includes the pinned unmodified upstream skill and license', async () => {
   const expected = {

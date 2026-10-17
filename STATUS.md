@@ -1,13 +1,20 @@
 # Evidence and limitations
 
-Snapshot: 2026-10-15. Results apply only to the versions, models and source digests
+Snapshot: 2026-10-16. Results apply only to the versions, models and source digests
 in the linked records. These are bounded samples, not guarantees or a reliability
 rate. The frontend-design import adds one pinned third-party skill and its
 collection scenario. The T3 orchestration change edits Helix, setup-helix and
 second-opinion; the T3 rows below give its evidence.
+The Theo-inspired bundle is an additional import; eight operating bodies match the reviewed standalone bundle, and babysit-pr now
+explicitly applies the caller's review gate before pushing later fixes. Its evidence does not update
+the historical Helix workflow results.
 
 | Area | Observed result and remaining limits | Evidence |
 |---|---|---|
+| Theo-inspired bundle | All nine loaded on both native hosts. Local bare-remote takeover trials held publication with review unavailable. An old-helper Claude trial pushed too early; the clarified helper held the push on both hosts. One sample per case, synthetic PR state; real GitHub PR/merge/watcher/upload and T3 scenarios remain untested. | [Integration record](docs/reviews/2026-10-16-theo-bundle.md), [provenance](docs/theo-provenance.md) |
+| Theo activation and procedure limits | Orientation distinguished cancellation from full-stop; actual natural-language activation, mid-task cancellation and interaction with all 14 co-installed skills were not tested. Codex takeover added a status section and extra test beyond the inherited fix; gate adherence does not establish minimality. | [Native observations](docs/reviews/2026-10-16-theo-bundle.md#native-checks-after-f1f6-corrections) |
+
+| TLDR and document views | TLDR preserved blockers and uncertainty in 57-word Codex and 78-word Claude summaries without edits. Both hosts asked for a style and withheld HTML when dependencies were missing. Generated and refreshed views preserved Markdown, inline project CSS, full content, escaped example code and source digests. These are partial workflow results: Claude exceeded the reply-length target, one Codex render timed out after producing HTML, Codex headings lost the selected font despite its reported typography pass, and browser coverage is incomplete. A dependency helper wrote a global cache; refresh avoided it, but Codex omitted that skip from its handoff. The review correction requires naming unrun setup steps and checking actual heading typography. A focused final pair corrected the heading mismatch and passed 24 source-level assertions; fresh generation and the style question were not rerun on those final bytes. No global installation or general reliability claim. | [October 16 evaluation](docs/reviews/2026-10-16-doc-view-tldr.md) |
 | Discovery and decision notes | Implemented. Revised cases passed 40 narrow code/preservation assertions; manual inspection found the format choice in existing docs and file checks found no new documents. One Claude case required continuation after an evaluator timeout. Review compliance and an additional input-boundary failure remain separate below; these are not full workflow passes. | [Decision-note evaluation][evidence-2026-10-08-concise-decisions-revised-native-cases] |
 | Historical Helix core cases | Rerun on both hosts at digest `71c00d73`: delivery, regression/preservation, failed gate and unavailable review. Functional checks passed where work proceeded; failed gates returned BLOCKED and unavailable reviewers returned READY FOR INDEPENDENT REVIEW. Procedure failures are separate below. | [October 6 runs][evidence-2026-10-06-guided-setup-continued-correction-and-full-review], [earlier runs][evidence-2026-10-04-four-skills] |
 | Procedure adherence | OPEN, Medium. October 9 trials still include incomplete handoffs, omitted evidence checks in writer briefs, and reviewer downgrading of available proof. One intermediate Claude delivery falsely reported COMPLETE; the final gate trial stopped with available corrections unreviewed; two final-candidate Claude trials temporarily stashed task code, and one omitted that action from its final report. Later role-based delivery inspected captured proof before closing, but the samples do not establish a reliability rate. Early comparisons used the runner's role; later cases used the shipped role. All delivered Claude cases in both October 8 selections summarized gate evidence; one per selection supplied prose instead of a diff. Three COMPLETE claims followed unreviewed edits: one initial, two revised. The October 8 blocked Claude reports and resumed report, both October 9 blocked unknown-contract Claude writers, and one Second-opinion caller incorrectly denied using requested writer settings; native records confirm them. Codex reviewer records show diff/file reads and gate runs. Failure frequency and the role body's effect are unknown. | [October 9 audit corrections][evidence-2026-10-09-audit-corrections], [October 8 runs][evidence-2026-10-08-concise-decisions-revised-native-cases], [October 6 runs][evidence-2026-10-06-guided-setup-continued-correction-and-full-review], [earlier finding][evidence-2026-10-04-four-skills-correction-round-2-procedure-evidence-and-reporting] |
@@ -53,7 +60,7 @@ contract is ambiguous. Both remain coverage limits, not newly scored failures.
 Installer regressions and historical protocol provenance were corrected in
 [merged PR #19](https://github.com/luisgui1757/helix/pull/19), which superseded #18.
 Its source-review and exact-commit check receipts remain there; source approval
-does not resolve the procedure failures above. The maintenance suite has 53 tests.
+does not resolve the procedure failures above. The maintenance suite has 54 tests.
 
 [Documentation compression](docs/reviews/2026-10-09-content-compression.md) records
 the 2026-10-09 documentation cleanup. The [archive index](docs/history/README.md)

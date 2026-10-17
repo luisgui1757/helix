@@ -1,8 +1,8 @@
 # Helix
 
 A directory of portable agent skills for Codex and Claude Code, directly or
-inside T3 Code. Each skill is one folder under `skills/` that installs on its
-own and uses the providers, permissions and sandbox already configured in your
+inside T3 Code. Skills live in folders under `skills/` and use the
+providers, permissions and sandbox already configured in your
 coding tool. There is no orchestration runtime, package dependency, provider
 proxy, MCP server or workflow compiler.
 
@@ -11,8 +11,26 @@ proxy, MCP server or workflow compiler.
 | [helix](skills/helix/SKILL.md) | Implement a scoped change, verify it and resolve independent review findings. | Helix (MIT) |
 | [setup-helix](skills/setup-helix/SKILL.md) | Choose writer and reviewer models and reasoning levels for helix and second-opinion. | Helix (MIT) |
 | [second-opinion](skills/second-opinion/SKILL.md) | Get fresh, read-only advice on a plan or decision before acting. | Helix (MIT) |
+| [doc-view](skills/doc-view/SKILL.md) | Generate a styled HTML reading view from Markdown, with a short summary. | Helix (MIT) |
+| [tldr](skills/tldr/SKILL.md) | Summarize in everyday words, usually under 80 words. | Helix (MIT) |
 | [unslop](skills/unslop/SKILL.md) | Edit prose while preserving facts, uncertainty and citations. | Adapted from pstack (MIT) |
 | [frontend-design](skills/frontend-design/SKILL.md) | Design and build distinctive user interfaces. | Anthropic, unmodified (Apache 2.0) |
+| [sol-loop](skills/sol-loop/SKILL.md) | Review a change with Sol, judge findings and iterate within a round budget. | Theo-inspired adaptation (MIT) |
+| [full-send](skills/full-send/SKILL.md) | Explicitly delegate delivery through verification, PR feedback and merge. | Theo-inspired adaptation (MIT) |
+| [full-stop](skills/full-stop/SKILL.md) | Prepare and review a PR, then hand it back without merging. | Theo opening; new completion (MIT) |
+| [takeover](skills/takeover/SKILL.md) | Continue inherited work while preserving its intent and contributor credit. | Theo-inspired adaptation (MIT) |
+| [modernize](skills/modernize/SKILL.md) | Update an existing change to its target and check it is still needed. | New helper from Theo's narrated purpose (MIT) |
+| [file-pr](skills/file-pr/SKILL.md) | File or update an authorized PR with verification and attribution. | Newly written helper (MIT) |
+| [babysit-pr](skills/babysit-pr/SKILL.md) | Handle CI and review feedback until the requested readiness boundary. | Newly written helper (MIT) |
+| [file-upload](skills/file-upload/SKILL.md) | Attach authorized visual evidence using a supported GitHub CLI. | Newly written helper (MIT) |
+| [leaving-pr-comments](skills/leaving-pr-comments/SKILL.md) | Post authorized replies with model disclosure and evidence. | Theo disclosure rule; new procedure (MIT) |
+
+The nine Theo-inspired skills form a cooperating bundle; install them together
+for the delivery workflows. They are paraphrases and clearly labeled new text,
+not Theo's official files. See [provenance and dependencies](docs/theo-provenance.md).
+
+Doc-view needs Impeccable, Unslop, TLDR and Frontend-design;
+see [dependencies](docs/install.md#document-view-dependencies).
 
 Third-party skills keep their own licenses; see [attribution](THIRD_PARTY.md).
 To add a skill, follow [contributing](CONTRIBUTING.md#adding-a-skill).
@@ -48,10 +66,12 @@ and behavioral evaluation.
 
 ## Limits and evidence
 
-Skills give instructions; the host enforces access and isolation. Helix does
-not authorize commits, pushes or releases, and Second-opinion is not a formal
-audit. Missing required verification prevents completion, but does not stop
+Skills give instructions; the host enforces access and isolation. The `helix`
+skill does not authorize commits, pushes or releases, and Second-opinion is not
+a formal audit. Missing required verification prevents completion, but does not stop
 other authorized work or independent source review. See [Security](SECURITY.md).
+An explicit full-send request includes gated merge authority; full-stop leaves
+the PR open. Active user limits and repository policies still apply.
 
 Recorded Claude runs using Sonnet 5.5/low writers and Opus 5.5/xhigh reviewers
 claimed COMPLETE with missing evidence or unreviewed final edits, including
