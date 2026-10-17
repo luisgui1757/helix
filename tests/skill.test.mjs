@@ -8,23 +8,23 @@ import { createHash } from 'node:crypto'
 import test from 'node:test'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const theoBundle = ['babysit-pr', 'file-pr', 'file-upload', 'full-send', 'full-stop',
+const workflowBundle = ['babysit-pr', 'file-pr', 'file-upload', 'full-send', 'full-stop',
   'leaving-pr-comments', 'modernize', 'sol-loop', 'takeover']
-const skills = [...theoBundle, 'doc-view', 'frontend-design', 'helix', 'second-opinion', 'setup-helix', 'tldr', 'unslop'].sort()
+const skills = [...workflowBundle, 'doc-view', 'frontend-design', 'helix', 'second-opinion', 'setup-helix', 'tldr', 'unslop'].sort()
 
-test('a copied Theo bundle resolves every sibling skill without the checkout', async () => {
-  const fixture = await mkdtemp(join(tmpdir(), 'helix-theo-bundle-'))
+test('a copied workflow bundle resolves every sibling skill without the checkout', async () => {
+  const fixture = await mkdtemp(join(tmpdir(), 'helix-workflow-bundle-'))
   try {
-    for (const name of theoBundle) {
+    for (const name of workflowBundle) {
       await cp(join(root, 'skills', name), join(fixture, name), { recursive: true })
     }
-    for (const name of theoBundle) {
+    for (const name of workflowBundle) {
       const content = await readFile(join(fixture, name, 'SKILL.md'), 'utf8')
       for (const [, target] of content.matchAll(/\[[^\]\n]+\]\(([^\s)]+)\)/g)) {
         if (/^https?:/.test(target)) continue
         assert.match(target, /^\.\.\/[a-z-]+\/SKILL\.md$/, `${name}: unexpected dependency`)
         const dependency = target.split('/')[1]
-        assert.ok(theoBundle.includes(dependency), `${name}: dependency outside the bundle`)
+        assert.ok(workflowBundle.includes(dependency), `${name}: dependency outside the bundle`)
         assert.equal(await readFile(resolve(fixture, name, target), 'utf8'),
           await readFile(join(root, 'skills', dependency, 'SKILL.md'), 'utf8'))
       }
@@ -224,14 +224,23 @@ test('current documentation has no dangling local file links', async () => {
 })
 
 
-test('active retirement links retain the archived engine revision', async () => {
-  const archive = await readFile(join(root, 'docs/history/README.md'), 'utf8')
-  const revision = archive.match(/\b[a-f0-9]{40}\b/)[0]
-  for (const document of ['README.md', 'docs/security-governance.md']) {
-    const content = await readFile(join(root, document), 'utf8')
-    const links = [...content.matchAll(/https:\/\/github\.com\/luisgui1757\/helix\/(?:tree|blob)\/([a-f0-9]+)(?:[)/])/g)]
-    assert.ok(links.length, `${document}: missing canonical retirement link`)
-    for (const [, linkedRevision] of links) assert.equal(linkedRevision, revision, `${document}: corrupted archive revision`)
+test('the catalog lists every installed skill once', async () => {
+  const catalog = await readFile(join(root, 'README.md'), 'utf8')
+  const listed = [...catalog.matchAll(/\[[^\]\n]+\]\(skills\/([a-z-]+)\/SKILL\.md\)/g)]
+    .map(([, name]) => name).sort()
+  assert.deepEqual(listed, skills)
+})
+
+test('the installation guide lists the workflow dependency graph', async () => {
+  const guide = await readFile(join(root, 'docs/install.md'), 'utf8')
+  const rows = [...guide.matchAll(/^\| `([a-z-]+)` \| (.+) \|$/gm)]
+  assert.deepEqual(rows.map(([, name]) => name).sort(), [...workflowBundle].sort())
+  for (const [, name, cell] of rows) {
+    const content = await readFile(join(root, 'skills', name, 'SKILL.md'), 'utf8')
+    const dependencies = [...new Set([...content.matchAll(/\]\(\.\.\/([a-z-]+)\/SKILL\.md\)/g)]
+      .map(([, dependency]) => dependency))].sort()
+    const documented = [...cell.matchAll(/`([a-z-]+)`/g)].map(([, dependency]) => dependency).sort()
+    assert.deepEqual(documented, dependencies, `${name}: documented dependencies must match skill links`)
   }
 })
 

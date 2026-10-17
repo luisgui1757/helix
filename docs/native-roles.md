@@ -1,56 +1,35 @@
-# Native roles and execution evidence
+# Model settings and verification
 
-Use the [how-to](how-to.md) for writer launch commands, saved reviewer settings
-and per-task examples. The writer is the current native session. Helix and
-second-opinion use that host's delegation; the skills contain no model router.
+The current native session is the writer. Helix and Second-opinion use the
+host's delegation and model settings. Use [setup-helix](how-to.md#choose-models-and-effort)
+for guided configuration.
 
-Inside T3 with orchestration tools available, use the
-[T3 reference](../skills/helix/references/t3.md). T3 owns provider discovery and
-task lifecycle. Record requested and observed provider/model/options plus task,
-thread and run IDs. Its result currently exposes provider/model, while effective
-effort needs correlated provider records. Do not infer effort from the request.
-A new review round needs a fresh delegated task with the full revised delta and
-verification evidence. T3's review role does not enforce read-only access.
+| Host | Configuration and scope |
+|---|---|
+| Codex | Native `[agents]` defaults apply to every subagent in the selected project or user scope. Project configuration requires trust. See the [Codex reference](../skills/setup-helix/references/codex.md). |
+| Claude Code | A project `helix-reviewer` role overrides the user-level role. See the [Claude reference](../skills/setup-helix/references/claude-code.md). |
+| T3 Code | Use its live catalog and task targets. Native reviewer defaults and role tool limits do not automatically carry over. See the [T3 reference](../skills/helix/references/t3.md). |
 
-## Configuration sources
-
-- [Codex setup reference](../skills/setup-helix/references/codex.md): native
-  defaults apply to all subagents in the selected scope. Project configuration
-  requires a trusted project. Named-role selection remains unverified on the
-  tested Codex CLI 0.160.0, even though current host documentation describes it.
-- [Claude Code setup reference](../skills/setup-helix/references/claude-code.md):
-  the canonical `helix-reviewer` template, project/user precedence and launch
-  syntax. Helix and second-opinion can use the same role.
-
-The Claude template permits only Read, Glob and Grep. It cannot run Git or tests,
-so the writer must supply the full staged, unstaged and new-file delta and actual
-verification output. Shell access would change this boundary; it is not part of
-the template. Protected configuration edits use the host's approval flow.
+Claude's supplied role allows Read, Glob and Grep. It cannot run Git or tests,
+so the writer supplies the full diff and captured check output. Existing saved
+roles need an explicit update; installing a newer skill does not rewrite them.
+Codex children inherit the launching turn's sandbox. T3's review role does not
+make execution read-only. Report the controls observed for each review.
 
 ## Verify what ran
 
-A configuration file or an agent's claim about itself is not execution proof.
-Claude's per-invocation model argument can override a role, and organizational
-allowlists can cause substitution. Use literal model IDs when the version
-matters, then verify the actual request; a literal ID does not defeat policy.
-See Claude's [model selection rules](https://code.claude.com/docs/en/sub-agents#choose-a-model).
+Match native execution records to the child dispatch and each review round:
 
-Match native records to the actual child dispatch, including re-review turns:
+- Codex records the child's parent and resolved model and effort per turn.
+- Claude session events report the response model. Its
+  [request telemetry](https://code.claude.com/docs/en/monitoring-usage) can expose
+  model, effort and query source. A generic `agent:custom` label alone cannot
+  identify a named role; correlate the Agent call and child transcript.
+- T3 returns provider/model and task, thread and run IDs. Verify effective effort
+  against correlated provider records when available.
 
-- Codex records the child's parent and each turn's resolved model and effort.
-  Inspect the child tool calls and final response as well as those settings.
-- Claude Code reports the response model in session events. Its
-  [request telemetry](https://code.claude.com/docs/en/monitoring-usage) exposes
-  `model`, `effort` and `query_source`. On the tested version, a custom subagent
-  appears as `agent:custom`, not its role name. Match it to the native Agent call
-  and child transcript; that label alone cannot identify a named role.
-
-Keep prompt and tool-content export disabled, and inspect only records for the
-task. The earlier evaluations used a temporary local metadata collector; it is
-not a product dependency. These records establish the host's settings and
-requests, not what the provider ran internally. Unobservable settings remain
-unverified; timing, response length and thinking text do not prove effort.
-
-[Status](../STATUS.md) summarizes observed combinations and limits. The dated
-[role evaluation](https://github.com/luisgui1757/helix/blob/5f08f557ef7945667dd633c07d83291015f6e8e0/docs/reviews/2026-10-03-native-role-verification.md) and
-[collection evaluation](https://github.com/luisgui1757/helix/blob/5f08f557ef7945667dd633c07d83291015f6e8e0/docs/reviews/2026-10-04-four-skills.md) retain the evidence.
+Inspect only this task's records and keep prompt/tool-content export disabled.
+Literal model IDs identify the request, not guaranteed execution: invocation
+options or organization policy can override a role. Configuration, self-reports,
+response length and timing do not prove settings. Mark unexposed values
+unverified; host records do not establish provider-internal computation.

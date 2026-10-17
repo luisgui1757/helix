@@ -19,12 +19,12 @@ in another skills directory: the preflight only detects a conflict at its own
 link path, and a second copy appears as another skill. Running the unedited
 block later also links the skills you left out.
 
-For full-send, full-stop or takeover, keep the nine Theo-inspired folders
+For full-send, full-stop or takeover, keep these nine folders
 together: `sol-loop`, `full-send`, `full-stop`, `takeover`, `modernize`,
 `file-pr`, `babysit-pr`, `file-upload` and `leaving-pr-comments`. The default
 commands below include them. A copy installation must retain that sibling
 layout too. Sol-loop works alone; other helpers need their linked siblings
-when those operations are used. See [provenance and dependencies](theo-provenance.md).
+when those operations are used. See the dependency table below.
 
 ```sh
 # Codex
@@ -129,9 +129,8 @@ execution. Installing skill files does not prove orchestration or account access
 ## Document view dependencies
 
 TLDR is standalone. Doc-view composes installed `impeccable`, `unslop`, `tldr`
-and Anthropic's `frontend-design`, which is the confirmed Claude Code design
-step. Helix includes Unslop, TLDR and its pinned Frontend-design; Impeccable
-is an external prerequisite. No `/design` alias is installed.
+and Anthropic's `frontend-design`. Helix includes the last three; install
+Impeccable separately through its supported installation process.
 The skill reports missing dependencies and waits before HTML generation; it
 does not silently install or replace them. Use the host's skill catalog, not
 assumed user-specific filesystem paths, to find them.
@@ -139,3 +138,20 @@ assumed user-specific filesystem paths, to find them.
 Copying only `doc-view` does not copy its dependencies. The general install
 commands above install Helix's folders, not external plugins. Keep any existing
 installation of the same skill instead of creating competing copies.
+
+## Workflow dependencies
+
+Keep linked skills in sibling folders. Dependencies apply when the workflow
+uses that operation; the default installation includes the whole group.
+
+| Skill | Linked skills |
+|---|---|
+| `babysit-pr` | `leaving-pr-comments` |
+| `file-pr` | `babysit-pr`, `file-upload`, `leaving-pr-comments` |
+| `file-upload` | None |
+| `full-send` | `babysit-pr`, `file-pr`, `file-upload`, `leaving-pr-comments`, `modernize`, `sol-loop`, `takeover` |
+| `full-stop` | `babysit-pr`, `file-pr`, `file-upload`, `leaving-pr-comments`, `modernize`, `sol-loop`, `takeover` |
+| `leaving-pr-comments` | `file-upload` |
+| `modernize` | None |
+| `sol-loop` | None |
+| `takeover` | `babysit-pr`, `file-pr`, `leaving-pr-comments`, `modernize` |

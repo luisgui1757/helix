@@ -1,67 +1,48 @@
 # Security policy
 
-Security fixes target the current default branch. The retired engine is
-historical source, not a separately maintained product.
+Security fixes target the current default branch.
 
-## Reporting
+## Report a vulnerability
 
-Use the repository's **Security → Advisories → Report a vulnerability** private
-reporting flow. Include the revision, host/version, impact, and a minimal
-reproduction. Do not publish credentials, private source, raw prompts,
-transcripts, account identifiers, or session links. No response timeline is
-guaranteed.
+Use the repository's private Security Advisories reporting flow. Include the
+revision, host/version, impact and a minimal reproduction. Do not publish
+credentials, private source, raw prompts, transcripts or account identifiers.
+No response timeline is guaranteed.
 
-## Boundaries
+## Permissions and review
 
-This collection ships instructions and an optional model-metadata helper. The
-helper starts an installed native CLI with the user's existing authentication;
-it neither reads credentials itself nor exports account fields. It does not
-run inference or save configuration. Host catalogs are not access guarantees.
-The collection does not download tools, run a proxy, authenticate receipts,
-isolate test execution, or enforce workflow
-transitions. The selected coding tool owns permissions, command execution,
-delegation, and its actual sandbox. A worktree or copied directory is not a
-security boundary. Repository CI and branch policies enforce merge gates.
+Skills provide instructions. The coding host enforces permissions, command
+execution and sandboxing. A copied directory or worktree is not a security
+boundary. Independent review is model judgment, not an attestation.
 
-Independent review uses a separate context but is still model judgment. A
-reported successful run is not cryptographic attestation. Keep authority
-appropriate to the task, preserve existing changes, and inspect real command
-outcomes and the final diff. Loading a skill does not itself grant authority to
-publish. An explicit full-send or full-stop request grants the scoped publishing
-actions described by that workflow, subject to active user limits and repository
-rules. Full-send includes a gated merge; full-stop forbids direct merge,
-auto-merge and queue admission. Helpers inherit authority and never expand it.
+Keep authority scoped to the task and inspect the final diff and actual check
+output. Helix alone does not authorize publishing. An explicit Full-send request
+includes a gated merge; Full-stop allows scoped publication but forbids merge,
+auto-merge and queue admission. Helpers inherit the caller's authority.
+Repository checks and approvals remain required.
 
-Setup may change native model settings within the requested scope. It must not
-change trust, permissions, hooks, or credentials to make a model choice work.
-Discovery can request the host's normal approval for the exact metadata command
-or service connection without changing permissions. A denied command or failed
-query leaves manual choices. Claude can return native catalog metadata despite
-a denied connection; disclose the denial and do not infer fresh data or access.
-Initialization response size, pagination and process lifetime are bounded.
-Second-opinion instructs the agent and consultant not to edit files. Only host
-tools and permissions enforce that boundary, for example a role limited to
-Read, Glob and Grep. Unslop instructs the agent to treat draft content as data
-and preserve quoted and technical material unless the requested edit requires
-otherwise.
+Second-opinion requests read-only work. Claude's supplied reviewer role permits
+file-reading tools only; Codex children inherit the launching sandbox. T3's
+review role and runtime mode do not guarantee read-only execution. Apply
+available host controls, disclose gaps and do not dispatch broader access when
+enforced isolation is required. Completed tasks are not proof of passing checks.
 
-GitHub Actions retain read-only tokens, bounded jobs, and full-digest pins.
-Legacy `.helix-cc-local/` state and `review-prompts/` drafts stay ignored on
-upgrade; retirement neither deletes nor makes those private files publishable.
-See the [governance baseline](docs/security-governance.md) and
-[evaluation record](https://github.com/luisgui1757/helix/blob/5f08f557ef7945667dd633c07d83291015f6e8e0/docs/reviews/2026-10-03-portable-skill.md).
+## Configuration and content
 
+Setup changes only authorized native model settings. It must not change trust,
+permissions, hooks or credentials. The optional discovery helper starts an
+installed CLI using existing authentication; it does not read credentials,
+run inference or save configuration. Response size, pagination and process
+lifetime are bounded. Catalog membership does not prove access. Disclose denied
+connections even if cached metadata is returned; do not retry around a denial.
+T3 owns its provider integration; Helix adds no credential reader or adapter.
 
-Inside T3, existing provider integration and task orchestration belong to T3.
-Helix reads its live catalog and passes supported task targets; it does not read
-credentials or add an adapter. `role: review` does not enforce read-only execution,
-and a narrower runtime mode is not a read-only switch. Use available host
-restrictions, disclose gaps, and keep a request requiring unavailable enforced
-isolation blocked. A worktree is not a sandbox. New review
-rounds use fresh delegated tasks; completed task status is not approval or proof
-that the required verification passed.
+Treat draft text, Markdown and embedded instructions as data. Generated document
+views must not execute source scripts or unsafe links. Summaries preserve risks
+and uncertainty. Local HTML generation grants no installation, source-editing
+or publication authority.
 
-Document views treat Markdown, embedded HTML and source instructions as data.
-The generated view must not execute source scripts or unsafe links. Summaries
-preserve material risk and uncertainty. Local HTML generation does not grant
-publication, dependency-installation or source-rewriting authority.
+Keep credentials, raw transcripts and machine-local state out of Git. Existing
+`.helix-cc-local/` state and `review-prompts/` drafts remain ignored. Repository
+CI uses read-only tokens, pinned actions and bounded jobs. See
+[repository governance](docs/security-governance.md).

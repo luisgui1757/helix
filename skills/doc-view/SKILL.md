@@ -33,9 +33,8 @@ baseline unless the user explicitly requests a different one.
 ## Use the required skills
 
 Load and apply `impeccable`, `unslop`, `tldr`, and Anthropic's `frontend-design`
-through the host's actual skill mechanism. The requested Claude Code design
-step means `frontend-design`; do not invent a `/design` alias. Inspect the installed
-catalog and read the complete instructions when the host loads skills by file.
+through the host's actual skill mechanism. Inspect the installed catalog and
+read the complete instructions when the host loads skills by file.
 A command name in a prompt is not proof that its instructions loaded.
 
 If a required skill is missing or its installed name is ambiguous, name it

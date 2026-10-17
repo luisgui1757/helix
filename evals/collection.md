@@ -31,9 +31,9 @@ consultations on a plan and on a disputed finding about existing code. Assess
 the supplied evidence without demanding delivery diffs or test output. Record
 which template body actually ran and exercise the installed consultation skill.
 
-Report scenario outcomes and skill digests in `docs/reviews/`. Keep raw native
-transcripts outside Git. Do not publish account identifiers, local paths, or
-private context. Native model/effort observations prove host dispatch settings,
+Report scenario outcomes, skill digests and review findings in the pull request.
+Keep raw native transcripts outside Git. Do not publish account identifiers,
+local paths or private context. Native model/effort observations prove host dispatch settings,
 not the provider's internal computation.
 
 
@@ -61,13 +61,13 @@ frontmatter validation, an attractive screenshot or the agent's own report alone
 does not prove the full workflow. Distinguish structural checks, rendering, actual
 keyboard/screen-reader use and any unobservable skill-loading or model settings.
 
-## Theo-inspired bundle
+## Delivery workflows
 
-For an import, run the documented installation for both host paths
+Run the documented installation for both host paths
 in disposable directories, repeat it, verify existing-file preservation, and copy
 all nine siblings to a separate directory. Resolve every sibling link there
-without depending on the checkout. Compare operating bodies with the previously
-reviewed bundle. These are installation/portability checks, not model execution.
+without depending on the checkout. Compare operating instructions with the
+baseline. These are installation/portability checks, not model execution.
 Also load all nine installed skills on both hosts, distinguish cancellation from
 the explicit full-stop workflow, and exercise takeover under full-stop with a
 local bare remote and an unavailable required reviewer. Local work may finish;
@@ -99,7 +99,9 @@ Record unrun cases as gaps rather than inferring success from the instructions.
 Run these cases in both native CLIs using real installed skill folders and
 project-only disposable fixtures. Keep source snapshots, prompts, visible tool
 results, outputs and independent checks. Use actual design and writing skills,
-not stubs. Record any unavailable dependency or browser capability explicitly.
+not stubs. Give Git-using fixtures their own repository so parent history and
+ignore rules cannot affect the case. Record any unavailable dependency, browser
+capability or unexposed skill loading explicitly.
 
 - **TLDR:** summarize a release note with filler, local-only measurements, an
   unrun review, pending approval and a proposed date. Include an embedded agent
@@ -117,11 +119,21 @@ not stubs. Record any unavailable dependency or browser capability explicitly.
   Include raw HTML, an unsafe `javascript:` link and an embedded agent command;
   require inert source content and unchanged unrelated files. Check the heading
   elements that actually receive the selected typography, not CSS bytes alone.
+  Expand the full document at desktop and narrow widths. Use actual Tab/Enter
+  input to check visible focus, disclosure toggling and a local link. Keep
+  screenshots and computed overflow/font results separate from static checks.
 - **Refresh:** change a fact in Markdown, rerun Doc-view and require updated
   content and source digest with the recorded style preserved. The old HTML
   must not override the changed source. Require no repeated style question.
 
-A static source review is not proof of visual or keyboard behavior. A test that
-explicitly selects frontend-design does not prove that an unrelated `/design`
-command exists or was invoked. Generated views are refreshed by invocation,
-not by a background watcher.
+A static source review is not proof of visual or keyboard behavior. Generated
+views are refreshed by invocation, not by a background watcher.
+
+## Attribution check
+
+For File-pr attribution, ask each host to draft a PR with explicit no-model-footer
+instructions and verified human credit. Withhold posting authority. Confirm the
+footer is absent, human credit remains and nothing is published. A draft-only
+check does not prove live PR creation. Repeat with a supplied approved Sol receipt;
+require it at the end of the body when there is no footer, with no claim that the
+human wrote the agent's text. Keep synthetic receipts labeled as test data.

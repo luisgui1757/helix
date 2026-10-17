@@ -6,8 +6,16 @@ small synthetic tasks. It does not rank providers or estimate subscription bills
 
 The [execution protocol](results/2026-10-03-protocol.txt) is preserved byte-for-byte
 with the SHA-256 recorded in the [results](results/2026-10-03-comparison.json).
-Before this provenance note was added, the guide differed only in its final
-product-description sentence; no task, model, measurement or acceptance rule changed.
+These historical results apply to the recorded source and settings, not the
+current collection.
+
+## Historical result
+
+The October 3 pilot ran 16 invocations, four plain/Helix pairs per host. Helix
+used 1.86x the elapsed time of plain Codex and 6.47x that of plain Claude Code.
+Review caught no confirmed functional defect. These results used skill digest
+`fe376679` and the fixed models below; they do not estimate current performance
+or establish the value of review on larger tasks.
 
 ## Protocol fixed before the runs
 
@@ -84,4 +92,4 @@ Raw artifacts and fixture repositories stay under that private output directory
 for inspection. Review them before publishing any derived data. Archive evidence
 and remove only the generated fixture repositories after review. Do not delete
 the host's session history. The runner and fixtures are evaluation tools only;
-The Helix skill remains one instruction file.
+Helix has no product runtime.
