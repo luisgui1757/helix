@@ -75,7 +75,7 @@ host itself. Do not claim whole-process confinement from compliant agent tools.
 Run Delivery, Regression and preservation, Failed required gate, and Review
 unavailable on each host before claiming that host is evaluated. A new provider,
 model, operating system, or host version is not automatically covered. Test the
-correction loop when its instructions change. See [current evidence and limitations](../STATUS.md).
+correction loop when its instructions change. See [known limitations](../STATUS.md).
 
 
 ## T3 orchestration
@@ -103,3 +103,11 @@ ID but retains the previous reviewer conversation. These are distinct from a
 fresh `delegate_task` review. A completed task with failed checks still cannot
 certify delivery. Second-opinion must return NOT RUN when its requested target
 or required isolation cannot be applied, including inside T3.
+
+## Instruction condensation
+
+After shortening Helix, rerun delivery with a seeded bug and an unrelated draft,
+review unavailable, and required-check plus review unavailable on both hosts.
+Check actual before/after proof, source and draft preservation, reviewer context
+and final status. A functional pass does not prove the reviewer saw every supplied
+artifact. Preserve host-observability gaps and long handoffs in the result record.

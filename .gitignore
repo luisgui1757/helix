@@ -10,7 +10,7 @@
 /evals/runs/
 *.log
 
-# Retired installations can still contain private state and review drafts.
+# Private local state and working notes.
 .helix-cc-local/
 review-prompts/
 

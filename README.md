@@ -1,67 +1,67 @@
 # Helix
 
-A directory of portable agent skills for Codex and Claude Code, directly or
-inside T3 Code. Each skill is one folder under `skills/` that installs on its
-own and uses the providers, permissions and sandbox already configured in your
-coding tool. There is no orchestration runtime, package dependency, provider
-proxy, MCP server or workflow compiler.
+Portable skills for Codex and Claude Code, directly or inside T3 Code.
+Use your existing agent, account and permissions. No extra runtime or packages.
 
-| Skill | Use it for | Origin |
-|---|---|---|
-| [helix](skills/helix/SKILL.md) | Implement a scoped change, verify it and resolve independent review findings. | Helix (MIT) |
-| [setup-helix](skills/setup-helix/SKILL.md) | Choose writer and reviewer models and reasoning levels for helix and second-opinion. | Helix (MIT) |
-| [second-opinion](skills/second-opinion/SKILL.md) | Get fresh, read-only advice on a plan or decision before acting. | Helix (MIT) |
-| [unslop](skills/unslop/SKILL.md) | Edit prose while preserving facts, uncertainty and citations. | Adapted from pstack (MIT) |
-| [frontend-design](skills/frontend-design/SKILL.md) | Design and build distinctive user interfaces. | Anthropic, unmodified (Apache 2.0) |
+[Install](docs/install.md) · [Usage](docs/how-to.md) · [Limitations](STATUS.md)
 
-Third-party skills keep their own licenses; see [attribution](THIRD_PARTY.md).
-To add a skill, follow [contributing](CONTRIBUTING.md#adding-a-skill).
+## Delivery
 
-## Install
+| Skill | Use it to |
+|---|---|
+| [helix](skills/helix/SKILL.md) | Implement, test and independently review a change. |
+| [full-stop](skills/full-stop/SKILL.md) | Prepare a reviewed PR and leave merging to you. |
+| [full-send](skills/full-send/SKILL.md) | Deliver through merge after all required gates pass. |
+| [sol-loop](skills/sol-loop/SKILL.md) | Review with Sol and resolve findings within a round budget. |
+| [takeover](skills/takeover/SKILL.md) | Continue existing work and preserve contributor credit. |
 
-[Clone and install the skills](docs/install.md), then start a new session in
-your project. The guide links every folder under `skills/`, or the ones you
-choose, and covers macOS/Linux/WSL links, Windows copies, safe repeat
-installation and updates.
+## Documents and design
+
+| Skill | Use it to |
+|---|---|
+| [doc-view](skills/doc-view/SKILL.md) | Turn Markdown into a styled HTML view with a short summary. |
+| [tldr](skills/tldr/SKILL.md) | Get the essentials in plain language, usually under 80 words. |
+| [unslop](skills/unslop/SKILL.md) | Remove filler and awkward prose without changing meaning. |
+| [frontend-design](skills/frontend-design/SKILL.md) | Design and build a user interface. |
+
+## Setup and focused tasks
+
+| Skill | Use it to |
+|---|---|
+| [setup-helix](skills/setup-helix/SKILL.md) | Choose writer and reviewer models and reasoning levels. |
+| [second-opinion](skills/second-opinion/SKILL.md) | Get independent advice on a plan or decision. |
+| [modernize](skills/modernize/SKILL.md) | Update an existing change and check it is still needed. |
+| [file-pr](skills/file-pr/SKILL.md) | File or update an authorized PR. |
+| [babysit-pr](skills/babysit-pr/SKILL.md) | Address CI failures and review feedback. |
+
+## Internal helpers
+
+Delivery workflows call these as needed. Keep them installed with the bundle.
+They remain callable directly; this grouping does not hide them from the host.
+
+| Skill | Purpose |
+|---|---|
+| [file-upload](skills/file-upload/SKILL.md) | Attach authorized screenshots or recordings. |
+| [leaving-pr-comments](skills/leaving-pr-comments/SKILL.md) | Post authorized, evidence-backed review replies. |
+
+## Start here
+
+Install the skills, then start a new session in your project:
 
 ```text
 Codex:       $helix Fix the CSV export so quoted fields round-trip correctly.
 Claude Code: /helix Fix the CSV export so quoted fields round-trip correctly.
 ```
 
-The [how-to](docs/how-to.md) covers each skill, reviewer settings and
-completion labels. Enter `$setup-helix` or `/setup-helix` for guided model
-choices.
+Use `setup-helix` for model choices. Keep the delivery skills together as
+listed in the [install guide](docs/install.md#workflow-dependencies).
+Doc-view needs [Impeccable, Unslop, TLDR and Frontend-design](docs/install.md#document-view-dependencies).
+It asks which style to follow and keeps Markdown as the source.
 
-## The Helix workflow
+Skills guide the agent; the host enforces permissions. Helix alone does not
+authorize publication. Full-stop leaves the PR open. An explicit full-send
+request authorizes merge only after the required gates pass.
 
-Helix resolves details through inspection or small experiments, verifies the
-change and gets an independent review, and records consequential decisions
-briefly alongside the work. For trivial changes that do not need independent
-review, ask your coding tool directly.
-
-The optional model-discovery helper uses an existing Node.js 22.19+ installation
-and native CLI outside T3. Inside T3, use its live orchestration catalog and
-delegation tools; Helix adds no provider adapters. See [T3 usage](docs/how-to.md#inside-t3-code).
-Other Agent Skills-compatible hosts need their own install path
-and behavioral evaluation.
-
-## Limits and evidence
-
-Skills give instructions; the host enforces access and isolation. Helix does
-not authorize commits, pushes or releases, and Second-opinion is not a formal
-audit. Missing required verification prevents completion, but does not stop
-other authorized work or independent source review. See [Security](SECURITY.md).
-
-Recorded Claude runs using Sonnet 5.5/low writers and Opus 5.5/xhigh reviewers
-claimed COMPLETE with missing evidence or unreviewed final edits, including
-with the shipped role. Check [current results and open limitations](STATUS.md).
-
-The [documentation index](docs/README.md) links usage, native roles, evaluation
-scenarios, the comparison protocol, contribution rules, governance and attribution.
-
-The earlier `helix-cc` engine is retired and remains at its
-[final revision](https://github.com/luisgui1757/helix/tree/d28d81aa481b9363862ab6aefb8732c2f190bd17).
-Existing `claudex` installations are not migrated automatically; launch your coding
-tool directly. The [archive index](docs/history/README.md) preserves engine and
-skill-review history. The repository is now `helix`; `$helix` remains the entry point.
+MIT licensed, with [third-party exceptions](THIRD_PARTY.md).
+See [contributing](CONTRIBUTING.md), [security](SECURITY.md) and the
+[documentation index](docs/README.md).

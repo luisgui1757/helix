@@ -1,28 +1,23 @@
-# Third-party attribution
+# Third-party licenses
 
-`skills/unslop/SKILL.md` adapts Lauren Tan's
-[pstack unslop](https://github.com/cursor/plugins/blob/e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a/pstack/skills/unslop/SKILL.md)
-from `cursor/plugins`, pinned to revision
-`e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a` on 2026-10-04.
-The [upstream MIT license](skills/unslop/LICENSE) is included in the installable
-skill folder. Its numbered prose rules retain their original IDs.
+Helix uses the [MIT license](LICENSE). The following skills retain their
+upstream licenses and attribution.
 
-This adaptation narrows activation to prose work, removes upstream
-invocation metadata, and adds safeguards for factual meaning, uncertainty,
-literal content, and task scope. Upstream's numbered rules are otherwise
-preserved.
+## Unslop
 
-The setup and consultation skills are original text, informed by reviewing
-pstack's setup and the advisor plugin. They do not copy those plugins' hooks,
-persistent modes, routing configuration, or agent definitions.
+Adapted from Lauren Tan's [pstack Unslop](https://github.com/cursor/plugins/blob/e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a/pstack/skills/unslop/SKILL.md),
+in `cursor/plugins`, revision `e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a`.
+The [MIT license](skills/unslop/LICENSE) is packaged with the skill.
 
-## Frontend design
+The adaptation limits activation to prose work, removes host-specific metadata
+and adds safeguards for meaning, uncertainty, literal content and task scope.
+The numbered rules and their IDs are preserved.
 
-`skills/frontend-design/` includes Anthropic's unmodified
-[Frontend Design skill](https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/frontend-design),
-pinned to revision `dbd4588f9e1033efb41dad4bef2f7947c8993d44` on 2026-10-13.
-The skill is byte-identical to the frontend-design plugin in
-[Claude Code](https://github.com/anthropics/claude-code/blob/bf2323b3021c9d3db7a31e1e7d61068c3f704497/plugins/frontend-design/skills/frontend-design/SKILL.md).
-The skills repository supplies its [Apache 2.0 license](skills/frontend-design/LICENSE.txt),
-which stays inside the independently installable folder. This third-party skill
-is covered by that license, rather than Helix's MIT license.
+## Frontend-design
+
+Anthropic's [Frontend-design](https://github.com/anthropics/skills/tree/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/frontend-design)
+is included unchanged at revision `dbd4588f9e1033efb41dad4bef2f7947c8993d44`.
+Its [Apache 2.0 license](skills/frontend-design/LICENSE.txt) is packaged with it.
+Digest tests verify both files.
+
+Impeccable is an external Doc-view dependency and is not distributed here.
